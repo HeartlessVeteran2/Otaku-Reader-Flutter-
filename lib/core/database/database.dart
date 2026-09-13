@@ -7,20 +7,33 @@ import 'package:path_provider/path_provider.dart';
 import 'package:otaku_reader/core/database/key_value.dart';
 import 'package:otaku_reader/data/isar/category_entry.dart';
 import 'package:otaku_reader/data/isar/manga_entry.dart';
+import 'package:otaku_reader/source/model/source.dart';
 
 /// The single Isar instance. Assigned by [AppDatabase.init] before any
 /// controller is constructed — controllers read persisted settings
 /// synchronously during construction, so the order in `main()` is load-bearing.
 late Isar isar;
 
-class AppDatabase {
-  static const _name = 'OtakuReader';
+/// The collections the app opens, in one place.
+///
+/// Exposed rather than private so a test can open exactly what production
+/// opens. A collection that is annotated and generated but missing from this
+/// list compiles and analyses clean, then throws the first time anything
+/// touches it — `Source` shipped that way, because every test opened a
+/// hand-picked subset instead of this list.
+class AppDatabaseSchemas {
+  const AppDatabaseSchemas._();
 
-  static const _schemas = [
+  static const all = [
     KeyValueSchema,
     MangaEntrySchema,
     CategoryEntrySchema,
+    SourceSchema,
   ];
+}
+
+class AppDatabase {
+  static const _name = 'OtakuReader';
 
   static Future<void> init() async {
     final dir = await _databaseDirectory();
@@ -72,7 +85,7 @@ class AppDatabase {
   }
 
   static Isar _openSync(Directory dir) => Isar.openSync(
-    _schemas,
+    AppDatabaseSchemas.all,
     directory: dir.path,
     name: _name,
     inspector: false,

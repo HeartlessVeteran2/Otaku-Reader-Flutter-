@@ -1,0 +1,24 @@
+name: Feature request
+description: Suggest something the app should do.
+labels: [enhancement]
+body:
+    - type: textarea
+      id: problem
+      attributes:
+          label: What problem would this solve?
+          description: Describe the situation you hit, not just the feature you want.
+      validations:
+          required: true
+
+    - type: textarea
+      id: proposal
+      attributes:
+          label: What should it do?
+      validations:
+          required: true
+
+    - type: input
+      id: prior_art
+      attributes:
+          label: Does another app do this well?
+          placeholder: e.g. Komikku, Mihon, AnymeX — naming one helps a lot

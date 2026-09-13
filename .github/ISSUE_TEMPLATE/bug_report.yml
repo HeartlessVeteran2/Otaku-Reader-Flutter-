@@ -1,0 +1,53 @@
+name: Bug report
+description: Something in the app is broken. (For a broken manga source, use the source template instead.)
+labels: [bug]
+body:
+    - type: textarea
+      id: what
+      attributes:
+          label: What happened?
+      validations:
+          required: true
+
+    - type: textarea
+      id: expected
+      attributes:
+          label: What did you expect instead?
+      validations:
+          required: true
+
+    - type: textarea
+      id: steps
+      attributes:
+          label: Steps to reproduce
+          placeholder: |
+              1.
+              2.
+              3.
+      validations:
+          required: true
+
+    - type: input
+      id: version
+      attributes:
+          label: App version
+          description: Found in More → About.
+      validations:
+          required: true
+
+    - type: input
+      id: device
+      attributes:
+          label: Device and Android version
+          placeholder: e.g. Pixel 7, Android 15
+      validations:
+          required: true
+
+    - type: textarea
+      id: crash
+      attributes:
+          label: Crash report
+          description: >
+              If the app crashed, it shows the trace on the next launch with a
+              Copy button. Paste it here.
+          render: text

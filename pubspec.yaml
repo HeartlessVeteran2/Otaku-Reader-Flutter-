@@ -47,9 +47,6 @@ dependencies:
     # ── Misc ──
     intl: ^0.20.1
     collection: ^1.19.0
-    # Referenced transitively by isar's native bindings; declared so the
-    # analyzer's depend_on_referenced_packages lint is satisfied honestly.
-    ffi: ^2.1.3
 
 dev_dependencies:
     flutter_test:
