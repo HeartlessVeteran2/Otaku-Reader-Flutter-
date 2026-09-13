@@ -199,6 +199,41 @@ class LibraryRepositoryImpl implements LibraryRepository {
     });
   }
 
+  @override
+  Future<void> updateChapterProgress({
+    required int sourceId,
+    required String url,
+    required String chapterUrl,
+    required int lastPageRead,
+    required int totalPages,
+    bool markRead = false,
+  }) async {
+    db.isar.writeTxnSync(() {
+      final entry = db.isar.mangaEntrys
+          .filter()
+          .sourceIdEqualTo(keyFor(sourceId))
+          .urlEqualTo(url)
+          .findFirstSync();
+      if (entry == null) return;
+      entry.chapters = [
+        for (final c in entry.chapters)
+          if (c.url == chapterUrl)
+            (c
+              ..lastPageRead = lastPageRead
+              ..totalPages = totalPages
+              // Never flips back to unread. The reader calls this on every page
+              // change, so a chapter finished earlier would otherwise become
+              // unread the moment the user reopened it at page one.
+              ..read = c.read || markRead
+              ..lastReadTime = DateTime.now().millisecondsSinceEpoch)
+          else
+            c,
+      ];
+      entry.lastRead = DateTime.now();
+      db.isar.mangaEntrys.putSync(entry);
+    });
+  }
+
   static String _prefer(String? fresh, String fallback) =>
       (fresh != null && fresh.trim().isNotEmpty) ? fresh : fallback;
 

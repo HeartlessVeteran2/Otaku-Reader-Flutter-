@@ -7,6 +7,7 @@ import 'package:otaku_reader/data/isar/manga_entry.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/features/details/controllers/manga_details_controller.dart';
+import 'package:otaku_reader/features/reader/screens/reader_screen.dart';
 import 'package:otaku_reader/source/http/m_client.dart';
 import 'package:otaku_reader/source/model/m_manga.dart';
 import 'package:otaku_reader/source/model/m_status.dart';
@@ -109,6 +110,26 @@ class _MangaDetailsScreenState extends State<MangaDetailsScreen> {
                     final chapter = _c.chapters[i];
                     return _ChapterTile(
                       chapter: chapter,
+                      // Tapping a chapter reads it. The read/unread toggle is
+                      // the trailing icon: a list where tapping a row marks it
+                      // read instead of opening it is the wrong default for a
+                      // reader.
+                      onOpen: chapter.url == null
+                          ? null
+                          : () async {
+                              await Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => ReaderScreen(
+                                    sourceId: widget.sourceId,
+                                    mangaUrl: widget.url,
+                                    chapterUrl: chapter.url!,
+                                  ),
+                                ),
+                              );
+                              // Progress is written by the reader, so the list
+                              // has to re-read it on the way back.
+                              await _c.refreshEntry();
+                            },
                       onToggleRead: () => _c.setRead(chapter, !chapter.read),
                       onMarkUpTo: () => _c.markReadUpTo(chapter),
                     );
@@ -333,11 +354,13 @@ class _ChapterTile extends StatelessWidget {
     required this.chapter,
     required this.onToggleRead,
     required this.onMarkUpTo,
+    this.onOpen,
   });
 
   final Chapter chapter;
   final VoidCallback onToggleRead;
   final VoidCallback onMarkUpTo;
+  final VoidCallback? onOpen;
 
   @override
   Widget build(BuildContext context) {
@@ -345,7 +368,7 @@ class _ChapterTile extends StatelessWidget {
     final read = chapter.read;
     return ListTile(
       dense: true,
-      onTap: onToggleRead,
+      onTap: onOpen,
       onLongPress: onMarkUpTo,
       title: Text(
         chapter.name ?? 'Chapter ${chapter.formattedNumber}',
@@ -358,10 +381,14 @@ class _ChapterTile extends StatelessWidget {
       subtitle: chapter.scanlator?.isNotEmpty ?? false
           ? Text(chapter.scanlator!, style: theme.textTheme.bodySmall)
           : null,
-      trailing: Icon(
-        read ? Iconsax.tick_circle : Iconsax.record_circle,
-        size: 18,
-        color: read ? theme.colorScheme.primary : theme.disabledColor,
+      trailing: IconButton(
+        tooltip: read ? 'Mark unread' : 'Mark read',
+        onPressed: onToggleRead,
+        icon: Icon(
+          read ? Iconsax.tick_circle : Iconsax.record_circle,
+          size: 18,
+          color: read ? theme.colorScheme.primary : theme.disabledColor,
+        ),
       ),
     );
   }

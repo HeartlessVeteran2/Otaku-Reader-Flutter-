@@ -32,4 +32,18 @@ abstract interface class LibraryRepository {
     String chapterUrl,
     bool read,
   );
+
+  /// Records reading position for one chapter.
+  ///
+  /// [markRead] only ever sets read to true. The reader calls this on every
+  /// page change, and a chapter the user finished earlier must not flip back to
+  /// unread because they reopened it and looked at page one.
+  Future<void> updateChapterProgress({
+    required int sourceId,
+    required String url,
+    required String chapterUrl,
+    required int lastPageRead,
+    required int totalPages,
+    bool markRead = false,
+  });
 }

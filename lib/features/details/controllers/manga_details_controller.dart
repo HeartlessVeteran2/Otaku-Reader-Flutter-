@@ -139,6 +139,16 @@ class MangaDetailsController extends GetxController {
     entry.refresh();
   }
 
+  /// Re-reads the stored row without hitting the network.
+  ///
+  /// The reader writes progress straight to the library, so returning from it
+  /// has to pick that up — otherwise a chapter just read still shows unread
+  /// until the page is reopened.
+  Future<void> refreshEntry() async {
+    entry.value = await _library.find(sourceId, url);
+    entry.refresh();
+  }
+
   void toggleSort() => descending.value = !descending.value;
 
   void setFilter(ChapterFilter value) => filter.value = value;
