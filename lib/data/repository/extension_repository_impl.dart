@@ -48,6 +48,24 @@ class ExtensionRepositoryImpl implements ExtensionRepository {
 
   final TextFetcher _fetch;
 
+  /// Serialises the repo list's read-modify-write cycles.
+  ///
+  /// Both [addRepo] and [removeRepo] read the stored list, change it, and write
+  /// the whole thing back. Two of those interleaving -- two quick taps on two
+  /// remove buttons is enough -- means the second read happened before the
+  /// first write, so the second write puts the first's removal back and the
+  /// repository the user deleted reappears. The lock has to span *both* steps;
+  /// making each one individually atomic changes nothing.
+  Future<void> _repoLock = Future<void>.value();
+
+  Future<T> _withRepoLock<T>(Future<T> Function() body) {
+    final result = _repoLock.then((_) => body());
+    // The chain must survive a failed body, or one error wedges every later
+    // caller on a future that never completes.
+    _repoLock = result.then((_) {}, onError: (_) {});
+    return result;
+  }
+
   /// The index every Mangayomi client reads. Seeded so a fresh install has
   /// something to browse before the user has added anything.
   static const defaultRepoUrl =
@@ -76,29 +94,55 @@ class ExtensionRepositoryImpl implements ExtensionRepository {
 
   @override
   Future<RefreshResult> addRepo(ExtensionRepo repo) async {
-    // [getRepos] returns the seeded default when nothing is stored, and writing
-    // that list back materialises the seed. That is deliberate: the default is
-    // visible in the UI before any write, so saving only the newly added repo
-    // would make it disappear the moment the user adds their first one.
-    final repos = await getRepos();
-    if (!repos.any((r) => r.url == repo.url)) {
-      await _saveRepos([...repos, repo]);
-    }
+    await _withRepoLock(() async {
+      // [getRepos] returns the seeded default when nothing is stored, and
+      // writing that list back materialises the seed. That is deliberate: the
+      // default is visible in the UI before any write, so saving only the newly
+      // added repo would make it disappear the moment the user adds their
+      // first one.
+      final repos = await getRepos();
+      if (!repos.any((r) => r.url == repo.url)) {
+        await _saveRepos([...repos, repo]);
+      }
+    });
+    // Outside the lock: fetching an index is slow and network-bound, and it
+    // does not touch the repo list.
     return refresh(repo.url);
   }
 
   @override
-  Future<void> removeRepo(String url) async {
+  Future<void> removeRepo(String url) => _withRepoLock(() => _removeRepo(url));
+
+  Future<void> _removeRepo(String url) async {
     final repos = await getRepos();
     await _saveRepos(repos.where((r) => r.url != url).toList());
     db.isar.writeTxnSync(() {
-      final ids = db.isar.sources
-          .filter()
-          .repoUrlEqualTo(url)
-          .findAllSync()
-          .map((s) => s.id)
-          .toList();
-      db.isar.sources.deleteAllSync(ids);
+      final rows = db.isar.sources.filter().repoUrlEqualTo(url).findAllSync();
+
+      // An **installed** source is detached, not deleted. Every library entry
+      // stores its source's id, so deleting the row makes each of those entries
+      // fail with "No source with id ..." -- the exact failure the Kotlin app
+      // calls its highest-impact bug ever, and there is no way back from it
+      // because the user's chapters, progress and favourites all hang off that
+      // id. Clearing `repoUrl` means the source keeps working and simply stops
+      // receiving updates, which is what removing its repo should mean.
+      //
+      // Checking the library instead of the install state would be the wrong
+      // test: opening a manga stores an entry before it is favourited, so a
+      // favourites-only check misses read progress, and an entry can be added
+      // after the removal anyway.
+      final detach = <Source>[];
+      final delete = <int>[];
+      for (final row in rows) {
+        if (row.isInstalled) {
+          row.repoUrl = null;
+          detach.add(row);
+        } else {
+          delete.add(row.id);
+        }
+      }
+      db.isar.sources.deleteAllSync(delete);
+      if (detach.isNotEmpty) db.isar.sources.putAllSync(detach);
     });
   }
 
@@ -153,6 +197,11 @@ class ExtensionRepositoryImpl implements ExtensionRepository {
       // This app has no anime or novel surface, so an entry it could never open
       // is noise in the browse list rather than a feature.
       if (parsed.itemType != ItemType.manga) continue;
+      // Same reasoning for JavaScript entries: there is no JS interpreter here,
+      // so listing one only offers an install that leads to a source which
+      // cannot open. The Dart half is the ecosystem -- 249 entries across ~245
+      // sites, against 18 distinct JS scripts (CLAUDE.md).
+      if (parsed.sourceCodeLanguage != SourceCodeLanguage.dart) continue;
       incoming[parsed.sourceId] = parsed;
     }
 

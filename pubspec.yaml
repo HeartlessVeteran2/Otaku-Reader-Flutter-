@@ -43,10 +43,19 @@ dependencies:
     # ── UI ──
     dynamic_color: ^1.7.0
     iconsax: ^0.0.8
+    # Covers scroll past in their hundreds and are re-shown constantly, so they
+    # want a disk cache, not just Flutter's in-memory ImageCache. Added in
+    # phase 2 with the browse grid, which is the first code that needs it.
+    cached_network_image: ^3.4.1
 
     # ── Misc ──
     intl: ^0.20.1
     collection: ^1.19.0
+    # Added in phase 5, with the two screens that need them: About shows the
+    # build's own version, and AniList's external-link chips had a no-op tap
+    # handler until there was something to open them with.
+    package_info_plus: ^8.1.1
+    url_launcher: ^6.3.1
 
 dev_dependencies:
     flutter_test:

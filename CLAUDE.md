@@ -181,6 +181,50 @@ Repositories stay interfaces so GetX is not load-bearing in the domain layer.
   class of bug is designed out. Keep it that way.
 - Secrets go to `flutter_secure_storage`, never the KV tier.
 
+### Feature-layer rules
+
+Decided while building the tabs, and each one has a wrong version that looks
+identical from the outside.
+
+- **`Chapter.dateFetch` is stamped only on a *refresh*.** It is null on every
+  chapter of a manga's first fetch, and the Updates tab reads it. Stamping
+  every new row instead puts a 3,864-chapter back catalogue into the tab the
+  first time MangaRead.org's longest series is opened — which is worse than an
+  empty tab, because it buries the two chapters that actually arrived.
+- **History spans every stored entry; the Updates tab spans only favourites.**
+  A chapter read from a source and never added is exactly what history is for,
+  and refreshing everything ever opened is an unbounded crawl of sites that
+  rate-limit.
+- **`clearHistory` keeps `read` and `favorite`.** The user asked to forget a
+  timeline, not to be handed back a library that thinks they have read nothing.
+- **History's undo defers the delete rather than reinstating it.** Putting a
+  timestamp back means inventing one. A second removal commits the first, and
+  `undo()` returns false once a batch has committed — a snackbar outlives its
+  window, so "too late" has to be an answer.
+- **Anything that fans out over sources is bounded** (four at a time for global
+  search, three for a library refresh). One request per installed source is 150
+  connections with a Madara repo installed, which gets an IP rate-limited
+  faster than it gets results.
+- **A source that fails keeps its row.** Dropping it from a global search reads
+  as "this manga is not on that source", which is a different and wrong answer;
+  the same applies to a series that fails a library refresh.
+- **Never name a controller method `refresh`.** `GetxController` already has
+  one, from the notifier mixin, and GetX calls it internally to rebuild
+  listeners. `UpdatesController.refreshLibrary` is so named because shadowing
+  it would fire a library-wide network fetch every time the framework wanted a
+  repaint.
+- **Every external URL goes through `core/util/open_link.dart`**, which refuses
+  anything but `http`/`https`. These URLs come from third-party payloads, and a
+  scheme such as `intent:` or `file:` hands an arbitrary app an argument the
+  user never saw. It also surfaces a failure: a tap that silently does nothing
+  reads as the app being broken.
+- **Read-modify-write on the KV tier needs a lock spanning *both* steps.**
+  `ExtensionRepositoryImpl._withRepoLock` exists because two `removeRepo` calls
+  interleaving — two quick taps — meant the second write was built from a list
+  read before the first landed, and the repository the user deleted came back.
+
+---
+
 ### Deliberate departures from AnymeX
 
 AnymeX is the reference, not the gospel. Do not carry these over:
@@ -242,6 +286,16 @@ Kept because they repeat.
 | The plan claimed AnymeX's manga details page renders news/adaptation/prediction | It does not: `buildExtrasSection` is guarded by `if (controller.isAnime)`, and `manga_stats.dart` is orphaned with zero imports. Verify what actually renders before promising parity with it. |
 | CI's first red was diagnosed as a cold-cache race between suites downloading `libisar.so`, and "fixed" with `flutter test -j 1` | Wrong cause, and the "verified locally" claim behind it was worthless — the file was already on disk from an earlier run. Serialising just moved the failure to whichever Isar suite ran first, which was the **widget** suite, which can never download anything. Reproduce a CI failure locally *from the same starting state* before believing a fix. |
 | `KvHelper` cast every stored list to `List<String>` | It succeeds at the cast and throws on first element access, so a `List<Map>` looked fine until something read it. The test covered only `List<String>` — the single case that worked. A green test that exercises only the working shape is how this survives. |
+| Two PRs were too large for `sourcery-ai` to review **at all** — "larger than the review limit of 150,000 diff characters" | #1 was refused, the PR template gained a nudge toward smaller PRs, and #27 was then refused for the same reason. A PR nobody can review is not reviewed, however green. Land a working slice, not a phase. |
+| A draft PR gets no bot review | CodeAnt skips drafts. Holding #27 as a draft "until the review settles" meant the review was never going to start, and its nine Major findings only surfaced once it was marked ready. Marking ready *is* the request for review. |
+| The reader's webtoon resume never restored anything | The controller mapped the scroll onto a page index; the `ListView` was never scrolled back to it, so continuous-mode resume did nothing — while the commit message asserted "that is what makes resume mean anything in webtoon mode". `Chapter.currentOffset`/`maxOffset` existed for exactly this and went unused. Third instance of the same defect in one PR. |
+| Evicting a cached source runtime **disposed** it | `dispose()` nulls the interpreter, so updating a source from the extensions screen killed any request a browse or reader screen had in flight on it. Eviction now drops the reference; only `evictAll` (teardown) disposes. Nothing leaks: the preference resolver is keyed by source id, so the replacement registers over the old entry. |
+| A runtime's cache key covered only the script | `toMSource()` also hands `baseUrl`, `apiUrl` and `additionalParams` to the extension at construction, and `additionalParams` is what distinguishes one Madara site from the other 150 sharing that script. The fingerprint covers those fields now, and uses SHA-256 rather than `String.hashCode`. |
+| #2 was merged 8 seconds after CodeAnt began reviewing it | Its status comment still reads "Reviewing your PR… / Finished: —". No findings were lost this time, but only by luck — and #2 existed *because* the same thing happened on #1. **Green CI is not the merge condition; a settled review is.** Before merging, check that every review bot has posted a finished status, not just that the gate passed. |
+| The webtoon page index was arithmetic, not measurement | `pixels / maxScrollExtent × (pages - 1)` assumes every page is the same height. One tall spread shifts every boundary — and `_persist` treats "on the last page" as "finished", so an over-reported index marked a chapter read while the user was several pages from the end. Measure the laid-out children. |
+| A failed reload reset the pagination cursor anyway | `_page = 1` was written *before* the fetch, and a failed refresh deliberately keeps the items on screen — so the list held page 2 while the cursor said page 1, and the next scroll appended a second copy. Commit a cursor only on success. |
+| The AniList link chips shipped with `onOpen: (_) {}` | Live UI wired to nothing, which this file's own rule forbids. It analysed clean and looked finished. |
+| Two `removeRepo` calls resurrected one another | Read-then-act with no lock across both steps. Making each step individually atomic changes nothing. |
 
 The general lesson, and the one that keeps recurring across both codebases:
 **a comment describing the goal is not evidence the code achieves it.** After
