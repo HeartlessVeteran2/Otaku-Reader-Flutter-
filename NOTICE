@@ -1,0 +1,16 @@
+Otaku Reader (Flutter)
+Copyright 2026 HeartlessVeteran2
+
+This product includes software developed by third parties:
+
+- AnymeX (https://github.com/RyanYuuki/AnymeX) — MIT License.
+  Architectural patterns, reader design and UI primitives are derived from
+  this project.
+
+- Mangayomi (https://github.com/kodjodevf/mangayomi) — Apache License 2.0.
+  The extension runtime (d4rt and QuickJS evaluation, the source bridge and
+  its models) is derived from this project.
+
+- Otaku Reader (https://github.com/HeartlessVeteran2/Otaku-Reader) —
+  Apache License 2.0. Feature behaviour and data models are derived from this
+  project.

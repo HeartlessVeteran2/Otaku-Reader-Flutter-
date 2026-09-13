@@ -1,0 +1,16 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+    errors:
+        invalid_annotation_target: ignore
+    exclude:
+        - "**/*.g.dart"
+        - "**/*.freezed.dart"
+        - build/**
+        - android/**
+
+linter:
+    rules:
+        - prefer_single_quotes
+        - unawaited_futures
+        - avoid_print
