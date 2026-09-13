@@ -4,6 +4,7 @@ import 'package:iconsax/iconsax.dart';
 
 import 'package:otaku_reader/domain/repository/extension_repository.dart';
 import 'package:otaku_reader/features/browse/controllers/extensions_controller.dart';
+import 'package:otaku_reader/features/browse/screens/source_browse_screen.dart';
 import 'package:otaku_reader/features/browse/widgets/source_tile.dart';
 import 'package:otaku_reader/source/model/source.dart';
 
@@ -137,6 +138,16 @@ class _ExtensionsScreenState extends State<ExtensionsScreen>
               onInstall: () => _c.install(source),
               onUpdate: () => _c.updateSource(source),
               onUninstall: () => _confirmUninstall(source),
+              // Only an installed source can be browsed; an uninstalled row has
+              // no code to run, and offering the tap would dead-end.
+              onTap: source.isInstalled
+                  ? () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) =>
+                            SourceBrowseScreen(sourceId: source.sourceId),
+                      ),
+                    )
+                  : null,
             );
           },
         ),

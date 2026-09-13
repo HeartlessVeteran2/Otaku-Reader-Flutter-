@@ -43,6 +43,10 @@ dependencies:
     # ── UI ──
     dynamic_color: ^1.7.0
     iconsax: ^0.0.8
+    # Covers scroll past in their hundreds and are re-shown constantly, so they
+    # want a disk cache, not just Flutter's in-memory ImageCache. Added in
+    # phase 2 with the browse grid, which is the first code that needs it.
+    cached_network_image: ^3.4.1
 
     # ── Misc ──
     intl: ^0.20.1
