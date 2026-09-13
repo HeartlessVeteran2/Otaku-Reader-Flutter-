@@ -67,6 +67,10 @@ class DownloadRepositoryImpl implements DownloadRepository {
   var _running = 0;
   final _pending = <String>[];
 
+  /// The future of each running task, so [deleteChapter] can wait for one to
+  /// stop rather than racing it.
+  final _inFlight = <String, Future<void>>{};
+
   @override
   Stream<void> get changes => _changes.stream;
 
@@ -126,12 +130,13 @@ class DownloadRepositoryImpl implements DownloadRepository {
         continue;
       }
       _running++;
-      unawaited(
-        _run(task).whenComplete(() {
-          _running--;
-          unawaited(_pump());
-        }),
-      );
+      final future = _run(task).whenComplete(() {
+        _running--;
+        _inFlight.remove(key);
+        unawaited(_pump());
+      });
+      _inFlight[key] = future;
+      unawaited(future);
     }
   }
 
@@ -185,6 +190,19 @@ class DownloadRepositoryImpl implements DownloadRepository {
         );
       }
 
+      // Checked once more after the last page: the in-loop check cannot see a
+      // cancel that arrives between the final fetch and the move, and this is
+      // the window `deleteChapter` runs in — without it, deleting a chapter
+      // mid-download lets the run finish afterwards, write the path back and
+      // republish itself as downloaded.
+      if (_cancelled.contains(task.key)) {
+        await staging.delete(recursive: true);
+        _tasks.remove(task.key);
+        _cancelled.remove(task.key);
+        if (!_changes.isClosed) _changes.add(null);
+        return;
+      }
+
       if (await target.exists()) await target.delete(recursive: true);
       await staging.rename(target.path);
 
@@ -206,6 +224,13 @@ class DownloadRepositoryImpl implements DownloadRepository {
       Log.error('Download failed for ${task.chapterUrl}: $e');
       if (await staging.exists()) {
         await staging.delete(recursive: true).catchError((_) => staging);
+      } else if (await target.exists()) {
+        // The move landed and the row write did not. Nothing points at this
+        // directory, so nothing will ever read it — but `usedBytes` keeps
+        // counting it and every retry adds another. Staging being gone is what
+        // says the move happened: the only other thing that removes it is this
+        // same branch.
+        await target.delete(recursive: true).catchError((_) => target);
       }
       _publish(_copy(task, state: DownloadState.failed, error: _describe(e)));
     }
@@ -233,6 +258,20 @@ class DownloadRepositoryImpl implements DownloadRepository {
     required String mangaUrl,
     required String chapterUrl,
   }) async {
+    final key = '$sourceId $mangaUrl $chapterUrl';
+    // Stopped *first*, and waited for. A download still running would otherwise
+    // finish after the delete, write the path back and republish itself as
+    // downloaded — leaving the user with the files they just removed and a row
+    // that disagrees with the button they pressed.
+    final task = _tasks[key];
+    if (task != null &&
+        (task.state == DownloadState.queued ||
+            task.state == DownloadState.running)) {
+      _cancelled.add(key);
+      _pending.remove(key);
+      await _inFlight[key];
+    }
+
     final entry = await _library.find(sourceId, mangaUrl);
     final chapter = entry?.chapters
         .where((c) => c.url == chapterUrl)
@@ -251,7 +290,8 @@ class DownloadRepositoryImpl implements DownloadRepository {
       chapterUrl: chapterUrl,
       localPath: null,
     );
-    _tasks.remove('$sourceId $mangaUrl $chapterUrl');
+    _tasks.remove(key);
+    _cancelled.remove(key);
     if (!_changes.isClosed) _changes.add(null);
   }
 
@@ -349,11 +389,17 @@ class DownloadRepositoryImpl implements DownloadRepository {
     return text;
   }
 
-  /// The user-visible download directory, created on first use.
+  /// The download directory, created **eagerly at startup**.
   ///
-  /// Honours [DownloadKeys.downloadPath] when the user has set one, so a
-  /// device with an SD card can put a library of scans somewhere other than
-  /// internal storage.
+  /// Deliberately not lazy. Creating it on the first download means a bad
+  /// configured path — an SD card that is not mounted, a directory the app
+  /// cannot write — surfaces as a failed download rather than as something the
+  /// app can report, and only for the user who tried. Doing it in `main` puts
+  /// the failure where it can be handled once.
+  ///
+  /// Honours [DownloadKeys.downloadPath] when the user has set one, so a device
+  /// with an SD card can put a library of scans somewhere other than internal
+  /// storage.
   static Future<Directory> resolveRoot(Directory appDocuments) async {
     final configured = DownloadKeys.downloadPath.get<String?>(null);
     final dir = Directory(

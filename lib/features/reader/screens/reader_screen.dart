@@ -263,11 +263,35 @@ class _ReaderScreenState extends State<ReaderScreen> {
                   onPressed: () => Navigator.of(context).pop(),
                 ),
                 Expanded(
-                  child: Text(
-                    _c.currentChapter?.name ?? 'Reading',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                  child: Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          _c.currentChapter?.name ?? 'Reading',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                      // Answers "why is this instant, and why does it work on a
+                      // plane" on the screen rather than in a settings page.
+                      if (_c.isOffline.value) ...[
+                        const SizedBox(width: 8),
+                        const Icon(
+                          Iconsax.tick_square,
+                          size: 14,
+                          color: Colors.white60,
+                        ),
+                        const SizedBox(width: 4),
+                        const Text(
+                          'Downloaded',
+                          style: TextStyle(color: Colors.white60, fontSize: 11),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
                 IconButton(

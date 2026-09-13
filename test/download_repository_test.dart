@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -7,6 +8,7 @@ import 'package:otaku_reader/data/isar/manga_entry.dart';
 import 'package:otaku_reader/data/repository/download_repository_impl.dart';
 import 'package:otaku_reader/data/repository/library_repository_impl.dart';
 import 'package:otaku_reader/domain/repository/download_repository.dart';
+import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/source/model/filter.dart';
 import 'package:otaku_reader/source/model/m_chapter.dart';
@@ -88,6 +90,77 @@ Source _row() => Source()
   ..lang = 'en'
   ..baseUrl = 'https://example.test'
   ..sourceCode = 'X';
+
+/// Delegates everything, but refuses to store a chapter's local path.
+///
+/// Stands in for the one failure the staging design cannot cover by itself:
+/// the move has already happened when this throws.
+class _FailingWrite implements LibraryRepository {
+  _FailingWrite(this._inner);
+  final LibraryRepository _inner;
+
+  @override
+  Future<void> setChapterLocalPath({
+    required int sourceId,
+    required String url,
+    required String chapterUrl,
+    required String? localPath,
+  }) async => throw const FileSystemException('database is locked');
+
+  @override
+  Stream<void> get changes => _inner.changes;
+  @override
+  Future<MangaEntry?> find(int sourceId, String url) =>
+      _inner.find(sourceId, url);
+  @override
+  Future<MangaEntry> upsertFromSource({
+    required int sourceId,
+    required String url,
+    required MManga manga,
+  }) => _inner.upsertFromSource(sourceId: sourceId, url: url, manga: manga);
+  @override
+  Future<bool> toggleFavorite(int sourceId, String url) =>
+      _inner.toggleFavorite(sourceId, url);
+  @override
+  Future<List<MangaEntry>> favorites() => _inner.favorites();
+  @override
+  Future<List<MangaEntry>> allEntries() => _inner.allEntries();
+  @override
+  Future<void> clearChapterHistory(
+    int sourceId,
+    String url,
+    String chapterUrl,
+  ) => _inner.clearChapterHistory(sourceId, url, chapterUrl);
+  @override
+  Future<void> clearHistory() => _inner.clearHistory();
+  @override
+  Future<void> setChapterRead(
+    int sourceId,
+    String url,
+    String chapterUrl,
+    bool read,
+  ) => _inner.setChapterRead(sourceId, url, chapterUrl, read);
+  @override
+  Future<void> updateChapterProgress({
+    required int sourceId,
+    required String url,
+    required String chapterUrl,
+    required int lastPageRead,
+    required int totalPages,
+    double? currentOffset,
+    double? maxOffset,
+    bool markRead = false,
+  }) => _inner.updateChapterProgress(
+    sourceId: sourceId,
+    url: url,
+    chapterUrl: chapterUrl,
+    lastPageRead: lastPageRead,
+    totalPages: totalPages,
+    currentOffset: currentOffset,
+    maxOffset: maxOffset,
+    markRead: markRead,
+  );
+}
 
 void main() {
   // Nullable, not `late`: when open() throws -- a missing native library is
@@ -415,6 +488,149 @@ void main() {
       reason: 'clearing the list is not deleting the downloads',
     );
     expect((await chapterOf('/c-1')).localPath, isNotNull);
+  });
+
+  // Run twice, because the delete has two windows to land in and a different
+  // check guards each. Holding an early page puts it in front of the loop's
+  // per-page check; holding the *last* page puts it past that check entirely,
+  // between the final write and the move — which only the check after the
+  // loop can see. A single case passes with the other guard deleted.
+  for (final hold in const [
+    (page: 1, when: 'mid-download'),
+    (page: 5, when: 'after the last page'),
+  ]) {
+    test(
+      'deleting ${hold.when} does not let the download finish behind you',
+      () async {
+        // Without this, the run completes after the delete, writes the path
+        // back and republishes itself as downloaded — so the user is left with
+        // the files they just removed and a row that disagrees with the button
+        // they pressed.
+        final methods = await seed(['/c-1']);
+        methods.pages['/c-1'] = [
+          for (var i = 0; i < 6; i++) 'https://cdn.test/$i.jpg',
+        ];
+        final held = Completer<void>();
+        var served = 0;
+        final downloads = build(
+          methods,
+          fetch: (url, headers) async {
+            if (served++ == hold.page) await held.future;
+            return [1, 2, 3];
+          },
+        );
+
+        await downloads.enqueue(
+          sourceId: _sourceId,
+          mangaUrl: _url,
+          chapter: await chapterOf('/c-1'),
+          mangaTitle: 'Example',
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(downloads.tasks.single.state, DownloadState.running);
+
+        final deleting = downloads.deleteChapter(
+          sourceId: _sourceId,
+          mangaUrl: _url,
+          chapterUrl: '/c-1',
+        );
+        held.complete();
+        await deleting;
+        // Well past any remaining page fetch.
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+
+        expect((await chapterOf('/c-1')).localPath, isNull);
+        expect(downloads.tasks, isEmpty);
+        expect(
+          root.listSync(recursive: true).whereType<File>(),
+          isEmpty,
+          reason: 'the half-download went with it',
+        );
+      },
+    );
+  }
+
+  // `cancel` returns without waiting for the run — unlike `deleteChapter`,
+  // which awaits it and then cleans up whatever it left. So cancel is the
+  // operation that depends on the run stopping *itself*, and the same two
+  // windows apply: an early page is caught by the loop's per-page check, the
+  // last page only by the check after the loop.
+  for (final hold in const [
+    (page: 1, when: 'mid-download'),
+    (page: 5, when: 'on the last page'),
+  ]) {
+    test('cancelling ${hold.when} leaves no download behind', () async {
+      final methods = await seed(['/c-1']);
+      methods.pages['/c-1'] = [
+        for (var i = 0; i < 6; i++) 'https://cdn.test/$i.jpg',
+      ];
+      final held = Completer<void>();
+      var served = 0;
+      final downloads = build(
+        methods,
+        fetch: (url, headers) async {
+          if (served++ == hold.page) await held.future;
+          return [1, 2, 3];
+        },
+      );
+
+      await downloads.enqueue(
+        sourceId: _sourceId,
+        mangaUrl: _url,
+        chapter: await chapterOf('/c-1'),
+        mangaTitle: 'Example',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(downloads.tasks.single.state, DownloadState.running);
+
+      await downloads.cancel(downloads.tasks.single.key);
+      held.complete();
+      // Well past every remaining page fetch.
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      expect(
+        downloads.tasks,
+        isEmpty,
+        reason: 'a cancelled download does not report itself as done',
+      );
+      expect((await chapterOf('/c-1')).localPath, isNull);
+      expect(root.listSync(recursive: true).whereType<File>(), isEmpty);
+      // Cancel has to stop the *fetching*, not just discard the result. The
+      // check after the loop would leave this end state either way, so
+      // without the per-page check a cancelled download quietly pulls every
+      // remaining page from the site before throwing them all away.
+      expect(
+        served,
+        hold.page + 1,
+        reason: 'nothing is fetched after the page that was in flight',
+      );
+    });
+  }
+
+  test('a row write that fails after the move leaves no orphan', () async {
+    // The move landed and the row write did not, so nothing points at the
+    // directory and nothing ever will — but `usedBytes` keeps counting it and
+    // every retry adds another copy.
+    final methods = await seed(['/c-1']);
+    methods.pages['/c-1'] = ['https://cdn.test/a.jpg'];
+    final downloads = DownloadRepositoryImpl(
+      sources: _Sources(methods),
+      library: _FailingWrite(library),
+      root: root,
+      fetch: (url, headers) async => [1, 2, 3],
+    );
+
+    await downloads.enqueue(
+      sourceId: _sourceId,
+      mangaUrl: _url,
+      chapter: await chapterOf('/c-1'),
+      mangaTitle: 'Example',
+    );
+    await settle(downloads);
+
+    expect(downloads.tasks.single.state, DownloadState.failed);
+    expect(await downloads.usedBytes(), 0);
+    expect(root.listSync(recursive: true).whereType<File>(), isEmpty);
   });
 
   test('two chapters of the same manga do not share a directory', () async {

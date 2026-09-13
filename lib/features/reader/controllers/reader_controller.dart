@@ -225,11 +225,26 @@ class ReaderController extends GetxController {
   Future<List<PageUrl>?> _localPages() async {
     final path = currentChapter?.localPath;
     if (path == null || path.isEmpty) return null;
+
     final dir = Directory(path);
-    if (!await dir.exists()) return null;
-    final files = (await dir.list().toList()).whereType<File>().toList()
-      ..sort((a, b) => a.path.compareTo(b.path));
-    if (files.isEmpty) return null;
+    final files = await dir.exists()
+        ? (await dir.list().toList()).whereType<File>().toList()
+        : <File>[];
+    if (files.isEmpty) {
+      // The pointer is stale — storage was cleared, or the download folder was
+      // moved. Falling back to the network is only half an answer: the details
+      // screen reads the same field and would go on offering "delete" for a
+      // download that is not there, with no way to fetch it again. The reader
+      // is where the staleness is *discovered*, so it is where it is cleared.
+      await _library.setChapterLocalPath(
+        sourceId: sourceId,
+        url: mangaUrl,
+        chapterUrl: currentChapterUrl.value,
+        localPath: null,
+      );
+      return null;
+    }
+    files.sort((a, b) => a.path.compareTo(b.path));
     return [for (final file in files) PageUrl(file.path)];
   }
 
