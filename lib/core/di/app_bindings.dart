@@ -47,7 +47,6 @@ class AppBindings extends Bindings {
       () => ExtensionsController(
         extensions: Get.find<ExtensionRepository>(),
         sources: Get.find<SourceRepository>(),
-        library: Get.find<LibraryRepository>(),
       ),
       fenix: true,
     );

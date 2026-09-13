@@ -65,17 +65,29 @@ class TitleMatcher {
         .trim();
     if (unbracketed.isNotEmpty) s = unbracketed;
 
-    // Trailing language/format markers some sites append.
-    s = s.replaceAll(
-      RegExp(
-        r'\b(manga|manhwa|manhua|webtoon|raw|official|english|indonesia)\b',
-      ),
-      ' ',
+    // Trailing language/format markers some sites append, anchored to the end.
+    //
+    // Unanchored, this deleted the word wherever it appeared — so "Raw Hero"
+    // and "Hero" normalised to the same string and scored an exact match. Only
+    // decoration a site *appends* is safe to drop, and repeating the pass
+    // handles more than one ("... Manga RAW").
+    final marker = RegExp(
+      r'[\s\-_]*\b(manga|manhwa|manhua|webtoon|raw|official|english|indonesia)\b\s*$',
     );
+    var trimmed = s.replaceFirst(marker, '').trim();
+    while (trimmed.isNotEmpty && trimmed != s) {
+      s = trimmed;
+      trimmed = s.replaceFirst(marker, '').trim();
+    }
 
     // Punctuation to spaces rather than nothing: "Re:Zero" must not become
     // "rezero" while AniList's "Re: Zero" becomes "re zero".
-    s = s.replaceAll(RegExp(r'[^a-z0-9　-鿿]+'), ' ');
+    //
+    // Unicode-aware, not an ASCII allowlist plus one CJK range. Hangul sits at
+    // U+AC00 and Cyrillic at U+0400, both outside that range, so a Korean or
+    // Russian title was stripped to nothing and could never match — in an app
+    // whose second word is "manhwa".
+    s = s.replaceAll(RegExp(r'[^\p{L}\p{N}]+', unicode: true), ' ');
 
     return s.trim().replaceAll(RegExp(r'\s+'), ' ');
   }

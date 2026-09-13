@@ -4,12 +4,12 @@ import 'package:get/get.dart';
 import 'package:iconsax/iconsax.dart';
 
 import 'package:otaku_reader/data/isar/manga_entry.dart';
-import 'package:otaku_reader/data/repository/library_repository_impl.dart';
 import 'package:otaku_reader/domain/model/anilist_media.dart';
 import 'package:otaku_reader/features/details/screens/manga_details_screen.dart';
 import 'package:otaku_reader/features/home/controllers/home_controller.dart';
 import 'package:otaku_reader/features/reader/screens/reader_screen.dart';
 import 'package:otaku_reader/features/search/screens/global_search_screen.dart';
+import 'package:otaku_reader/domain/repository/library_repository.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -76,7 +76,7 @@ class _ContinueReading extends StatelessWidget {
     itemBuilder: (context, i) {
       final entry = entries[i];
       final next = HomeController.nextChapter(entry);
-      final sourceId = LibraryRepositoryImpl.sourceIdFrom(entry.sourceId);
+      final sourceId = LibraryRepository.sourceIdOf(entry);
       return _Tile(
         title: entry.displayTitle,
         coverUrl: entry.displayCover,

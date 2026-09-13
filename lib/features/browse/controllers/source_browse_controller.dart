@@ -47,7 +47,16 @@ class SourceBrowseController extends GetxController {
   final isLoading = false.obs;
   final isLoadingMore = false.obs;
   final hasNextPage = true.obs;
+
+  /// A failed *reload*. The grid keeps its previous results, so this is what
+  /// the "could not refresh" banner reads.
   final error = RxnString();
+
+  /// A failed *next page*. Kept apart from [error] because the two want
+  /// different words and a different retry: a banner saying the refresh failed,
+  /// whose button reloads page 1, is wrong on both counts when what actually
+  /// failed was page 4.
+  final pagingError = RxnString();
 
   final source = Rxn<Source>();
   final supportsLatest = true.obs;
@@ -120,6 +129,7 @@ class SourceBrowseController extends GetxController {
     _loadMoreToken++;
     isLoadingMore.value = false;
     error.value = null;
+    pagingError.value = null;
     isLoading.value = true;
     try {
       final page = await _fetch(1);
@@ -151,6 +161,7 @@ class SourceBrowseController extends GetxController {
     final generation = _generation;
     final token = ++_loadMoreToken;
     isLoadingMore.value = true;
+    pagingError.value = null;
     try {
       final page = await _fetch(_page + 1);
       if (generation != _generation) return;
@@ -159,7 +170,7 @@ class SourceBrowseController extends GetxController {
       hasNextPage.value = page.hasNextPage;
     } catch (e) {
       if (generation != _generation) return;
-      error.value = _describe(e);
+      pagingError.value = _describe(e);
       // Stop paging on a failure rather than retrying the same page every time
       // the user reaches the bottom.
       hasNextPage.value = false;
@@ -170,6 +181,18 @@ class SourceBrowseController extends GetxController {
       // and duplicate a page. The token distinguishes the two.
       if (token == _loadMoreToken) isLoadingMore.value = false;
     }
+  }
+
+  /// Tries the failed page again, without discarding what is already listed.
+  ///
+  /// `reload()` is the wrong recovery here: it throws away pages 1..n to
+  /// re-fetch page 1, which is not what the user asked for when page n+1 timed
+  /// out.
+  Future<void> retryPaging() async {
+    if (pagingError.value == null) return;
+    pagingError.value = null;
+    hasNextPage.value = true;
+    await loadMore();
   }
 
   Future<MPagesLike> _fetch(int page) async {

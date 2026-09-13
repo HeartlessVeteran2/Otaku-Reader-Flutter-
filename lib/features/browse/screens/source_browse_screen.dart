@@ -152,6 +152,7 @@ class _SourceBrowseScreenState extends State<SourceBrowseScreen> {
         }
 
         final baseUrl = _c.effectiveBaseUrl.value;
+        final paging = _c.pagingError.value;
         return Column(
           children: [
             if (banner != null) banner,
@@ -204,6 +205,11 @@ class _SourceBrowseScreenState extends State<SourceBrowseScreen> {
                 ),
               ),
             ),
+            // At the foot, not as a banner at the top: what failed is the
+            // *next* page, which is where the user is looking, and the retry
+            // continues from there rather than reloading page 1 and throwing
+            // away everything already listed.
+            if (paging != null) _PagingFailed(onRetry: _c.retryPaging),
           ],
         );
       }),
@@ -293,6 +299,35 @@ class _SourceError extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// Shown under the grid when loading the *next* page failed.
+class _PagingFailed extends StatelessWidget {
+  const _PagingFailed({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: theme.colorScheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Could not load more. The site may be down.',
+                style: theme.textTheme.bodySmall,
+              ),
+            ),
+            TextButton(onPressed: onRetry, child: const Text('Try again')),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _Empty extends StatelessWidget {

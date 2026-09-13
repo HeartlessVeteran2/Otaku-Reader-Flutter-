@@ -6,6 +6,7 @@ import 'package:otaku_reader/data/repository/library_repository_impl.dart';
 import 'package:otaku_reader/source/model/m_chapter.dart';
 import 'package:otaku_reader/source/model/m_manga.dart';
 import 'package:otaku_reader/source/model/m_status.dart';
+import 'package:otaku_reader/domain/repository/library_repository.dart';
 
 import 'helpers/isar_test_env.dart';
 
@@ -38,7 +39,11 @@ void main() {
     // highest-impact bug ever.
     final key = LibraryRepositoryImpl.keyFor(_sourceId);
     expect(key, '424242');
-    expect(LibraryRepositoryImpl.sourceIdFrom(key), _sourceId);
+    final row = MangaEntry()
+      ..sourceId = key
+      ..url = '/m'
+      ..title = 'Example';
+    expect(LibraryRepository.sourceIdOf(row), _sourceId);
   });
 
   test('saving from a source does not add to the library', () async {

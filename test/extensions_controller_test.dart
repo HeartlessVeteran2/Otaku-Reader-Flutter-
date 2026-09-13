@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:otaku_reader/core/database/database.dart' as db;
-import 'package:otaku_reader/data/repository/library_repository_impl.dart';
 import 'package:otaku_reader/domain/repository/extension_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/features/browse/controllers/extensions_controller.dart';
@@ -134,7 +133,6 @@ void main() {
     final controller = ExtensionsController(
       extensions: extensions,
       sources: sources,
-      library: LibraryRepositoryImpl(),
     )..onInit();
     // onInit kicks off load() without awaiting; let it settle.
     await Future<void>.delayed(Duration.zero);

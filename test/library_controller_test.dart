@@ -6,33 +6,12 @@ import 'package:otaku_reader/features/library/controllers/library_controller.dar
 import 'package:otaku_reader/source/model/m_chapter.dart';
 import 'package:otaku_reader/source/model/m_manga.dart';
 
-import 'package:otaku_reader/domain/repository/source_repository.dart';
-import 'package:otaku_reader/source/model/source.dart';
-import 'package:otaku_reader/source/source_methods.dart';
+import 'package:otaku_reader/domain/repository/library_repository.dart';
 
+import 'helpers/fake_source_repository.dart';
 import 'helpers/isar_test_env.dart';
 
 const _sourceId = 5;
-
-/// The library screen only needs a base URL per source for cover headers; these
-/// suites do not exercise that, so every lookup answers "no source".
-class _NoSources implements SourceRepository {
-  @override
-  Future<Source?> sourceById(int id) async => null;
-  @override
-  Future<SourceMethods> methodsFor(int id) async => throw UnimplementedError();
-  @override
-  Future<void> markUsed(int id) async {}
-  @override
-  void evict(int id) {}
-  @override
-  void evictAll() {}
-  @override
-  Future<List<Source>> installedSources({
-    Set<String>? langs,
-    bool includeNsfw = false,
-  }) async => const [];
-}
 
 void main() {
   // Nullable, not `late`: when open() throws -- a missing native library is
@@ -75,7 +54,7 @@ void main() {
   }
 
   Future<LibraryController> build() async {
-    final c = LibraryController(library: library, sources: _NoSources())
+    final c = LibraryController(library: library, sources: const NoSources())
       ..onInit();
     await Future<void>.delayed(Duration.zero);
     return c;
@@ -149,9 +128,30 @@ void main() {
 
     final c = await build();
 
-    expect(
-      LibraryRepositoryImpl.sourceIdFrom(c.visible.single.sourceId),
-      _sourceId,
-    );
+    expect(LibraryRepository.sourceIdOf(c.visible.single), _sourceId);
   });
+  test(
+    'a favourite added elsewhere reaches the grid without a reselect',
+    () async {
+      // The tabs live in an IndexedStack and stay mounted, so selecting Library
+      // fires no lifecycle hook — a favourite added from Browse used to sit
+      // invisible until the app restarted.
+      final c = await build();
+      expect(c.visible, isEmpty);
+
+      // A write through the same repository, as Browse would do.
+      await library.upsertFromSource(
+        sourceId: 7,
+        url: '/added-elsewhere',
+        manga: MManga(name: 'Added from Browse'),
+      );
+      await library.toggleFavorite(7, '/added-elsewhere');
+
+      // Past the watcher's debounce.
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+
+      expect(c.visible.map((e) => e.displayTitle), ['Added from Browse']);
+      c.onClose();
+    },
+  );
 }

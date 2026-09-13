@@ -20,6 +20,7 @@ Map<String, dynamic> _entry({
   String name = 'Example',
   String version = '1.0.0',
   int itemType = 0,
+  int sourceCodeLanguage = 0,
   String? codeUrl = 'https://example.test/src/example.dart',
   String? additionalParams,
 }) => {
@@ -29,7 +30,7 @@ Map<String, dynamic> _entry({
   'lang': 'en',
   'version': version,
   'itemType': itemType,
-  'sourceCodeLanguage': 0,
+  'sourceCodeLanguage': sourceCodeLanguage,
   'sourceCodeUrl': codeUrl,
   if (additionalParams != null) 'additionalParams': additionalParams,
 };
@@ -303,6 +304,86 @@ void main() {
       );
     },
   );
+
+  test('a JavaScript entry is not listed at all', () async {
+    // This app interprets Dart. Listing a JavaScript entry offers an install
+    // that leads to a source which cannot open, and the failure reads as a
+    // broken extension rather than as an unsupported one. The Dart half is the
+    // ecosystem — 249 index entries across ~245 sites, against 18 distinct
+    // JavaScript scripts (CLAUDE.md).
+    final fetcher = _Fetcher({
+      _repo: jsonEncode([
+        _entry(id: 1, name: 'Dart source'),
+        _entry(id: 2, name: 'JS source', sourceCodeLanguage: 1),
+      ]),
+    });
+    final repository = repoWith(fetcher);
+
+    final result = await repository.addRepo(const ExtensionRepo(url: _repo));
+
+    expect(result.added, 1, reason: 'the JS entry is not counted either');
+    expect(db.isar.sources.where().findAllSync().map((s) => s.name), [
+      'Dart source',
+    ]);
+  });
+
+  test('a JavaScript row stored by an older build is cleaned up', () async {
+    // The filter is new, so a database written before it can hold JS rows. The
+    // stale-removal path has to take them, or they stay listed forever.
+    final repository = repoWith(
+      _Fetcher({
+        _repo: jsonEncode([_entry(id: 1, name: 'Dart source')]),
+      }),
+    );
+    db.isar.writeTxnSync(
+      () => db.isar.sources.putSync(
+        Source()
+          ..sourceId = 99
+          ..name = 'Left over from an older build'
+          ..lang = 'en'
+          ..repoUrl = _repo
+          ..sourceCodeLanguage = SourceCodeLanguage.javascript,
+      ),
+    );
+
+    await repository.addRepo(const ExtensionRepo(url: _repo));
+
+    expect(db.isar.sources.where().findAllSync().map((s) => s.name), [
+      'Dart source',
+    ]);
+  });
+
+  test('removing a repo keeps its installed sources, detached', () async {
+    // Deleting an installed row makes every library entry pointing at it fail
+    // with "No source with id ...", and the user's progress, favourites and
+    // downloads all hang off that id. Detaching keeps it working and only
+    // stops updates, which is what removing a repo should mean.
+    final fetcher = _Fetcher({
+      _repo: jsonEncode([
+        _entry(id: 1, name: 'Installed'),
+        _entry(id: 2, name: 'Never installed'),
+      ]),
+      'https://example.test/src/example.dart': 'class DefaultExtension {}',
+    });
+    final repository = repoWith(fetcher);
+    await repository.addRepo(const ExtensionRepo(url: _repo));
+    final installed = db.isar.sources
+        .filter()
+        .sourceIdEqualTo(1)
+        .findFirstSync()!;
+    await repository.install(installed);
+
+    await repository.removeRepo(_repo);
+
+    final rows = db.isar.sources.where().findAllSync();
+    expect(rows.map((s) => s.name), ['Installed']);
+    expect(rows.single.isInstalled, isTrue, reason: 'it still works');
+    expect(
+      rows.single.repoUrl,
+      isNull,
+      reason: 'detached, so it stops receiving updates',
+    );
+  });
 
   test('two removals at once do not resurrect one another', () async {
     // Both calls read the stored list, filter it, and write the whole thing

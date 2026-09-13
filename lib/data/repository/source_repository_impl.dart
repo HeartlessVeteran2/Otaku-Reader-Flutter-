@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
@@ -33,8 +34,11 @@ SourceMethods _defaultFactory(Source source) {
 }
 
 class SourceRepositoryImpl implements SourceRepository {
-  SourceRepositoryImpl({SourceRuntimeFactory? runtimeFactory})
-    : _runtimeFactory = runtimeFactory ?? _defaultFactory;
+  SourceRepositoryImpl({
+    SourceRuntimeFactory? runtimeFactory,
+    Duration? retirementGrace,
+  }) : _runtimeFactory = runtimeFactory ?? _defaultFactory,
+       retirementGrace = retirementGrace ?? defaultRetirementGrace;
 
   final SourceRuntimeFactory _runtimeFactory;
   final Map<int, _CachedRuntime> _cache = {};
@@ -51,7 +55,31 @@ class SourceRepositoryImpl implements SourceRepository {
   /// uninstall with no replacement holds one runtime until [evictAll].
   /// Releasing it sooner needs the runtime to know whether a call is in
   /// flight, which `SourceMethods` deliberately does not expose.
-  final List<SourceMethods> _retired = [];
+  final Map<SourceMethods, Timer> _retired = {};
+
+  /// How long a superseded runtime is kept alive before it is disposed.
+  ///
+  /// It cannot be disposed immediately — `dispose()` nulls the interpreter, and
+  /// a browse or reader screen may still be awaiting a call on it. It cannot be
+  /// kept forever either: the repository is permanent and nothing in production
+  /// calls [evictAll], so an unbounded list meant every update and uninstall
+  /// leaked an interpreter for the life of the process.
+  ///
+  /// Two minutes is well past `MClient`'s own request timeout, so anything
+  /// still holding this runtime has already failed. Overridable only so a test
+  /// can assert the disposal actually happens without waiting for it.
+  static const defaultRetirementGrace = Duration(minutes: 2);
+
+  final Duration retirementGrace;
+
+  /// Holds [runtime] alive for [retirementGrace], then disposes it.
+  void _retire(SourceMethods runtime) {
+    if (_retired.containsKey(runtime)) return;
+    _retired[runtime] = Timer(retirementGrace, () {
+      _retired.remove(runtime);
+      runtime.dispose();
+    });
+  }
 
   @override
   Future<List<Source>> installedSources({
@@ -101,7 +129,7 @@ class SourceRepositoryImpl implements SourceRepository {
       if (cached.fingerprint == fingerprint) return cached.runtime;
       // Superseded, not disposed — see [evict]. A call already in flight on the
       // old runtime must be allowed to finish.
-      _retired.add(cached.runtime);
+      _retire(cached.runtime);
       _cache.remove(sourceId);
     }
 
@@ -159,10 +187,10 @@ class SourceRepositoryImpl implements SourceRepository {
     // was doing and is then collected.
     //
     // The preference resolver is keyed by source id, so a replacement runtime
-    // overwrites the old entry; with no replacement the runtime is held in
-    // [_retired] until teardown rather than being disposed under a live call.
+    // overwrites the old entry; with no replacement the runtime is held for
+    // [retirementGrace] rather than being disposed under a live call.
     final cached = _cache.remove(sourceId);
-    if (cached != null) _retired.add(cached.runtime);
+    if (cached != null) _retire(cached.runtime);
   }
 
   @override
@@ -172,8 +200,9 @@ class SourceRepositoryImpl implements SourceRepository {
     for (final entry in _cache.values) {
       entry.runtime.dispose();
     }
-    for (final runtime in _retired) {
-      runtime.dispose();
+    for (final entry in _retired.entries) {
+      entry.value.cancel();
+      entry.key.dispose();
     }
     _retired.clear();
     _cache.clear();

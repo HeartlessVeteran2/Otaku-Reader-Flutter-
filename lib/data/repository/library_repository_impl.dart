@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:isar_community/isar.dart';
 
 import 'package:otaku_reader/core/database/database.dart' as db;
@@ -17,7 +19,23 @@ class LibraryRepositoryImpl implements LibraryRepository {
   /// this one straight back.
   static String keyFor(int sourceId) => sourceId.toString();
 
-  static int? sourceIdFrom(String key) => int.tryParse(key);
+  final _changes = StreamController<void>.broadcast();
+
+  @override
+  Stream<void> get changes => _changes.stream;
+
+  /// Announces a write. Called from every mutating method, including the ones
+  /// that only touch a single chapter: an unread badge and a Continue Reading
+  /// row are library data too.
+  void _notify() {
+    if (!_changes.isClosed) _changes.add(null);
+  }
+
+  /// The reverse is deliberately **not** here. It lives on the interface as
+  /// `LibraryRepository.sourceIdOf`, because two conversion helpers for one
+  /// identity rule is how screens start disagreeing about it — which is the
+  /// shape of the Kotlin bug above, where three wrong conventions were in use
+  /// at once and some screens worked while others did not.
 
   @override
   Future<MangaEntry?> find(int sourceId, String url) async => db
@@ -83,6 +101,7 @@ class LibraryRepositoryImpl implements LibraryRepository {
       db.isar.mangaEntrys.putSync(entry);
       saved = entry;
     });
+    _notify();
     return saved;
   }
 
@@ -187,6 +206,7 @@ class LibraryRepositoryImpl implements LibraryRepository {
       db.isar.mangaEntrys.putSync(entry);
       result = entry.favorite;
     });
+    _notify();
     return result;
   }
 
@@ -216,6 +236,7 @@ class LibraryRepositoryImpl implements LibraryRepository {
       }
       db.isar.mangaEntrys.putSync(entry);
     });
+    _notify();
   }
 
   @override
@@ -239,6 +260,7 @@ class LibraryRepositoryImpl implements LibraryRepository {
         if (touched) db.isar.mangaEntrys.putSync(entry);
       }
     });
+    _notify();
   }
 
   @override
@@ -271,6 +293,7 @@ class LibraryRepositoryImpl implements LibraryRepository {
       if (read) entry.lastRead = DateTime.now();
       db.isar.mangaEntrys.putSync(entry);
     });
+    _notify();
   }
 
   @override
@@ -312,6 +335,7 @@ class LibraryRepositoryImpl implements LibraryRepository {
       entry.lastRead = DateTime.now();
       db.isar.mangaEntrys.putSync(entry);
     });
+    _notify();
   }
 
   static String _prefer(String? fresh, String fallback) =>

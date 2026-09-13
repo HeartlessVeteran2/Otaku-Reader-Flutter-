@@ -83,7 +83,7 @@ class _Action extends StatelessWidget {
       // Sized to the widest action it replaces ("Update"), so the title does
       // not shift sideways when a mutation starts.
       return const SizedBox(
-        width: 84,
+        width: _actionWidth,
         height: 40,
         child: Center(
           child: SizedBox(
@@ -94,8 +94,11 @@ class _Action extends StatelessWidget {
         ),
       );
     }
-    return SizedBox(
-      width: 84,
+    // A *minimum* width, not a fixed one: the box exists so the title does not
+    // shift when an action is replaced by a spinner, and at large accessibility
+    // text scales a fixed 84dp clips "Update" instead.
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: _actionWidth),
       child: switch (source) {
         _ when source.hasUpdate => TextButton(
           onPressed: onUpdate,
@@ -111,6 +114,10 @@ class _Action extends StatelessWidget {
     );
   }
 }
+
+/// Shared by every action state, so a row does not jump when one replaces
+/// another.
+const double _actionWidth = 84;
 
 class _Icon extends StatelessWidget {
   const _Icon({this.url, required this.name});

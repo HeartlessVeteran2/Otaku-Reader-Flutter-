@@ -9,7 +9,6 @@ import 'package:get/get.dart';
 import 'package:otaku_reader/core/database/data_keys/keys.dart';
 import 'package:otaku_reader/core/database/kv_helper.dart';
 import 'package:otaku_reader/domain/repository/extension_repository.dart';
-import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/source/model/source.dart';
 
@@ -25,14 +24,11 @@ class ExtensionsController extends GetxController {
   ExtensionsController({
     required ExtensionRepository extensions,
     required SourceRepository sources,
-    required LibraryRepository library,
   }) : _extensions = extensions,
-       _sources = sources,
-       _library = library;
+       _sources = sources;
 
   final ExtensionRepository _extensions;
   final SourceRepository _sources;
-  final LibraryRepository _library;
 
   final all = <Source>[].obs;
   final query = ''.obs;
@@ -201,39 +197,34 @@ class ExtensionsController extends GetxController {
     return result.isSuccess ? null : 'Could not read that index';
   }
 
-  /// How many library entries would be stranded by removing [url].
+  /// How many **installed** sources removing [url] would detach.
   ///
-  /// Deleting a repo deletes its source rows, and every library entry pointing
-  /// at one then fails with "No source with id ...". That is the exact failure
-  /// the Kotlin app calls its highest-impact bug ever, so the UI asks before
-  /// causing it rather than discovering it later.
-  Future<int> affectedLibraryEntries(String url) async {
-    final ids = all
-        .where((s) => s.repoUrl == url)
-        .map((s) => s.sourceId)
-        .toSet();
-    if (ids.isEmpty) return 0;
-    final favourites = await _library.favorites();
-    return favourites
-        .where((e) => ids.contains(LibraryRepository.sourceIdOf(e)))
-        .length;
-  }
+  /// They are kept and keep working; the count exists so the confirmation can
+  /// say what will actually happen rather than implying the extensions go with
+  /// the repo. Read from the loaded catalogue, so it is answered before the
+  /// removal — afterwards no row says which sources belonged to that repo.
+  int installedSourcesOf(String url) =>
+      all.where((s) => s.repoUrl == url && s.isInstalled).length;
 
   /// Removes a repo, and only the sources that are safe to remove.
   ///
-  /// An **installed** source with library entries pointing at it is kept, even
-  /// though its repo is gone: deleting it strands those entries with no way
-  /// back to a source. It simply stops receiving updates, which is what
-  /// removing its repo should mean. Everything else goes.
+  /// An **installed** source is detached rather than deleted: every library
+  /// entry stores its source's id, so deleting the row makes each of those
+  /// entries fail with "No source with id ..." — and the user's progress,
+  /// favourites and downloads all hang off that id. The enforcement is in
+  /// `ExtensionRepositoryImpl.removeRepo`, not here, because this is not the
+  /// only caller that could exist.
   Future<void> removeRepo(String url) async {
-    // Collect first: after the removal there is no row left to say which
-    // sources belonged to this repo.
-    final orphaned = all
+    // Collected first, for the same reason the count is: after the removal
+    // there is no row left to say which sources belonged to this repo.
+    final affected = all
         .where((s) => s.repoUrl == url)
         .map((s) => s.sourceId)
         .toList();
     await _extensions.removeRepo(url);
-    for (final sourceId in orphaned) {
+    // Evicted whether the row was deleted or detached: a detached row is the
+    // same source, but its `repoUrl` changed, and the cache key covers it.
+    for (final sourceId in affected) {
       _sources.evict(sourceId);
     }
     await load();

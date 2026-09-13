@@ -83,9 +83,10 @@ void main() {
   setUp(() => env!.clear());
 
   final built = <_FakeRuntime>[];
-  SourceRepositoryImpl repository() {
+  SourceRepositoryImpl repository({Duration? retirementGrace}) {
     built.clear();
     return SourceRepositoryImpl(
+      retirementGrace: retirementGrace,
       runtimeFactory: (s) {
         final r = _FakeRuntime(s);
         built.add(r);
@@ -246,6 +247,23 @@ void main() {
       isFalse,
       reason: 'but the cache no longer serves it',
     );
+  });
+
+  test('an evicted runtime is disposed once its grace period ends', () async {
+    // The hold has to end. The repository is permanent and nothing in
+    // production calls evictAll, so a list that was only ever appended to meant
+    // every update and uninstall leaked an interpreter for the life of the
+    // process.
+    put(_source(id: 1));
+    final repo = repository(retirementGrace: const Duration(milliseconds: 20));
+    final first = await repo.methodsFor(1) as _FakeRuntime;
+
+    repo.evict(1);
+    expect(first.disposed, isFalse, reason: 'not while a call could be live');
+
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+
+    expect(first.disposed, isTrue);
   });
 
   test('a changed base URL rebuilds, even with identical code', () async {

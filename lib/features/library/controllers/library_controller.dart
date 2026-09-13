@@ -4,6 +4,8 @@
 // the controller to the repository it exists to mediate.
 // ignore_for_file: prefer_initializing_formals
 
+import 'dart:async';
+
 import 'package:get/get.dart';
 
 import 'package:otaku_reader/core/database/data_keys/keys.dart';
@@ -11,6 +13,7 @@ import 'package:otaku_reader/core/database/kv_helper.dart';
 import 'package:otaku_reader/data/isar/manga_entry.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
+import 'package:otaku_reader/data/source_base_urls.dart';
 
 enum LibrarySort { title, lastRead, dateAdded, unread }
 
@@ -28,12 +31,9 @@ class LibraryController extends GetxController {
   /// Base URL per source id, for cover Referer/Origin headers. Resolved once
   /// per load rather than per card, because every card in the grid rebuilds
   /// constantly while scrolling.
-  final _baseUrls = <int, String>{};
+  late final _baseUrls = SourceBaseUrls(_sources);
 
-  String baseUrlFor(MangaEntry entry) {
-    final id = LibraryRepository.sourceIdOf(entry);
-    return id == null ? '' : _baseUrls[id] ?? '';
-  }
+  String baseUrlFor(MangaEntry entry) => _baseUrls.forEntry(entry);
 
   final entries = <MangaEntry>[].obs;
   final query = ''.obs;
@@ -50,6 +50,36 @@ class LibraryController extends GetxController {
             .clamp(0, LibrarySort.values.length - 1)];
     ascending.value = LibraryKeys.sortAscending.get<bool>(true);
     load();
+    _startWatching();
+  }
+
+  @override
+  void onClose() {
+    _watchDebounce?.cancel();
+    unawaited(_watch?.cancel());
+    super.onClose();
+  }
+
+  /// Reloads when the library changes anywhere else in the app.
+  ///
+  /// The tabs live in an `IndexedStack` and stay mounted, so no lifecycle hook
+  /// fires when one is reselected — favouriting from Browse left this stale
+  /// until the app restarted, and `didChangeDependencies` was a fix for a
+  /// different case (a fresh push) that looked like a fix for this one.
+  ///
+  /// Debounced, because a library refresh writes once per series and this would
+  /// otherwise reload once per write.
+  StreamSubscription<void>? _watch;
+  Timer? _watchDebounce;
+
+  void _startWatching() {
+    _watch = _library.changes.listen((_) {
+      _watchDebounce?.cancel();
+      _watchDebounce = Timer(
+        const Duration(milliseconds: 300),
+        () => unawaited(load()),
+      );
+    });
   }
 
   Future<void> load() async {
@@ -60,11 +90,7 @@ class LibraryController extends GetxController {
 
       // Hotlink-protected hosts answer a bare GET with 403, so a library of
       // fallback covers looks like the app lost them.
-      for (final entry in favourites) {
-        final id = LibraryRepository.sourceIdOf(entry);
-        if (id == null || _baseUrls.containsKey(id)) continue;
-        _baseUrls[id] = (await _sources.sourceById(id))?.baseUrl ?? '';
-      }
+      await _baseUrls.refresh(favourites);
     } finally {
       isLoading.value = false;
     }

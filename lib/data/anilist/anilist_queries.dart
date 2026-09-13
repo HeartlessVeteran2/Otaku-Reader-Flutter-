@@ -6,10 +6,16 @@
 ///    request, then `mergeSecondaryData` drops `externalLinks` and `favourites`
 ///    on the floor — fetched and discarded. Both are rendered here, so both are
 ///    asked for once.
-/// 2. **Anime-only fields are gone**: `episodes`, `season`, `seasonYear`,
-///    `duration`, `nextAiringEpisode`, and `voiceActors` (a manga character has
-///    none). Asking for fields nothing renders is how the split above went
-///    unnoticed.
+/// 2. **Nothing is asked for that nothing renders.** Anime-only fields are
+///    gone (`episodes`, `season`, `seasonYear`, `duration`,
+///    `nextAiringEpisode`, and `voiceActors` — a manga character has none), and
+///    so are three that survived the first pass by being plausible:
+///    `stats { scoreDistribution statusDistribution }`, which
+///    `AniListMedia.fromJson` never stored; `favourites` on a character node,
+///    which `AniListPerson` does not parse (the *media*'s `favourites` is
+///    rendered and stays); and `month`/`day` on the dates, where only the year
+///    is shown. Asking for fields nothing renders is exactly how the split
+///    above went unnoticed, so the rule applies to this file too.
 /// 3. **`type: MANGA`** on the search, so a title shared with an anime cannot
 ///    resolve to the anime.
 class AniListQueries {
@@ -39,18 +45,14 @@ query ($id: Int) {
     format
     countryOfOrigin
     source
-    startDate { year month day }
-    endDate { year month day }
+    startDate { year }
+    endDate { year }
     genres
     tags { name rank isMediaSpoiler isGeneralSpoiler }
-    stats {
-      scoreDistribution { score amount }
-      statusDistribution { status amount }
-    }
     characters(sort: [ROLE, FAVOURITES_DESC], perPage: 25, page: 1) {
       edges {
         role
-        node { id name { full } image { large } favourites }
+        node { id name { full } image { large } }
       }
     }
     staff(sort: [RELEVANCE, ID], perPage: 25, page: 1) {

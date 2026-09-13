@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
 
@@ -15,15 +16,22 @@ import 'package:otaku_reader/source/source_methods.dart';
 import 'helpers/isar_test_env.dart';
 
 class _Methods implements SourceMethods {
-  _Methods(this.source, {this.fail = false, this.latest = true});
+  _Methods(
+    this.source, {
+    this.fail = false,
+    this.latest = true,
+    this.empty = false,
+  });
 
   @override
   final Source source;
   final bool fail;
   final bool latest;
+  final bool empty;
 
   Future<MPages> _p(String label) async {
     if (fail) throw StateError('502');
+    if (empty) return MPages(list: [], hasNextPage: false);
     return MPages(list: [MManga(name: '$label One')], hasNextPage: false);
   }
 
@@ -121,6 +129,24 @@ void main() {
     expect(find.textContaining('Example Source'), findsWidgets);
     expect(find.textContaining('site may be down'), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
+  });
+
+  testWidgets('a source that returns nothing lays out and can be pulled', (
+    tester,
+  ) async {
+    // The empty state sits inside the pull-to-refresh scrollable rather than
+    // replacing it, so a source that has simply gone quiet can be retried. That
+    // puts an unbounded-height `Center` in a `ListView` slot, which is exactly
+    // the shape that throws if it does not shrink-wrap -- so this asserts no
+    // exception as much as it asserts the text.
+    await pump(tester, _Methods(_row(), empty: true));
+
+    expect(find.text('This source returned nothing.'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.fling(find.byType(ListView), const Offset(0, 300), 1000);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('the Latest chip is hidden when the source has no latest feed', (

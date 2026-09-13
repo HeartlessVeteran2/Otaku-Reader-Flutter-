@@ -3,10 +3,10 @@ import 'package:get/get.dart';
 import 'package:iconsax/iconsax.dart';
 
 import 'package:otaku_reader/data/isar/manga_entry.dart';
-import 'package:otaku_reader/data/repository/library_repository_impl.dart';
 import 'package:otaku_reader/features/details/screens/manga_details_screen.dart';
 import 'package:otaku_reader/features/library/controllers/library_controller.dart';
 import 'package:otaku_reader/features/library/widgets/library_card.dart';
+import 'package:otaku_reader/domain/repository/library_repository.dart';
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
@@ -39,14 +39,6 @@ class _LibraryScreenState extends State<LibraryScreen>
     // shell keeps every tab alive in a LazyIndexedStack, so without a reload
     // the grid can show a library that is several additions out of date.
     if (state == AppLifecycleState.resumed) _c.load();
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Cheap, and covers the common case: the tab is rebuilt when it is
-    // re-selected, and a stale grid is worse than one redundant read.
-    _c.load();
   }
 
   @override
@@ -160,7 +152,7 @@ class _LibraryScreenState extends State<LibraryScreen>
     // The row stores the source's numeric id as a decimal string, never a hash,
     // so this converts straight back. Guarding anyway: a row written by a future
     // build with a different convention must not crash the grid.
-    final sourceId = LibraryRepositoryImpl.sourceIdFrom(entry.sourceId);
+    final sourceId = LibraryRepository.sourceIdOf(entry);
     return LibraryCard(
       entry: entry,
       unread: LibraryController.unreadOf(entry),

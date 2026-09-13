@@ -335,6 +335,41 @@ void main() {
     },
   );
 
+  test('a paging failure is reported apart from a refresh failure', () async {
+    // The banner above the grid says the *refresh* failed and its retry reloads
+    // page 1. Both are wrong when what failed was page 4, so the two errors are
+    // separate state.
+    final (c, methods, _) = await build();
+    methods.popularPages = 5;
+    methods.failWith = StateError('timeout');
+
+    await c.loadMore();
+
+    expect(c.pagingError.value, contains('site may be down'));
+    expect(
+      c.error.value,
+      isNull,
+      reason: 'nothing is wrong with what is already on screen',
+    );
+
+    // Retrying continues from where it stopped instead of discarding pages.
+    methods.failWith = null;
+    await c.retryPaging();
+
+    expect(c.pagingError.value, isNull);
+    expect(c.items.map((m) => m.name), [
+      'popular-p1-a',
+      'popular-p1-b',
+      'popular-p2-a',
+      'popular-p2-b',
+    ]);
+    expect(
+      methods.calls.where((x) => x == 'popular:1'),
+      hasLength(1),
+      reason: 'page 1 was not re-fetched',
+    );
+  });
+
   test(
     'a source that will not start reports it rather than spinning forever',
     () async {

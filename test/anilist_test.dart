@@ -294,16 +294,23 @@ void main() {
       // GraphQL answers 200 with an `errors` array. A status check alone would
       // treat this as success and parse null into an empty page — metadata
       // silently missing with nothing to explain why.
+      //
+      // `data` is deliberately **populated**. With `data: null` this test
+      // passed with the errors guard deleted, because the missing-data path
+      // produced the same null: it asserted nothing. A partial response —
+      // errors *and* data, which is what GraphQL actually returns when one
+      // field of a query fails — is the only shape where the guard is the thing
+      // being tested.
       final repo = AniListRepositoryImpl(
         post: (q, v) async => jsonEncode({
           'errors': [
             {'message': 'Not Found'},
           ],
-          'data': null,
+          'data': {'Media': _media(id: 30002)},
         }),
       );
 
-      expect(await repo.media(1), isNull);
+      expect(await repo.media(30002), isNull);
     });
 
     test('media parses a successful response', () async {

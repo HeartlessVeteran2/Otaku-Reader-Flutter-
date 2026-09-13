@@ -9,6 +9,7 @@ import 'package:get/get.dart';
 import 'package:otaku_reader/data/isar/manga_entry.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
+import 'package:otaku_reader/data/source_base_urls.dart';
 
 /// One chapter, read at a point in time.
 class HistoryEntry {
@@ -54,12 +55,9 @@ class HistoryController extends GetxController {
   Timer? _pendingTimer;
   List<HistoryEntry>? _pendingRows;
 
-  final _baseUrls = <int, String>{};
+  late final _baseUrls = SourceBaseUrls(_sources);
 
-  String baseUrlFor(MangaEntry entry) {
-    final id = LibraryRepository.sourceIdOf(entry);
-    return id == null ? '' : _baseUrls[id] ?? '';
-  }
+  String baseUrlFor(MangaEntry entry) => _baseUrls.forEntry(entry);
 
   @override
   void onInit() {
@@ -99,11 +97,7 @@ class HistoryController extends GetxController {
       rows.sort((a, b) => b.readAt.compareTo(a.readAt));
       entries.value = rows;
 
-      for (final entry in all) {
-        final id = LibraryRepository.sourceIdOf(entry);
-        if (id == null || _baseUrls.containsKey(id)) continue;
-        _baseUrls[id] = (await _sources.sourceById(id))?.baseUrl ?? '';
-      }
+      await _baseUrls.refresh(all);
     } finally {
       isLoading.value = false;
     }

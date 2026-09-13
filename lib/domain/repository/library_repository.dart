@@ -14,6 +14,17 @@ abstract interface class LibraryRepository {
   /// the Kotlin app's highest-impact bug ever was screens disagreeing about it.
   static int? sourceIdOf(MangaEntry entry) => int.tryParse(entry.sourceId);
 
+  /// Emits after every write, so a screen showing library data can reload
+  /// rather than guess when to.
+  ///
+  /// The alternative was each screen reloading on a lifecycle hook, and that is
+  /// what this replaces: the tabs live in an `IndexedStack` and stay *mounted*,
+  /// so selecting Library after favouriting something in Browse fires no
+  /// `didChangeDependencies` and the grid stayed stale. Carries no payload —
+  /// subscribers re-read, because working out what changed from a diff is how
+  /// two sources of truth start.
+  Stream<void> get changes;
+
   /// The stored entry for this source and url, or null.
   Future<MangaEntry?> find(int sourceId, String url);
 

@@ -2,34 +2,14 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:otaku_reader/core/database/database.dart' as db;
 import 'package:otaku_reader/data/repository/library_repository_impl.dart';
-import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/features/history/controllers/history_controller.dart';
 import 'package:otaku_reader/source/model/m_chapter.dart';
 import 'package:otaku_reader/source/model/m_manga.dart';
-import 'package:otaku_reader/source/model/source.dart';
-import 'package:otaku_reader/source/source_methods.dart';
 
+import 'helpers/fake_source_repository.dart';
 import 'helpers/isar_test_env.dart';
 
 const _sourceId = 7;
-
-class _NoSources implements SourceRepository {
-  @override
-  Future<Source?> sourceById(int id) async => null;
-  @override
-  Future<SourceMethods> methodsFor(int id) async => throw UnimplementedError();
-  @override
-  Future<void> markUsed(int id) async {}
-  @override
-  void evict(int id) {}
-  @override
-  void evictAll() {}
-  @override
-  Future<List<Source>> installedSources({
-    Set<String>? langs,
-    bool includeNsfw = false,
-  }) async => const [];
-}
 
 void main() {
   // Nullable, not `late`: when open() throws -- a missing native library is
@@ -73,7 +53,7 @@ void main() {
   }
 
   Future<HistoryController> build() async {
-    final c = HistoryController(library: library, sources: _NoSources())
+    final c = HistoryController(library: library, sources: const NoSources())
       ..onInit();
     await Future<void>.delayed(Duration.zero);
     await Future<void>.delayed(Duration.zero);

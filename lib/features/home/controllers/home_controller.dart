@@ -2,6 +2,8 @@
 // a named parameter cannot be private.
 // ignore_for_file: prefer_initializing_formals
 
+import 'dart:async';
+
 import 'package:get/get.dart';
 
 import 'package:otaku_reader/core/database/data_keys/keys.dart';
@@ -52,6 +54,37 @@ class HomeController extends GetxController {
     super.onInit();
     showNsfw.value = SourceKeys.showNsfwSources.get<bool>(false);
     load();
+    _startWatching();
+  }
+
+  @override
+  void onClose() {
+    _watchDebounce?.cancel();
+    unawaited(_watch?.cancel());
+    super.onClose();
+  }
+
+  /// Refreshes Continue Reading when the library changes elsewhere.
+  ///
+  /// The tabs live in an `IndexedStack` and stay mounted, so no lifecycle hook
+  /// fires when one is reselected — favouriting from Browse left this stale
+  /// until the app restarted, and `didChangeDependencies` was a fix for a
+  /// different case (a fresh push) that looked like a fix for this one.
+  ///
+  /// Only the library half: the AniList shelves are a network call and nothing
+  /// local can have changed them. Debounced, because a library refresh writes
+  /// once per series and this would otherwise reload once per write.
+  StreamSubscription<void>? _watch;
+  Timer? _watchDebounce;
+
+  void _startWatching() {
+    _watch = _library.changes.listen((_) {
+      _watchDebounce?.cancel();
+      _watchDebounce = Timer(
+        const Duration(milliseconds: 300),
+        () => unawaited(_loadContinueReading()),
+      );
+    });
   }
 
   Future<void> load() async {

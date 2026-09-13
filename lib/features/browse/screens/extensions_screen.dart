@@ -339,6 +339,44 @@ class _RepoSheetState extends State<_RepoSheet> {
     super.dispose();
   }
 
+  /// Asks before removing, and says what will actually happen.
+  ///
+  /// Installed sources are *kept* — they are detached and stop receiving
+  /// updates — because deleting them would strand every library entry pointing
+  /// at them. The dialog says so, because "remove, and its extensions with it"
+  /// described the old behaviour and was the more frightening of the two.
+  Future<void> _confirmRemove(ExtensionRepo repo) async {
+    final kept = widget.controller.installedSourcesOf(repo.url);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove this repository?'),
+        content: Text(
+          kept == 0
+              ? 'Its extensions will no longer be listed.'
+              : kept == 1
+              ? '1 installed extension stays and keeps working, but stops '
+                    'receiving updates. The rest are no longer listed.'
+              : '$kept installed extensions stay and keep working, but stop '
+                    'receiving updates. The rest are no longer listed.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (!(ok ?? false)) return;
+    await widget.controller.removeRepo(repo.url);
+    if (mounted) await _reload();
+  }
+
   Future<void> _reload() async {
     final repos = await widget.controller.repos();
     if (mounted) setState(() => _repos = repos);
@@ -429,11 +467,8 @@ class _RepoSheetState extends State<_RepoSheet> {
                     ),
                     trailing: IconButton(
                       icon: const Icon(Iconsax.trash, size: 18),
-                      tooltip: 'Remove, and its extensions with it',
-                      onPressed: () async {
-                        await widget.controller.removeRepo(repo.url);
-                        await _reload();
-                      },
+                      tooltip: 'Remove this repository',
+                      onPressed: () => _confirmRemove(repo),
                     ),
                   ),
               ],

@@ -127,9 +127,13 @@ class MangaDetailsController extends GetxController {
 
       final source = await _sources.sourceById(sourceId);
       final methods = await _sources.methodsFor(sourceId);
+      // Guarded like every other write in this method. An older load resuming
+      // here would put its source's base URL on the *current* manga, and this
+      // value is the Referer/Origin on every cover request — so the cover would
+      // 403 for a reason nothing on screen could explain.
+      if (generation != _generation) return;
       // The runtime's effective base URL, not the stored one: a source can
-      // override it from a mirror preference, and this value becomes the
-      // Referer/Origin on every cover request.
+      // override it from a mirror preference.
       final effective = methods.sourceBaseUrl;
       sourceBaseUrl.value = effective.isNotEmpty
           ? effective

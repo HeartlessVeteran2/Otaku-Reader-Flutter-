@@ -117,13 +117,32 @@ class ExtensionRepositoryImpl implements ExtensionRepository {
     final repos = await getRepos();
     await _saveRepos(repos.where((r) => r.url != url).toList());
     db.isar.writeTxnSync(() {
-      final ids = db.isar.sources
-          .filter()
-          .repoUrlEqualTo(url)
-          .findAllSync()
-          .map((s) => s.id)
-          .toList();
-      db.isar.sources.deleteAllSync(ids);
+      final rows = db.isar.sources.filter().repoUrlEqualTo(url).findAllSync();
+
+      // An **installed** source is detached, not deleted. Every library entry
+      // stores its source's id, so deleting the row makes each of those entries
+      // fail with "No source with id ..." -- the exact failure the Kotlin app
+      // calls its highest-impact bug ever, and there is no way back from it
+      // because the user's chapters, progress and favourites all hang off that
+      // id. Clearing `repoUrl` means the source keeps working and simply stops
+      // receiving updates, which is what removing its repo should mean.
+      //
+      // Checking the library instead of the install state would be the wrong
+      // test: opening a manga stores an entry before it is favourited, so a
+      // favourites-only check misses read progress, and an entry can be added
+      // after the removal anyway.
+      final detach = <Source>[];
+      final delete = <int>[];
+      for (final row in rows) {
+        if (row.isInstalled) {
+          row.repoUrl = null;
+          detach.add(row);
+        } else {
+          delete.add(row.id);
+        }
+      }
+      db.isar.sources.deleteAllSync(delete);
+      if (detach.isNotEmpty) db.isar.sources.putAllSync(detach);
     });
   }
 

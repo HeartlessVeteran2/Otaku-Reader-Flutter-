@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:otaku_reader/core/database/database.dart' as db;
+import 'package:otaku_reader/data/isar/manga_entry.dart';
 import 'package:otaku_reader/data/repository/library_repository_impl.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/features/details/controllers/manga_details_controller.dart';
@@ -49,9 +52,24 @@ class _Methods implements SourceMethods {
   Object? failWith;
   int detailCalls = 0;
 
+  /// Responses to hand out in order, each behind a gate the test controls.
+  ///
+  /// The obvious stub — return the live `detail` field — cannot test the stale
+  /// guard at all: `getDetail` is not reached until `_library.find` resolves,
+  /// by which time the test has already set the *next* value, so both loads
+  /// fetch it and the assertion passes with the guard deleted. Capturing the
+  /// response when the call starts, and releasing it when the test says, is
+  /// what makes the older response able to land last.
+  final List<(MManga, Completer<void>)> scripted = [];
+
   @override
   Future<MManga> getDetail(String url) async {
-    detailCalls++;
+    final index = detailCalls++;
+    if (index < scripted.length) {
+      final (response, gate) = scripted[index];
+      await gate.future;
+      return response;
+    }
     if (failWith != null) throw failWith!;
     return detail;
   }
@@ -208,42 +226,67 @@ void main() {
     // path, so this now fails without the tie-break.
     // Digit-free titles: the parser reads a number anywhere in a title, so
     // "Extra 7" would parse as chapter 7 and leave nothing to order.
+    // Half of them share one url and half have none at all. That is the case
+    // the identity-keyed order map exists for: a url-keyed map collapses these
+    // onto one entry, putting the tie-break back to returning 0 for exactly
+    // the rows it was added to protect — and with distinct urls throughout,
+    // the old url-keyed version passed this test too.
     String label(int i) =>
         String.fromCharCode(65 + i ~/ 26) + String.fromCharCode(65 + i % 26);
     final extras = [
       for (var i = 0; i < 40; i++)
-        _ch('/extra-$i', 'Extra ${label(i)}: a side story'),
+        _ch(i.isEven ? '' : '/same', 'Extra ${label(i)}: a side story'),
     ];
     final (c, _) = await build(
       MManga(name: 'Example', chapters: [_ch('/c-1', 'Chapter 1'), ...extras]),
     );
 
+    // Identified by name, since the urls are deliberately not unique.
+    final expected = [for (var i = 0; i < 40; i++) 'Extra ${label(i)}'];
+    String initials(Iterable<Chapter> rows) =>
+        rows.map((x) => (x.name ?? '').split(':').first.trim()).join(',');
+
     final unnumbered = c.chapters.where((x) => x.number == null).toList();
     expect(unnumbered, hasLength(40), reason: 'none parsed a number');
-    expect(unnumbered.map((x) => x.url), [
-      for (var i = 0; i < 40; i++) '/extra-$i',
-    ]);
+    expect(initials(unnumbered), expected.join(','));
 
     // Flipping the numeric direction must not reorder them either.
     c.toggleSort();
-    expect(c.chapters.where((x) => x.number == null).map((x) => x.url), [
-      for (var i = 0; i < 40; i++) '/extra-$i',
-    ]);
+    expect(
+      initials(c.chapters.where((x) => x.number == null)),
+      expected.join(','),
+    );
   });
 
   test('a stale load cannot overwrite a newer one', () async {
     // A pull-to-refresh started before the first load returns must not let the
-    // older response land last.
+    // older response land last -- so the older one is deliberately released
+    // *after* the newer one has already finished.
     final (c, methods) = await build(MManga(name: 'First'));
     expect(c.entry.value?.title, 'First');
 
-    methods.detail = MManga(name: 'Second');
+    final slowGate = Completer<void>();
+    final fastGate = Completer<void>()..complete();
+    methods
+      ..detailCalls = 0
+      ..scripted.addAll([
+        (MManga(name: 'Second'), slowGate),
+        (MManga(name: 'Third'), fastGate),
+      ]);
+
     final slow = c.load();
-    methods.detail = MManga(name: 'Third');
+    await Future<void>.delayed(Duration.zero);
     await c.load();
+    expect(c.entry.value?.title, 'Third');
+
+    slowGate.complete();
     await slow;
 
-    expect(c.entry.value?.title, 'Third');
+    expect(
+      c.entry.value?.title,
+      'Third',
+      reason: 'the superseded response was dropped, not applied last',
+    );
   });
 
   test('the unread filter hides read chapters and the count follows', () async {

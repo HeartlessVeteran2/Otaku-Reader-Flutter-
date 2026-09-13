@@ -17,31 +17,8 @@ import 'package:otaku_reader/features/updates/controllers/updates_controller.dar
 import 'package:otaku_reader/source/model/m_chapter.dart';
 import 'package:otaku_reader/source/model/m_manga.dart';
 
-import 'package:otaku_reader/domain/repository/source_repository.dart';
-import 'package:otaku_reader/source/model/source.dart';
-import 'package:otaku_reader/source/source_methods.dart';
-
+import 'helpers/fake_source_repository.dart';
 import 'helpers/isar_test_env.dart';
-
-/// The library screen only needs a base URL per source for cover headers; these
-/// suites do not exercise that, so every lookup answers "no source".
-class _NoSources implements SourceRepository {
-  @override
-  Future<Source?> sourceById(int id) async => null;
-  @override
-  Future<SourceMethods> methodsFor(int id) async => throw UnimplementedError();
-  @override
-  Future<void> markUsed(int id) async {}
-  @override
-  void evict(int id) {}
-  @override
-  void evictAll() {}
-  @override
-  Future<List<Source>> installedSources({
-    Set<String>? langs,
-    bool includeNsfw = false,
-  }) async => const [];
-}
 
 /// The home screen's shelves are AniList-driven, and these suites are about the
 /// shell's chrome. Every lookup answers "nothing", which is also the path a
@@ -82,7 +59,7 @@ void main() {
     Get.put<LibraryController>(
       LibraryController(
         library: LibraryRepositoryImpl(),
-        sources: _NoSources(),
+        sources: const NoSources(),
       ),
     );
     // So is the Home tab, which is the shell's default landing tab.
@@ -160,8 +137,10 @@ void main() {
       ),
     );
 
-    final updates = UpdatesController(library: library, sources: _NoSources())
-      ..onInit();
+    final updates = UpdatesController(
+      library: library,
+      sources: const NoSources(),
+    )..onInit();
     Get.put<UpdatesController>(updates);
     await tester.pumpAndSettle();
 
@@ -178,6 +157,12 @@ void main() {
       findsNothing,
       reason: 'a read update is still listed, but it is not outstanding',
     );
+
+    // The write notifies every library watcher, and each debounces its reload.
+    // Leaving that timer pending fails the widget test's own invariant check —
+    // which is the framework catching exactly the leak the real onClose exists
+    // to prevent.
+    updates.onClose();
   });
 
   testWidgets('a persisted tab index out of range is clamped, not crashed', (
