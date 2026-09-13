@@ -1,5 +1,7 @@
 import 'package:isar_community/isar.dart';
 
+import 'package:otaku_reader/source/model/m_status.dart';
+
 part 'manga_entry.g.dart';
 
 /// One library entry.
@@ -26,8 +28,13 @@ class MangaEntry {
   String? description;
   List<String> genres = const [];
 
-  /// Mangayomi `MStatus` index.
-  int status = 5;
+  /// Index into [Status].
+  ///
+  /// Stored as an int because Isar indexes enums by ordinal anyway, but written
+  /// through the enum so a reorder cannot silently change its meaning — the
+  /// literal `5` here used to mean `publishingFinished`, so every entry the
+  /// user added claimed to be finished.
+  int status = Status.unknown.index;
 
   @Index()
   bool favorite = false;

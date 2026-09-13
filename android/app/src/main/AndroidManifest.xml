@@ -1,4 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required in the MAIN manifest, not just debug/. Flutter's template puts
+         INTERNET only in src/debug for hot reload, so a release build of a
+         source-driven reader would have no network at all: no catalogues, no
+         chapters, no images. Every local check was a debug build, which is
+         exactly why this was invisible. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="otaku_reader"
         android:name="${applicationName}"

@@ -1,0 +1,95 @@
+name: CI
+
+# The only gate on a pull request. Everything here is something a contributor
+# can also run locally; see CONTRIBUTING.md.
+on:
+    pull_request:
+        branches: [main]
+    workflow_dispatch:
+
+# Read-only: nothing in this workflow needs to write to the repository.
+permissions:
+    contents: read
+
+concurrency:
+    group: ci-${{ github.ref }}
+    cancel-in-progress: true
+
+env:
+    # Pinned exactly, not to a channel. d4rt 0.2.4 needs Dart >= 3.9 (via
+    # analyzer >= 8.2.0) and Mangayomi itself targets sdk ^3.13.1, so the
+    # toolchain is part of the contract with the extension ecosystem.
+    FLUTTER_VERSION: 3.47.4
+
+jobs:
+    build:
+        name: Analyze, test, build
+        runs-on: ubuntu-latest
+        timeout-minutes: 45
+
+        steps:
+            # All actions are pinned to commit SHAs. A tag is mutable; a SHA is
+            # not, and CI runs with access to the checkout.
+            - name: Checkout
+              uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+            - name: Set up JDK 21
+              uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+              with:
+                  distribution: temurin
+                  java-version: "21"
+
+            - name: Set up Flutter ${{ env.FLUTTER_VERSION }}
+              uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+              with:
+                  flutter-version: ${{ env.FLUTTER_VERSION }}
+                  channel: stable
+                  cache: true
+
+            - name: Resolve dependencies
+              run: flutter pub get
+
+            # The .g.dart files are committed, so this proves they match the
+            # schemas they were generated from. A schema edited without
+            # regenerating otherwise fails only on a device, at runtime.
+            - name: Check generated code is current
+              run: |
+                  dart run build_runner build
+                  git diff --exit-code -- '*.g.dart' \
+                      || { echo "::error::Generated files are stale. Run: dart run build_runner build"; exit 1; }
+
+            - name: Check formatting
+              run: dart format --set-exit-if-changed lib test tool
+
+            - name: Analyze
+              run: flutter analyze
+
+            # Isar loads a native library that is downloaded, not vendored, and
+            # a widget-test suite cannot fetch it: TestWidgetsFlutterBinding
+            # replaces HttpClient with one that answers every request 400 and
+            # makes no network call. So whichever Isar-using suite ran first
+            # decided whether the run passed — app_shell_test.dart is a widget
+            # suite, it ran first, and it failed with an empty reason phrase.
+            #
+            # Fetching it here, from a plain Dart VM with a real HttpClient,
+            # takes the download out of the test run entirely. The script and
+            # the suites agree on one pinned path, because Isar otherwise
+            # derives it from Platform.script — a per-suite generated
+            # entrypoint under `flutter test`, so suites disagree about where
+            # the library even is.
+            - name: Fetch the Isar native library
+              run: dart run tool/fetch_isar_core.dart
+
+            - name: Test
+              run: flutter test
+
+            - name: Build debug APK
+              run: flutter build apk --debug
+
+            - name: Upload APK
+              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+              with:
+                  name: app-debug
+                  path: build/app/outputs/flutter-apk/app-debug.apk
+                  retention-days: 7
+                  if-no-files-found: error

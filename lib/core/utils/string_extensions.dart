@@ -1,7 +1,3 @@
-import 'dart:ffi';
-
-import 'package:ffi/ffi.dart';
-
 extension StringExtensions on String {
   String substringAfter(String pattern) {
     final startIndex = indexOf(pattern);
@@ -92,24 +88,5 @@ extension DefaultValueExtension on String? {
       return this!.trim();
     }
     return defaultValue;
-  }
-}
-
-extension NativeStringExtensions on List<String> {
-  Pointer<Pointer<Int8>> strListToPointer() {
-    final strings = this;
-    List<Pointer<Int8>> int8PointerList = strings
-        .map((str) => str.toNativeUtf8().cast<Int8>())
-        .toList();
-
-    final Pointer<Pointer<Int8>> pointerPointer = malloc.allocate(
-      int8PointerList.length,
-    );
-
-    strings.asMap().forEach((index, utf) {
-      pointerPointer[index] = int8PointerList[index];
-    });
-
-    return pointerPointer;
   }
 }

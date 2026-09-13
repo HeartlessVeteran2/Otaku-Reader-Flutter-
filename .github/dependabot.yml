@@ -1,0 +1,21 @@
+version: 2
+
+updates:
+    # d4rt, isar_community and the Mangayomi generator fork are all load-bearing
+    # and move fast; a stale pin here is how the toolchain silently drifts away
+    # from what published extensions are written against.
+    - package-ecosystem: pub
+      directory: /
+      schedule:
+          interval: weekly
+      open-pull-requests-limit: 5
+      labels: [dependencies]
+
+    # Actions are pinned to SHAs, which means nothing updates them automatically
+    # unless Dependabot does.
+    - package-ecosystem: github-actions
+      directory: /
+      schedule:
+          interval: weekly
+      open-pull-requests-limit: 5
+      labels: [dependencies, ci]

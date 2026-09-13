@@ -1,0 +1,62 @@
+name: A source is not working
+description: A manga source fails to load, search, or open chapters.
+labels: [source]
+body:
+    - type: markdown
+      attributes:
+          value: |
+              **Please check the site in a browser first.** In the measured sweep of
+              this project's own runtime, *every* hard failure was external: a dead
+              domain, a site that had moved, a Cloudflare challenge, or an upstream
+              error. Sources break far more often than the app does, and knowing
+              which it is saves everyone time.
+
+    - type: input
+      id: source
+      attributes:
+          label: Source name
+          placeholder: e.g. MangaRead.org
+      validations:
+          required: true
+
+    - type: dropdown
+      id: site_loads
+      attributes:
+          label: Does the site load in a normal browser?
+          options:
+              - "Yes, it loads fine"
+              - "No — it does not load at all"
+              - "It loads but shows a Cloudflare / captcha check"
+              - "It redirects somewhere else"
+          default: 0
+      validations:
+          required: true
+
+    - type: dropdown
+      id: stage
+      attributes:
+          label: Where does it fail?
+          options:
+              - Browsing popular / latest
+              - Searching
+              - Opening a manga's details or chapter list
+              - Opening a chapter (pages do not load)
+              - Downloading
+      validations:
+          required: true
+
+    - type: textarea
+      id: what_happens
+      attributes:
+          label: What happens?
+          description: Any on-screen error message, verbatim.
+      validations:
+          required: true
+
+    - type: input
+      id: version
+      attributes:
+          label: App version
+          description: Found in More → About.
+      validations:
+          required: true
