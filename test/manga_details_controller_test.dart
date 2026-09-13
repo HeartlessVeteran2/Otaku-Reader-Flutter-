@@ -13,7 +13,29 @@ import 'package:otaku_reader/source/model/source.dart';
 import 'package:otaku_reader/source/model/source_preference.dart';
 import 'package:otaku_reader/source/source_methods.dart';
 
+import 'package:otaku_reader/data/anilist/anilist_metadata_service.dart';
+import 'package:otaku_reader/data/anilist/title_matcher.dart';
+import 'package:otaku_reader/domain/model/anilist_media.dart';
+import 'package:otaku_reader/domain/repository/anilist_repository.dart';
+
 import 'helpers/isar_test_env.dart';
+
+/// AniList is supplementary, so these tests run without it: every lookup says
+/// "no match", which is the same path an obscure title takes in production.
+class _NoAniList implements AniListRepository {
+  @override
+  Future<AniListMedia?> media(int id) async => null;
+  @override
+  Future<TitleMatch?> match(String title) async => null;
+  @override
+  Future<List<TitleMatch>> searchCandidates(String title) async => const [];
+  @override
+  Future<Map<String, List<AniListMedia>>> home({int perPage = 20}) async =>
+      const {};
+}
+
+AniListMetadataService _anilistService() =>
+    AniListMetadataService(anilist: _NoAniList());
 
 const _sourceId = 7;
 const _url = '/manga/example';
@@ -112,6 +134,7 @@ void main() {
     final c = MangaDetailsController(
       sources: _Sources(methods, _row()),
       library: library,
+      anilist: _anilistService(),
       sourceId: _sourceId,
       url: _url,
       initial: initial,
@@ -282,6 +305,7 @@ void main() {
       final second = MangaDetailsController(
         sources: _Sources(methods, _row()),
         library: library,
+        anilist: _anilistService(),
         sourceId: _sourceId,
         url: _url,
       )..onInit();
@@ -299,6 +323,7 @@ void main() {
     final c = MangaDetailsController(
       sources: _Sources(methods, _row()),
       library: library,
+      anilist: _anilistService(),
       sourceId: _sourceId,
       url: _url,
     )..onInit();
@@ -314,6 +339,7 @@ void main() {
     final c = MangaDetailsController(
       sources: _Sources(methods, _row()),
       library: library,
+      anilist: _anilistService(),
       sourceId: _sourceId,
       url: _url,
     )..onInit();

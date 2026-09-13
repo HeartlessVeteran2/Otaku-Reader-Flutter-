@@ -16,4 +16,13 @@ abstract interface class AniListRepository {
   /// [TitleMatch.isConfident], because "store it" and "show it" are different
   /// questions from "what came back".
   Future<TitleMatch?> match(String title);
+
+  /// Every candidate for a title, scored and best first.
+  ///
+  /// Feeds the manual picker, which exists because auto-matching deliberately
+  /// refuses anything below the confidence threshold.
+  Future<List<TitleMatch>> searchCandidates(String title);
+
+  /// The home page's shelves, keyed by shelf name.
+  Future<Map<String, List<AniListMedia>>> home({int perPage = 20});
 }

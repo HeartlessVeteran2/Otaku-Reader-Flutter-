@@ -2,12 +2,16 @@ import 'package:get/get.dart';
 
 import 'package:otaku_reader/core/theme/theme_controller.dart';
 import 'package:otaku_reader/data/repository/extension_repository_impl.dart';
+import 'package:otaku_reader/data/anilist/anilist_metadata_service.dart';
+import 'package:otaku_reader/data/repository/anilist_repository_impl.dart';
 import 'package:otaku_reader/data/repository/library_repository_impl.dart';
 import 'package:otaku_reader/data/repository/source_repository_impl.dart';
 import 'package:otaku_reader/domain/repository/extension_repository.dart';
+import 'package:otaku_reader/domain/repository/anilist_repository.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/features/browse/controllers/extensions_controller.dart';
+import 'package:otaku_reader/features/home/controllers/home_controller.dart';
 import 'package:otaku_reader/features/library/controllers/library_controller.dart';
 
 /// Explicit dependency wiring.
@@ -30,6 +34,11 @@ class AppBindings extends Bindings {
     Get.put<ExtensionRepository>(ExtensionRepositoryImpl(), permanent: true);
     Get.put<SourceRepository>(SourceRepositoryImpl(), permanent: true);
     Get.put<LibraryRepository>(LibraryRepositoryImpl(), permanent: true);
+    Get.put<AniListRepository>(AniListRepositoryImpl(), permanent: true);
+    Get.put<AniListMetadataService>(
+      AniListMetadataService(anilist: Get.find<AniListRepository>()),
+      permanent: true,
+    );
 
     // lazyPut, so the catalogue is not read until the Browse tab is first
     // opened. The shell builds its tabs lazily for the same reason.
@@ -37,6 +46,13 @@ class AppBindings extends Bindings {
       () => ExtensionsController(
         extensions: Get.find<ExtensionRepository>(),
         sources: Get.find<SourceRepository>(),
+        library: Get.find<LibraryRepository>(),
+      ),
+      fenix: true,
+    );
+    Get.lazyPut<HomeController>(
+      () => HomeController(
+        anilist: Get.find<AniListRepository>(),
         library: Get.find<LibraryRepository>(),
       ),
       fenix: true,

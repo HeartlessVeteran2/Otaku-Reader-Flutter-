@@ -4,6 +4,7 @@ import 'package:iconsax/iconsax.dart';
 import 'package:otaku_reader/core/database/data_keys/keys.dart';
 import 'package:otaku_reader/core/database/kv_helper.dart';
 import 'package:otaku_reader/features/browse/screens/extensions_screen.dart';
+import 'package:otaku_reader/features/home/screens/home_screen.dart';
 import 'package:otaku_reader/features/library/screens/library_screen.dart';
 import 'package:otaku_reader/widgets/common/lazy_indexed_stack.dart';
 import 'package:otaku_reader/widgets/common/placeholder_screen.dart';
@@ -32,16 +33,7 @@ class _AppShellState extends State<AppShell> {
   static const _breakpoint = 600.0;
 
   static final _tabs = <_Tab>[
-    _Tab(
-      'Home',
-      Iconsax.home,
-      Iconsax.home5,
-      () => const PlaceholderScreen(
-        title: 'Home',
-        icon: Iconsax.home,
-        note: 'Local and AniList home feeds land in phase 2.',
-      ),
-    ),
+    _Tab('Home', Iconsax.home, Iconsax.home5, () => const HomeScreen()),
     _Tab(
       'Library',
       Iconsax.book,

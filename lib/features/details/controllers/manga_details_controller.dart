@@ -4,9 +4,14 @@
 // the controller to the repositories it exists to mediate.
 // ignore_for_file: prefer_initializing_formals
 
+import 'dart:async';
+
 import 'package:get/get.dart';
 
+import 'package:otaku_reader/data/anilist/anilist_metadata_service.dart';
+import 'package:otaku_reader/data/anilist/title_matcher.dart';
 import 'package:otaku_reader/data/isar/manga_entry.dart';
+import 'package:otaku_reader/domain/model/anilist_media.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/source/model/m_manga.dart';
@@ -19,15 +24,18 @@ class MangaDetailsController extends GetxController {
   MangaDetailsController({
     required SourceRepository sources,
     required LibraryRepository library,
+    required AniListMetadataService anilist,
     required this.sourceId,
     required this.url,
     MManga? initial,
   }) : _sources = sources,
        _library = library,
+       _anilist = anilist,
        _initial = initial;
 
   final SourceRepository _sources;
   final LibraryRepository _library;
+  final AniListMetadataService _anilist;
   final int sourceId;
   final String url;
   final MManga? _initial;
@@ -45,6 +53,14 @@ class MangaDetailsController extends GetxController {
   /// the older response land last and overwrite the newer metadata and chapter
   /// list. The browse and reader controllers already guard this way.
   int _generation = 0;
+
+  /// AniList metadata, when a **confident** match exists.
+  ///
+  /// Null is the ordinary case for an obscure title, not an error, and renders
+  /// nothing: a wrong synopsis and wrong tags look exactly as authoritative as
+  /// right ones. The recourse is [linkTo], not a lower threshold.
+  final anilist = Rxn<AniListMedia>();
+  final isLoadingAniList = false.obs;
 
   /// What the browse grid already knew, shown immediately so the page is not a
   /// spinner over nothing while the detail request runs.
@@ -126,6 +142,9 @@ class MangaDetailsController extends GetxController {
         url: url,
         manga: detail,
       );
+      // Deliberately not awaited: AniList is supplementary, and the chapter
+      // list must not wait on a third-party API to render.
+      unawaited(_loadAniList(generation));
     } catch (e) {
       if (generation != _generation) return;
       // Only an error if there is nothing to show. A stored entry plus a failed
@@ -138,6 +157,51 @@ class MangaDetailsController extends GetxController {
     } finally {
       if (generation == _generation) isLoading.value = false;
     }
+  }
+
+  /// Fetches AniList metadata for the current entry, if one is stored.
+  Future<void> _loadAniList(int generation, {bool force = false}) async {
+    final id = entry.value?.id;
+    final title = entry.value?.title;
+    if (id == null || title == null || title.isEmpty) return;
+    isLoadingAniList.value = true;
+    try {
+      final media = await _anilist.metadataFor(
+        entryId: id,
+        title: title,
+        forceRefresh: force,
+      );
+      if (generation != _generation) return;
+      anilist.value = media;
+    } catch (_) {
+      // Swallowed on purpose. A page that works without AniList must not show
+      // an error because AniList was unreachable — the chapter list, the cover
+      // and the reader are all unaffected.
+    } finally {
+      if (generation == _generation) isLoadingAniList.value = false;
+    }
+  }
+
+  /// Candidates for the manual picker, best first.
+  Future<List<TitleMatch>> anilistCandidates() async {
+    final title = entry.value?.title ?? _initial?.name ?? '';
+    return _anilist.candidates(title);
+  }
+
+  /// Records the user's pick. It outlives the metadata cache, and
+  /// auto-matching never overwrites it.
+  Future<void> linkTo(int anilistId) async {
+    final id = entry.value?.id;
+    if (id == null) return;
+    _anilist.setLink(id, anilistId);
+    await _loadAniList(_generation, force: true);
+  }
+
+  Future<void> unlinkAniList() async {
+    final id = entry.value?.id;
+    if (id == null) return;
+    _anilist.clearLink(id);
+    anilist.value = null;
   }
 
   Future<void> toggleFavorite() async {

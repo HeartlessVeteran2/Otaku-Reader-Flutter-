@@ -6,7 +6,9 @@ import 'package:iconsax/iconsax.dart';
 import 'package:otaku_reader/data/isar/manga_entry.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
+import 'package:otaku_reader/data/anilist/anilist_metadata_service.dart';
 import 'package:otaku_reader/features/details/controllers/manga_details_controller.dart';
+import 'package:otaku_reader/features/details/widgets/anilist_sections.dart';
 import 'package:otaku_reader/features/reader/screens/reader_screen.dart';
 import 'package:otaku_reader/source/http/m_client.dart';
 import 'package:otaku_reader/source/model/m_manga.dart';
@@ -34,6 +36,7 @@ class _MangaDetailsScreenState extends State<MangaDetailsScreen> {
     MangaDetailsController(
       sources: Get.find<SourceRepository>(),
       library: Get.find<LibraryRepository>(),
+      anilist: Get.find<AniListMetadataService>(),
       sourceId: widget.sourceId,
       url: widget.url,
       initial: widget.initial,
@@ -86,6 +89,7 @@ class _MangaDetailsScreenState extends State<MangaDetailsScreen> {
                   onToggleFavorite: entry == null ? null : _c.toggleFavorite,
                 ),
               ),
+              SliverToBoxAdapter(child: _AniList(controller: _c)),
               SliverToBoxAdapter(
                 child: _ChapterHeader(
                   count: _c.chapters.length,
@@ -142,6 +146,70 @@ class _MangaDetailsScreenState extends State<MangaDetailsScreen> {
       }),
     );
   }
+}
+
+/// Everything AniList contributes, or nothing at all.
+///
+/// Rendering nothing is the correct outcome for an unmatched title, not a
+/// failure state: below the confidence threshold no match is stored, because a
+/// wrong synopsis and wrong tags look exactly as authoritative as right ones.
+class _AniList extends StatelessWidget {
+  const _AniList({required this.controller});
+
+  final MangaDetailsController controller;
+
+  @override
+  Widget build(BuildContext context) => Obx(() {
+    final media = controller.anilist.value;
+    if (media == null) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 20),
+        AniListStats(media: media),
+        const SizedBox(height: 16),
+        AniListTags(media: media),
+        PersonCarousel(
+          title: 'Characters',
+          people: media.characters,
+          prettifyRole: true,
+        ),
+        PersonCarousel(
+          title: 'Staff',
+          people: media.staff,
+          // Staff roles are free text ("Story & Art"); prettifying would make a
+          // credit reading "Main" indistinguishable from the character enum.
+          prettifyRole: false,
+        ),
+        MediaCarousel(
+          title: 'Related',
+          items: [
+            for (final r in media.mangaRelations)
+              (
+                id: r.id,
+                title: r.title,
+                coverUrl: r.coverUrl,
+                subtitle: r.relationType?.toLowerCase().replaceAll('_', ' '),
+              ),
+          ],
+        ),
+        MediaCarousel(
+          title: 'Recommended',
+          items: [
+            for (final r in media.mangaRecommendations)
+              (
+                id: r.id,
+                title: r.title,
+                coverUrl: r.coverUrl,
+                subtitle: r.averageScore == null ? null : '${r.averageScore}%',
+              ),
+          ],
+        ),
+        AlternativeTitles(media: media),
+        ExternalLinkChips(links: media.externalLinks, onOpen: (_) {}),
+      ],
+    );
+  });
 }
 
 class _Header extends StatelessWidget {

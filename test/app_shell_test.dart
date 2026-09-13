@@ -8,6 +8,10 @@ import 'package:otaku_reader/core/database/kv_helper.dart';
 import 'package:otaku_reader/core/navigation/app_shell.dart';
 import 'package:otaku_reader/core/theme/theme_controller.dart';
 import 'package:otaku_reader/data/repository/library_repository_impl.dart';
+import 'package:otaku_reader/data/anilist/title_matcher.dart';
+import 'package:otaku_reader/domain/model/anilist_media.dart';
+import 'package:otaku_reader/domain/repository/anilist_repository.dart';
+import 'package:otaku_reader/features/home/controllers/home_controller.dart';
 import 'package:otaku_reader/features/library/controllers/library_controller.dart';
 
 import 'package:otaku_reader/domain/repository/source_repository.dart';
@@ -36,6 +40,21 @@ class _NoSources implements SourceRepository {
   }) async => const [];
 }
 
+/// The home screen's shelves are AniList-driven, and these suites are about the
+/// shell's chrome. Every lookup answers "nothing", which is also the path a
+/// first launch with no network takes.
+class _NoAniList implements AniListRepository {
+  @override
+  Future<AniListMedia?> media(int id) async => null;
+  @override
+  Future<TitleMatch?> match(String title) async => null;
+  @override
+  Future<List<TitleMatch>> searchCandidates(String title) async => const [];
+  @override
+  Future<Map<String, List<AniListMedia>>> home({int perPage = 20}) async =>
+      const {};
+}
+
 void main() {
   // Nullable, not `late`: when open() throws -- a missing native library is
   // the realistic case -- a `late` field makes tearDownAll throw
@@ -62,6 +81,10 @@ void main() {
         library: LibraryRepositoryImpl(),
         sources: _NoSources(),
       ),
+    );
+    // So is the Home tab, which is the shell's default landing tab.
+    Get.put<HomeController>(
+      HomeController(anilist: _NoAniList(), library: LibraryRepositoryImpl()),
     );
   });
 

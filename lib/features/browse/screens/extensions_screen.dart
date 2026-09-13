@@ -7,6 +7,7 @@ import 'package:otaku_reader/features/browse/controllers/extensions_controller.d
 import 'package:otaku_reader/features/browse/screens/source_browse_screen.dart';
 import 'package:otaku_reader/features/browse/widgets/source_tile.dart';
 import 'package:otaku_reader/source/model/source.dart';
+import 'package:otaku_reader/features/search/screens/global_search_screen.dart';
 
 /// Install, update and remove extensions, and manage the repos they come from.
 class ExtensionsScreen extends StatefulWidget {
@@ -35,6 +36,15 @@ class _ExtensionsScreenState extends State<ExtensionsScreen>
       appBar: AppBar(
         title: const Text('Extensions'),
         actions: [
+          IconButton(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const GlobalSearchScreen(),
+              ),
+            ),
+            icon: const Icon(Iconsax.search_normal),
+            tooltip: 'Search all sources',
+          ),
           IconButton(
             onPressed: _showLanguageFilter,
             icon: const Icon(Iconsax.language_square),

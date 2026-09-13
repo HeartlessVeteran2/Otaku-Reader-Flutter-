@@ -8,6 +8,7 @@ class AniListMedia {
   const AniListMedia({
     required this.id,
     required this.titles,
+    this.raw = const {},
     this.malId,
     this.isAdult = false,
     this.description,
@@ -36,6 +37,12 @@ class AniListMedia {
   });
 
   final int id;
+
+  /// The payload this was parsed from, so the cache stores one representation
+  /// rather than needing a hand-written `toJson` that can drift from
+  /// [fromJson].
+  final Map<String, dynamic> raw;
+
   final int? malId;
   final bool isAdult;
   final AniListTitles titles;
@@ -70,6 +77,7 @@ class AniListMedia {
 
     return AniListMedia(
       id: id,
+      raw: json,
       malId: (json['idMal'] as num?)?.toInt(),
       isAdult: json['isAdult'] as bool? ?? false,
       titles: AniListTitles.fromJson(

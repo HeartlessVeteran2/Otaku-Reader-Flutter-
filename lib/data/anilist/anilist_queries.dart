@@ -93,6 +93,43 @@ query ($id: Int) {
 }
 ''';
 
+  /// The home page's shelves, in one round trip.
+  ///
+  /// Four aliased `Page` queries rather than four requests: AniList rate-limits
+  /// per request, not per field, so a single call is both faster and far less
+  /// likely to be throttled on a cold home screen.
+  static const home = r'''
+query ($perPage: Int) {
+  trending: Page(page: 1, perPage: $perPage) {
+    media(type: MANGA, sort: TRENDING_DESC) { ...card }
+  }
+  popular: Page(page: 1, perPage: $perPage) {
+    media(type: MANGA, sort: POPULARITY_DESC) { ...card }
+  }
+  topRated: Page(page: 1, perPage: $perPage) {
+    media(type: MANGA, sort: SCORE_DESC) { ...card }
+  }
+  newReleases: Page(page: 1, perPage: $perPage) {
+    media(type: MANGA, sort: START_DATE_DESC, status: RELEASING) { ...card }
+  }
+}
+
+fragment card on Media {
+  id
+  isAdult
+  title { userPreferred romaji english native }
+  synonyms
+  coverImage { extraLarge large color }
+  bannerImage
+  averageScore
+  popularity
+  status
+  format
+  chapters
+  genres
+}
+''';
+
   /// Resolves a source's title to AniList media, for auto-matching.
   ///
   /// `type: MANGA` matters: a great many titles name both a manga and its anime

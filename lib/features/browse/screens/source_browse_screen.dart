@@ -11,9 +11,17 @@ import 'package:otaku_reader/features/details/screens/manga_details_screen.dart'
 
 /// Browses one installed source: popular, latest, or a search.
 class SourceBrowseScreen extends StatefulWidget {
-  const SourceBrowseScreen({super.key, required this.sourceId});
+  const SourceBrowseScreen({
+    super.key,
+    required this.sourceId,
+    this.initialQuery,
+  });
 
   final int sourceId;
+
+  /// Opens straight into a search rather than the popular listing — what "See
+  /// all" on a global search result means.
+  final String? initialQuery;
 
   @override
   State<SourceBrowseScreen> createState() => _SourceBrowseScreenState();
@@ -25,11 +33,12 @@ class _SourceBrowseScreenState extends State<SourceBrowseScreen> {
     SourceBrowseController(
       sources: Get.find<SourceRepository>(),
       sourceId: widget.sourceId,
+      initialQuery: widget.initialQuery,
     ),
     tag: _tag,
   );
   final _scroll = ScrollController();
-  final _search = TextEditingController();
+  late final _search = TextEditingController(text: widget.initialQuery ?? '');
 
   @override
   void initState() {

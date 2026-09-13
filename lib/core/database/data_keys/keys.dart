@@ -105,7 +105,18 @@ enum DynamicKeys {
   readerOverrides,
   trackBindings,
   deleteAfterReadOverride,
-  autoDownloadOverride;
+  autoDownloadOverride,
+
+  /// Which AniList media a manga is, keyed by library row id.
+  ///
+  /// Deliberately separate from [anilistMeta]: the metadata is a disposable
+  /// cache that a refetch overwrites wholesale, and a user's manual correction
+  /// has to outlive it.
+  anilistLink,
+
+  /// The cached AniList payload, and when it was fetched.
+  anilistMeta,
+  anilistMetaAt;
 
   T get<T>(dynamic id, [T? defaultValue]) =>
       KvHelper.get<T>('${name}_$id', defaultVal: defaultValue);

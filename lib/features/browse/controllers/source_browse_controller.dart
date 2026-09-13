@@ -23,7 +23,19 @@ class SourceBrowseController extends GetxController {
   SourceBrowseController({
     required SourceRepository sources,
     required this.sourceId,
-  }) : _sources = sources;
+    String? initialQuery,
+  }) : _sources = sources {
+    // Applied here rather than by the screen calling setQuery after
+    // construction: setQuery calls reload(), and _start() has not yet resolved
+    // the source's methods at that point, so that reload fails with "Source is
+    // not ready" and the arriving search is the *second* load, racing the
+    // first.
+    final q = initialQuery?.trim() ?? '';
+    if (q.isNotEmpty) {
+      query.value = q;
+      mode.value = BrowseMode.search;
+    }
+  }
 
   final SourceRepository _sources;
   final int sourceId;

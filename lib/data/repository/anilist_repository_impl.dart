@@ -56,21 +56,52 @@ class AniListRepositoryImpl implements AniListRepository {
 
   @override
   Future<TitleMatch?> match(String title) async {
+    final scored = await searchCandidates(title);
+    return scored.isEmpty ? null : scored.first;
+  }
+
+  @override
+  Future<List<TitleMatch>> searchCandidates(String title) async {
     final trimmed = title.trim();
-    if (trimmed.isEmpty) return null;
+    if (trimmed.isEmpty) return const [];
 
     final data = await _query(AniListQueries.search, {
       'search': trimmed,
       'perPage': _searchLimit,
     });
-    if (data == null) return null;
+    if (data == null) return const [];
 
     final list = (data['Page'] as Map?)?['media'] as List?;
     final candidates = [
       for (final raw in list ?? const [])
         if (raw is Map) ?AniListMedia.fromJson(Map<String, dynamic>.from(raw)),
     ];
-    return TitleMatcher.best(trimmed, candidates);
+    // Scored individually rather than via `best`, because the picker shows the
+    // runners-up: the whole point of it is the case where the top hit is wrong.
+    final scored = [
+      for (final media in candidates) ?TitleMatcher.best(trimmed, [media]),
+    ]..sort((a, b) => b.score.compareTo(a.score));
+    return scored;
+  }
+
+  @override
+  Future<Map<String, List<AniListMedia>>> home({int perPage = 20}) async {
+    final data = await _query(AniListQueries.home, {'perPage': perPage});
+    if (data == null) return const {};
+    return {
+      for (final shelf in const [
+        'trending',
+        'popular',
+        'topRated',
+        'newReleases',
+      ])
+        shelf: [
+          for (final raw
+              in ((data[shelf] as Map?)?['media'] as List?) ?? const [])
+            if (raw is Map)
+              ?AniListMedia.fromJson(Map<String, dynamic>.from(raw)),
+        ],
+    };
   }
 
   /// Runs a query and unwraps `data`, or returns null.
