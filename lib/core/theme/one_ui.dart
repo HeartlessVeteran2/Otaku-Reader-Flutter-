@@ -45,8 +45,15 @@ abstract final class OneUi {
 /// A screen with One UI's collapsing header.
 ///
 /// The title starts oversized in the top half and shrinks into the app bar as
-/// the content scrolls. [slivers] are the body — use [OneUiGroup] for grouped
-/// rows, and `SliverList`/`SliverGrid` for anything long.
+/// the content scrolls.
+///
+/// [slivers] is a sliver slot, so **every entry must produce a `RenderSliver`**
+/// — use [SliverOneUiGroup] for grouped rows, `SliverList`/`SliverGrid` for
+/// anything long, and wrap a plain widget in a `SliverToBoxAdapter`. Putting a
+/// box widget here — [OneUiGroup] itself, a `Column`, a `Padding` — compiles
+/// and analyses clean, because the declared type is `Widget` either way, and
+/// throws during layout on the device. `test/one_ui_test.dart` renders every
+/// screen that uses this for exactly that reason.
 class OneUiScaffold extends StatelessWidget {
   const OneUiScaffold({
     super.key,
@@ -112,6 +119,9 @@ class OneUiScaffold extends StatelessWidget {
 /// The label sits *above* the container in the accent colour rather than
 /// inside it as a header row, which is what separates this from a Material
 /// `ListTile` section.
+///
+/// This is a **box** widget. Inside an [OneUiScaffold] use [SliverOneUiGroup];
+/// this one is for an ordinary `ListView` or `Column`.
 class OneUiGroup extends StatelessWidget {
   const OneUiGroup({
     super.key,
@@ -173,7 +183,7 @@ class OneUiGroup extends StatelessWidget {
   }
 }
 
-/// [OneUiGroup] as a sliver, for use directly in [OneUiScaffold.slivers].
+/// [OneUiGroup] as a sliver — the form to use inside [OneUiScaffold.slivers].
 class SliverOneUiGroup extends StatelessWidget {
   const SliverOneUiGroup({super.key, this.label, required this.children});
 
