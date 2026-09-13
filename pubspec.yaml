@@ -38,7 +38,7 @@ dependencies:
     # http is the surface the bridge must present; http_interceptor supplies the
     # header/cookie/Cloudflare hooks around it.
     http: ^1.2.2
-    http_interceptor: ^2.0.0
+    http_interceptor: ^3.0.0
 
     # ── UI ──
     dynamic_color: ^1.7.0
