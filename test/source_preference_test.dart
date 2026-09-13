@@ -1,12 +1,11 @@
-import 'dart:io';
-
 import 'package:flutter_test/flutter_test.dart';
-import 'package:isar_community/isar.dart';
 
 import 'package:otaku_reader/core/database/database.dart' as db;
 import 'package:otaku_reader/core/database/key_value.dart';
 import 'package:otaku_reader/source/model/source_preference.dart';
 import 'package:otaku_reader/source/preference/source_preference_store.dart';
+
+import 'helpers/isar_test_env.dart';
 
 /// Pins the rule the source system depends on most:
 /// **the stored value wins, and the declared default is the fallback, read
@@ -17,25 +16,11 @@ import 'package:otaku_reader/source/preference/source_preference_store.dart';
 /// freezes it, so when the source later ships a new mirror because the old
 /// domain died, a user who never touched the setting keeps the dead one.
 void main() {
-  late Directory dir;
+  late IsarTestEnv env;
 
-  setUpAll(() async {
-    await Isar.initializeIsarCore(download: true);
-    dir = await Directory.systemTemp.createTemp('otaku_pref_test');
-    db.isar = Isar.openSync(
-      [KeyValueSchema],
-      directory: dir.path,
-      name: 'preftest',
-      inspector: false,
-    );
-  });
-
-  tearDownAll(() async {
-    await db.isar.close(deleteFromDisk: true);
-    if (dir.existsSync()) dir.deleteSync(recursive: true);
-  });
-
-  setUp(() => db.isar.writeTxnSync(() => db.isar.keyValues.clearSync()));
+  setUpAll(() async => env = await IsarTestEnv.open('pref', [KeyValueSchema]));
+  tearDownAll(() async => env.close());
+  setUp(() => env.clear());
 
   List<SourcePreference> declaring(String mirror) => [
     SourcePreference(

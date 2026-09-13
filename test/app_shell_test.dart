@@ -1,38 +1,23 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
-import 'package:isar_community/isar.dart';
 
 import 'package:otaku_reader/core/database/data_keys/keys.dart';
-import 'package:otaku_reader/core/database/database.dart' as db;
 import 'package:otaku_reader/core/database/key_value.dart';
 import 'package:otaku_reader/core/database/kv_helper.dart';
 import 'package:otaku_reader/core/navigation/app_shell.dart';
 import 'package:otaku_reader/core/theme/theme_controller.dart';
 
+import 'helpers/isar_test_env.dart';
+
 void main() {
-  late Directory dir;
+  late IsarTestEnv env;
 
-  setUpAll(() async {
-    await Isar.initializeIsarCore(download: true);
-    dir = await Directory.systemTemp.createTemp('otaku_shell_test');
-    db.isar = Isar.openSync(
-      [KeyValueSchema],
-      directory: dir.path,
-      name: 'shelltest',
-      inspector: false,
-    );
-  });
-
-  tearDownAll(() async {
-    await db.isar.close(deleteFromDisk: true);
-    if (dir.existsSync()) dir.deleteSync(recursive: true);
-  });
+  setUpAll(() async => env = await IsarTestEnv.open('shell', [KeyValueSchema]));
+  tearDownAll(() async => env.close());
 
   setUp(() {
-    db.isar.writeTxnSync(() => db.isar.keyValues.clearSync());
+    env.clear();
     Get.reset();
     Get.put<ThemeController>(ThemeController());
   });

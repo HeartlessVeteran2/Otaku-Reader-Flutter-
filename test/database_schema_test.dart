@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:isar_community/isar.dart';
 
@@ -9,6 +7,8 @@ import 'package:otaku_reader/data/isar/category_entry.dart';
 import 'package:otaku_reader/data/isar/manga_entry.dart';
 import 'package:otaku_reader/source/model/m_status.dart';
 import 'package:otaku_reader/source/model/source.dart';
+
+import 'helpers/isar_test_env.dart';
 
 /// Opens the **production** schema list and writes one row per collection.
 ///
@@ -20,23 +20,13 @@ import 'package:otaku_reader/source/model/source.dart';
 /// Round-tripping a row per collection is the assertion — merely opening the
 /// database would not prove the collection is usable.
 void main() {
-  late Directory dir;
+  late IsarTestEnv env;
 
-  setUpAll(() async {
-    await Isar.initializeIsarCore(download: true);
-    dir = await Directory.systemTemp.createTemp('otaku_schema_test');
-    db.isar = Isar.openSync(
-      db.AppDatabaseSchemas.all,
-      directory: dir.path,
-      name: 'schematest',
-      inspector: false,
-    );
-  });
-
-  tearDownAll(() async {
-    await db.isar.close(deleteFromDisk: true);
-    if (dir.existsSync()) dir.deleteSync(recursive: true);
-  });
+  setUpAll(
+    () async =>
+        env = await IsarTestEnv.open('schema', db.AppDatabaseSchemas.all),
+  );
+  tearDownAll(() async => env.close());
 
   test('every generated collection is registered and usable', () {
     // If a schema is missing from the list, the matching accessor throws here

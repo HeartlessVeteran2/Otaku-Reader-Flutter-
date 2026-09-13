@@ -1,10 +1,11 @@
-import 'dart:io';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:isar_community/isar.dart';
+
 import 'package:otaku_reader/core/database/database.dart' as db;
 import 'package:otaku_reader/core/database/key_value.dart';
 import 'package:otaku_reader/core/database/kv_helper.dart';
+
+import 'helpers/isar_test_env.dart';
 
 enum _TestKeys { aString, anInt, aDouble, aBool, aList, aMap, absent }
 
@@ -17,27 +18,11 @@ enum _TestDynamicKeys {
 }
 
 void main() {
-  late Directory dir;
+  late IsarTestEnv env;
 
-  setUpAll(() async {
-    await Isar.initializeIsarCore(download: true);
-    dir = await Directory.systemTemp.createTemp('otaku_kv_test');
-    db.isar = Isar.openSync(
-      [KeyValueSchema],
-      directory: dir.path,
-      name: 'kvtest',
-      inspector: false,
-    );
-  });
-
-  tearDownAll(() async {
-    await db.isar.close(deleteFromDisk: true);
-    if (dir.existsSync()) dir.deleteSync(recursive: true);
-  });
-
-  setUp(() {
-    db.isar.writeTxnSync(() => db.isar.keyValues.clearSync());
-  });
+  setUpAll(() async => env = await IsarTestEnv.open('kv', [KeyValueSchema]));
+  tearDownAll(() async => env.close());
+  setUp(() => env.clear());
 
   test('round-trips every JSON-representable type', () {
     _TestKeys.aString.set<String>('hello');

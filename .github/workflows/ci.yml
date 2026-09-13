@@ -64,10 +64,21 @@ jobs:
             - name: Analyze
               run: flutter analyze
 
-            # Isar downloads its native library on first use, so this step needs
-            # network. libisar.so is gitignored deliberately.
+            # -j 1 runs suites serially, and that is load-bearing rather than
+            # cosmetic. Each suite opens its own native Isar instance and
+            # downloads libisar.so on first use; run concurrently from a cold
+            # cache they race to write the same file, and the loser dies with a
+            # signal instead of a test failure. That is exactly how the first CI
+            # run failed — two suites crashed at finalisation with exit code -7
+            # while every assertion inside them had passed.
+            #
+            # Serialising also matches production, which opens exactly one Isar
+            # instance; concurrent instances are a test-harness artifact. The
+            # suite is small, so determinism costs a few seconds.
+            #
+            # Verified locally with `rm -f libisar.so && flutter test -j 1`.
             - name: Test
-              run: flutter test
+              run: flutter test -j 1
 
             - name: Build debug APK
               run: flutter build apk --debug
