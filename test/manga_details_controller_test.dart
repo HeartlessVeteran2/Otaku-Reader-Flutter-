@@ -406,4 +406,31 @@ void main() {
       expect(c.preview?.name, 'From the grid');
     },
   );
+  test('a write from elsewhere refreshes the chapter list', () async {
+    // The reader writes progress on a debounce and flushes it from its own
+    // `onClose`, which cannot be awaited — so the details page's own
+    // `refreshEntry()` on the way back can win that race. Reacting to the write
+    // closes it without depending on the ordering.
+    final (c, _) = await build(
+      MManga(
+        name: 'Example',
+        chapters: [_ch('/c-1', 'Chapter 1'), _ch('/c-2', 'Chapter 2')],
+      ),
+    );
+    expect(c.unreadCount, 2);
+
+    // A write through the repository, as a closing reader would make.
+    await library.updateChapterProgress(
+      sourceId: _sourceId,
+      url: _url,
+      chapterUrl: '/c-1',
+      lastPageRead: 9,
+      totalPages: 10,
+      markRead: true,
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+
+    expect(c.unreadCount, 1);
+    c.onClose();
+  });
 }

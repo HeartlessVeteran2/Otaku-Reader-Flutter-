@@ -112,6 +112,28 @@ class MangaDetailsController extends GetxController {
   void onInit() {
     super.onInit();
     load();
+    // The reader writes the user's position on a debounce and flushes it from
+    // its own `onClose`, which cannot be awaited — so the `await refreshEntry()`
+    // the chapter list does when the reader pops can win that race and leave
+    // the list showing stale progress. Watching the repository closes it by
+    // reacting to the write itself rather than by guessing the ordering.
+    _watch = _library.changes.listen((_) {
+      _watchDebounce?.cancel();
+      _watchDebounce = Timer(
+        const Duration(milliseconds: 200),
+        () => unawaited(refreshEntry()),
+      );
+    });
+  }
+
+  StreamSubscription<void>? _watch;
+  Timer? _watchDebounce;
+
+  @override
+  void onClose() {
+    _watchDebounce?.cancel();
+    unawaited(_watch?.cancel());
+    super.onClose();
   }
 
   Future<void> load() async {

@@ -173,6 +173,7 @@ class ReaderController extends GetxController {
       initialOffset = _resumeOffset();
       _offset = initialOffset;
       _maxOffset = currentChapter?.maxOffset ?? 0;
+      initialMaxOffset = _maxOffset;
       // `markRead: false` explicitly. Opening a one-page chapter puts page 0 at
       // the last page, so an unguarded save here would mark it read before the
       // user has done anything. Only a page turn or a scroll finishes a
@@ -200,6 +201,14 @@ class ReaderController extends GetxController {
     if (last == null || last <= 0) return 0;
     return last.clamp(0, total - 1);
   }
+
+  /// The scroll extent the stored offset was measured against.
+  ///
+  /// A raw pixel offset only means anything relative to the strip it came from,
+  /// and the strip changes height: images load at a different resolution, the
+  /// device rotates, the source republishes the chapter with more pages. The
+  /// screen corrects for that after the first layout — see `initialOffset`.
+  double initialMaxOffset = 0;
 
   /// The stored pixel offset for a continuous-mode resume.
   ///

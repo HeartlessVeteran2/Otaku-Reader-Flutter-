@@ -82,6 +82,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
       _scroll = ScrollController(initialScrollOffset: _c.initialOffset);
       _pageKeys.clear();
       setState(() {});
+      // `initialScrollOffset` positions the list before the first layout, which
+      // is what stops it jumping once the user can already see the top — but it
+      // is a raw pixel value measured against a strip that may now be a
+      // different height: images decode at another resolution, the device
+      // rotated, the source republished the chapter longer. Corrected once the
+      // real extent is known.
+      WidgetsBinding.instance.addPostFrameCallback((_) => _correctResume());
     });
   }
 
@@ -170,6 +177,26 @@ class _ReaderScreenState extends State<ReaderScreen> {
         ),
       ),
     );
+  }
+
+  /// Rescales the restored webtoon position against the strip's real height.
+  ///
+  /// Without this, a chapter whose content is now taller resumes too early and
+  /// one that is shorter resumes at the very bottom — which also *marks it
+  /// read*, because reaching the bottom is what finishes a chapter.
+  void _correctResume() {
+    final controller = _scroll;
+    if (!mounted || controller == null || !controller.hasClients) return;
+    final target = _c.initialOffset;
+    if (target <= 0) return;
+    final max = controller.position.maxScrollExtent;
+    if (max <= 0) return;
+
+    final storedMax = _c.initialMaxOffset;
+    final scaled = storedMax > 0 ? target / storedMax * max : target;
+    final corrected = scaled.clamp(0.0, max);
+    if ((controller.offset - corrected).abs() < 1) return;
+    controller.jumpTo(corrected);
   }
 
   /// Which page the reader is actually on, from the laid-out children.

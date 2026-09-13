@@ -82,15 +82,22 @@ class _SourceBrowseScreenState extends State<SourceBrowseScreen> {
                     isDense: true,
                     hintText: 'Search this source',
                     prefixIcon: const Icon(Iconsax.search_normal, size: 18),
-                    suffixIcon: _search.text.isEmpty
-                        ? null
-                        : IconButton(
-                            icon: const Icon(Icons.clear, size: 18),
-                            onPressed: () {
-                              _search.clear();
-                              _c.setQuery('');
-                            },
-                          ),
+                    // Bound to the controller, not read once: a plain
+                    // `_search.text` check does not rebuild on typing or on a
+                    // programmatic `clear()`, so the button appeared and
+                    // disappeared a keystroke late.
+                    suffixIcon: ValueListenableBuilder<TextEditingValue>(
+                      valueListenable: _search,
+                      builder: (context, value, _) => value.text.isEmpty
+                          ? const SizedBox.shrink()
+                          : IconButton(
+                              icon: const Icon(Icons.clear, size: 18),
+                              onPressed: () {
+                                _search.clear();
+                                _c.setQuery('');
+                              },
+                            ),
+                    ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
