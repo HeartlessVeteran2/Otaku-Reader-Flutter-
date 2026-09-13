@@ -2,8 +2,10 @@ import 'package:get/get.dart';
 
 import 'package:otaku_reader/core/theme/theme_controller.dart';
 import 'package:otaku_reader/data/repository/extension_repository_impl.dart';
+import 'package:otaku_reader/data/repository/library_repository_impl.dart';
 import 'package:otaku_reader/data/repository/source_repository_impl.dart';
 import 'package:otaku_reader/domain/repository/extension_repository.dart';
+import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/features/browse/controllers/extensions_controller.dart';
 
@@ -26,6 +28,7 @@ class AppBindings extends Bindings {
     // extension scripts every time the last screen using one closed.
     Get.put<ExtensionRepository>(ExtensionRepositoryImpl(), permanent: true);
     Get.put<SourceRepository>(SourceRepositoryImpl(), permanent: true);
+    Get.put<LibraryRepository>(LibraryRepositoryImpl(), permanent: true);
 
     // lazyPut, so the catalogue is not read until the Browse tab is first
     // opened. The shell builds its tabs lazily for the same reason.

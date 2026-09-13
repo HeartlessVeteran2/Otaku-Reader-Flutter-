@@ -7,6 +7,7 @@ import 'package:otaku_reader/core/database/kv_helper.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/features/browse/controllers/source_browse_controller.dart';
 import 'package:otaku_reader/features/browse/widgets/manga_cover_card.dart';
+import 'package:otaku_reader/features/details/screens/manga_details_screen.dart';
 
 /// Browses one installed source: popular, latest, or a search.
 class SourceBrowseScreen extends StatefulWidget {
@@ -147,10 +148,25 @@ class _SourceBrowseScreenState extends State<SourceBrowseScreen> {
                   ),
                 );
               }
+              final manga = _c.items[i];
+              final link = manga.link;
               return MangaCoverCard(
-                manga: _c.items[i],
+                manga: manga,
                 sourceBaseUrl: baseUrl,
-                onTap: () {},
+                // A listing entry with no link cannot be opened. Sources do
+                // emit them, and a tap that silently does nothing is worse
+                // than a tile that plainly is not tappable.
+                onTap: link == null || link.isEmpty
+                    ? null
+                    : () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => MangaDetailsScreen(
+                            sourceId: widget.sourceId,
+                            url: link,
+                            initial: manga,
+                          ),
+                        ),
+                      ),
               );
             },
           ),
