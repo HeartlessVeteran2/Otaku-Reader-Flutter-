@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
 import 'package:isar_community/isar.dart';
 
 import 'package:otaku_reader/core/database/database.dart' as db;
@@ -66,7 +69,8 @@ class SourceRepositoryImpl implements SourceRepository {
     final cached = _cache[sourceId];
     if (cached != null) {
       if (cached.fingerprint == fingerprint) return cached.runtime;
-      cached.runtime.dispose();
+      // Superseded, not disposed — see [evict]. A call already in flight on the
+      // old runtime must be allowed to finish.
       _cache.remove(sourceId);
     }
 
@@ -75,26 +79,56 @@ class SourceRepositoryImpl implements SourceRepository {
     return runtime;
   }
 
-  /// Identifies the exact code a runtime was built from.
+  /// Identifies the exact runtime a cached interpreter was built from.
   ///
   /// Version alone is not enough — a reinstall of the same version, or a source
-  /// republished without a version bump, would keep the stale runtime. The code
-  /// hash is what actually decides; version and length are cheap extra signal.
+  /// republished without a version bump, would keep the stale runtime.
+  ///
+  /// Two refinements over the obvious "version + code hash":
+  ///
+  /// * **SHA-256, not `String.hashCode`.** A 32-bit hash colliding with the
+  ///   same length is unlikely but not negligible, and the consequence is
+  ///   running obsolete third-party code indefinitely. `crypto` is already a
+  ///   dependency for the extension runtime.
+  /// * **The source fields the interpreter is constructed with** are part of
+  ///   the identity, not just the script. `toMSource()` hands `baseUrl`,
+  ///   `apiUrl` and `additionalParams` to the extension at construction, and
+  ///   `additionalParams` is precisely what distinguishes one Madara site from
+  ///   the other 150 sharing that script. A repo re-added with a corrected
+  ///   base URL but the same code must not keep serving the old one.
   static String _fingerprint(Source source) {
     final code = source.sourceCode ?? '';
-    return '${source.version}:${code.length}:${code.hashCode}';
+    final digest = sha256.convert(utf8.encode(code));
+    return [
+      source.version,
+      code.length,
+      digest,
+      source.baseUrl,
+      source.apiUrl,
+      source.additionalParams,
+      source.lang,
+      source.dateFormat,
+      source.dateFormatLocale,
+    ].join('\u0000');
   }
 
   @override
   void evict(int sourceId) {
-    // Dispose before dropping the reference: the runtime holds interpreter
-    // state and a preference-resolver registration keyed by source id, and a
-    // leaked registration would answer for the *next* runtime of the same id.
-    _cache.remove(sourceId)?.runtime.dispose();
+    // Drops the reference **without disposing**. Disposing nulls the
+    // interpreter, so a browse or reader controller sitting in an `await` on
+    // that runtime fails its request the moment the user updates or uninstalls
+    // the source from another screen. The dropped instance finishes whatever it
+    // was doing and is then collected.
+    //
+    // Nothing leaks by not disposing: the preference resolver is keyed by
+    // source id, so the replacement runtime registers over the old entry.
+    _cache.remove(sourceId);
   }
 
   @override
   void evictAll() {
+    // Teardown, where nothing is in flight and releasing interpreter state
+    // promptly is the point.
     for (final entry in _cache.values) {
       entry.runtime.dispose();
     }

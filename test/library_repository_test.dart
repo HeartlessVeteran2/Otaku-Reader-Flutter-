@@ -152,6 +152,29 @@ void main() {
     expect(entry.description, 'A story');
   });
 
+  test('a blank chapter name is a gap too, not an erasure', () async {
+    // Chapters were the one place that used `??` instead of the blank-aware
+    // helper, so a source returning "" rather than null wiped a good name.
+    await save(
+      MManga(
+        name: 'Example',
+        chapters: [_ch('/c-1', name: 'Chapter 1')],
+      ),
+    );
+
+    await save(
+      MManga(
+        name: 'Example',
+        chapters: [MChapter(url: '/c-1', name: '')],
+      ),
+    );
+
+    expect(
+      (await repo.find(_sourceId, _url))!.chapters.single.name,
+      'Chapter 1',
+    );
+  });
+
   test('an unknown status does not overwrite a known one', () async {
     await save(MManga(name: 'Example', status: Status.ongoing));
 

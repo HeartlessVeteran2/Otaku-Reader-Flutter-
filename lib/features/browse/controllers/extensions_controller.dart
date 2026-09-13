@@ -139,10 +139,12 @@ class ExtensionsController extends GetxController {
 
   /// Runs a catalogue mutation with the row marked busy, then reconciles.
   ///
-  /// The eviction is belt and braces rather than load-bearing — the runtime
-  /// cache fingerprints the stored code and rebuilds on its own — but an
-  /// uninstalled source should not keep an interpreter alive until something
-  /// happens to ask for it again.
+  /// Evicting here is what makes the cache release an uninstalled source's
+  /// interpreter promptly rather than waiting for something to ask again. It is
+  /// only safe because [SourceRepository.evict] drops the reference without
+  /// disposing: an earlier version disposed, which killed any request a browse
+  /// or reader screen had in flight on that runtime the instant the user
+  /// updated the source from here.
   Future<void> _mutate(Source source, Future<Source> Function() action) async {
     if (busy.contains(source.sourceId)) return;
     busy.add(source.sourceId);
@@ -193,7 +195,17 @@ class ExtensionsController extends GetxController {
   }
 
   Future<void> removeRepo(String url) async {
+    // The rows are about to be deleted, so their cached runtimes have nothing
+    // left to validate against. Collect the ids first: after the removal there
+    // is no row to tell us which sources belonged to this repo.
+    final orphaned = all
+        .where((s) => s.repoUrl == url)
+        .map((s) => s.sourceId)
+        .toList();
     await _extensions.removeRepo(url);
+    for (final sourceId in orphaned) {
+      _sources.evict(sourceId);
+    }
     await load();
   }
 

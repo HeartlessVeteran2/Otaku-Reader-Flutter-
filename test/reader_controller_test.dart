@@ -257,6 +257,70 @@ void main() {
     expect(c.initialPage, 1, reason: 'the chapter now has two pages');
   });
 
+  test('a webtoon scroll position is stored and restored', () async {
+    // A page index is not enough in continuous mode: the user stops partway
+    // down a strip. The screen previously computed a page index from the scroll
+    // fraction and never restored anything, so webtoon resume did nothing at
+    // all -- while the commit message claimed it worked.
+    await seed();
+    final (first, _) = await open('/c-2');
+    first.onScroll(1840.5, 6000);
+    first.onPageChanged(1);
+    await first.flush();
+
+    final stored = (await library.find(
+      _sourceId,
+      _manga,
+    ))!.chapters.firstWhere((x) => x.url == '/c-2');
+    expect(stored.currentOffset, 1840.5);
+    expect(stored.maxOffset, 6000);
+
+    final (second, _) = await open('/c-2');
+    expect(second.initialOffset, 1840.5);
+  });
+
+  test('a finished chapter restarts at the top of the strip too', () async {
+    await seed();
+    final (first, _) = await open('/c-1');
+    first.onScroll(900, 1000);
+    first.onPageChanged(2); // last page -> read
+    await first.flush();
+
+    final (second, _) = await open('/c-1');
+    expect(second.initialOffset, 0);
+    expect(second.initialPage, 0);
+  });
+
+  test('paged reading does not erase a stored webtoon offset', () async {
+    // updateChapterProgress takes nullable offsets; null means "not in
+    // continuous mode" and must leave a previous webtoon position alone.
+    await seed();
+    await library.updateChapterProgress(
+      sourceId: _sourceId,
+      url: _manga,
+      chapterUrl: '/c-2',
+      lastPageRead: 1,
+      totalPages: 4,
+      currentOffset: 500,
+      maxOffset: 2000,
+    );
+
+    await library.updateChapterProgress(
+      sourceId: _sourceId,
+      url: _manga,
+      chapterUrl: '/c-2',
+      lastPageRead: 2,
+      totalPages: 4,
+    );
+
+    final stored = (await library.find(
+      _sourceId,
+      _manga,
+    ))!.chapters.firstWhere((x) => x.url == '/c-2');
+    expect(stored.currentOffset, 500);
+    expect(stored.lastPageRead, 2);
+  });
+
   test('next moves forward and saves the chapter being left', () async {
     await seed();
     final (c, _) = await open('/c-1');

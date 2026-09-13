@@ -44,6 +44,8 @@ abstract interface class LibraryRepository {
     required String chapterUrl,
     required int lastPageRead,
     required int totalPages,
+    double? currentOffset,
+    double? maxOffset,
     bool markRead = false,
   });
 }

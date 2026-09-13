@@ -122,7 +122,12 @@ class SourceBrowseController extends GetxController {
       // the user reaches the bottom.
       hasNextPage.value = false;
     } finally {
-      if (generation == _generation) isLoadingMore.value = false;
+      // Reset unconditionally. Guarding this on the generation left the flag
+      // stuck true whenever a reload superseded an in-flight loadMore, and
+      // `loadMore` refuses to run while it is set -- so paging was dead for the
+      // rest of the screen's life. The guard belongs on the *writes* above,
+      // which must not land, not on the flag that gates future work.
+      isLoadingMore.value = false;
     }
   }
 

@@ -50,16 +50,26 @@ class MangaDetailsController extends GetxController {
     final visible = filter.value == ChapterFilter.unread
         ? all.where((c) => !c.read).toList()
         : all.toList();
+    // Dart's List.sort is *not* stable, so returning 0 for two unnumbered
+    // chapters lets their order shuffle between rebuilds. Their position in the
+    // source's own listing is the only order they have, so it is captured here
+    // and used as the tie-break.
+    final sourceOrder = {for (var i = 0; i < all.length; i++) all[i].url: i};
+
     visible.sort((a, b) {
-      // Fall back to the order the source listed them in when neither chapter
-      // carries a parsable number -- many sources title one-shots and extras by
-      // name, and sorting those to the top would bury the actual chapter 1.
+      // Unnumbered chapters sort last either way -- many sources title
+      // one-shots and extras by name, and sorting those to the top would bury
+      // the actual chapter 1.
       final an = a.number;
       final bn = b.number;
-      if (an == null && bn == null) return 0;
+      if (an == null && bn == null) {
+        return (sourceOrder[a.url] ?? 0).compareTo(sourceOrder[b.url] ?? 0);
+      }
       if (an == null) return 1;
       if (bn == null) return -1;
-      return descending.value ? bn.compareTo(an) : an.compareTo(bn);
+      final byNumber = descending.value ? bn.compareTo(an) : an.compareTo(bn);
+      if (byNumber != 0) return byNumber;
+      return (sourceOrder[a.url] ?? 0).compareTo(sourceOrder[b.url] ?? 0);
     });
     return visible;
   }

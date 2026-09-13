@@ -47,8 +47,21 @@ class ReaderController extends GetxController {
   final direction = ReadingDirection.leftToRight.obs;
   final chaptersInOrder = <Chapter>[].obs;
 
+  /// Needed for the page requests, not for display: hotlink-protected CDNs
+  /// answer a bare GET with 403, and the fix is a Referer and Origin derived
+  /// from the source's base URL.
+  final sourceBaseUrl = ''.obs;
+
   /// The page index the reader should open at, resolved once per chapter.
   int initialPage = 0;
+
+  /// Where a webtoon scroll should resume, in pixels, resolved with
+  /// [initialPage]. A page index is not enough in continuous mode: the user
+  /// stops partway down a strip, not at a page boundary.
+  double initialOffset = 0;
+
+  double _offset = 0;
+  double _maxOffset = 0;
 
   Timer? _saveTimer;
   int _generation = 0;
@@ -114,6 +127,8 @@ class ReaderController extends GetxController {
         chaptersInOrder.value = ordered;
       }
 
+      final source = await _sources.sourceById(sourceId);
+      sourceBaseUrl.value = source?.baseUrl ?? '';
       final methods = await _sources.methodsFor(sourceId);
       final list = await methods.getPageList(currentChapterUrl.value);
       if (generation != _generation) return;
@@ -130,6 +145,9 @@ class ReaderController extends GetxController {
       pages.value = list;
       initialPage = _resumePage(list.length);
       page.value = initialPage;
+      initialOffset = _resumeOffset();
+      _offset = initialOffset;
+      _maxOffset = currentChapter?.maxOffset ?? 0;
       await _persist();
     } catch (e) {
       if (generation != _generation) return;
@@ -152,6 +170,25 @@ class ReaderController extends GetxController {
     final last = chapter.lastPageRead;
     if (last == null || last <= 0) return 0;
     return last.clamp(0, total - 1);
+  }
+
+  /// The stored pixel offset for a continuous-mode resume.
+  ///
+  /// Zero for a finished chapter, for the same reason [_resumePage] returns
+  /// zero: reopening something you have read means re-reading it.
+  double _resumeOffset() {
+    final chapter = currentChapter;
+    if (chapter == null || chapter.read) return 0;
+    return chapter.currentOffset ?? 0;
+  }
+
+  /// Records a continuous-mode scroll position.
+  ///
+  /// Called alongside [onPageChanged] from webtoon mode, which maps the strip
+  /// onto a page index for the counter while this keeps the exact position.
+  void onScroll(double offset, double maxOffset) {
+    _offset = offset;
+    _maxOffset = maxOffset;
   }
 
   void onPageChanged(int index) {
@@ -179,6 +216,8 @@ class ReaderController extends GetxController {
       chapterUrl: chapterUrl,
       lastPageRead: page.value,
       totalPages: total,
+      currentOffset: _offset,
+      maxOffset: _maxOffset,
       // Reaching the last page is what marks a chapter read. Doing it on open
       // would mark a chapter read that was merely glanced at.
       markRead: reachedEnd,
@@ -204,6 +243,8 @@ class ReaderController extends GetxController {
     await _persist();
     currentChapterUrl.value = url;
     page.value = 0;
+    _offset = 0;
+    _maxOffset = 0;
     await load();
   }
 

@@ -7,6 +7,7 @@ import 'package:iconsax/iconsax.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
+import 'package:otaku_reader/source/http/m_client.dart';
 import 'package:otaku_reader/source/model/page_url.dart';
 
 class ReaderScreen extends StatefulWidget {
@@ -26,7 +27,10 @@ class ReaderScreen extends StatefulWidget {
 }
 
 class _ReaderScreenState extends State<ReaderScreen> {
-  late final String _tag = 'reader-${widget.sourceId}-${widget.mangaUrl}';
+  // Unique per screen instance, not per manga. A tag keyed only by source and
+  // manga is shared by any second reader for the same manga on the stack, and
+  // then one screen's dispose deletes the other's controller.
+  late final String _tag = 'reader-${identityHashCode(this)}';
   late final ReaderController _c = Get.put(
     ReaderController(
       sources: Get.find<SourceRepository>(),
@@ -39,7 +43,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   );
 
   PageController? _pageController;
-  final _scroll = ScrollController();
+  ScrollController? _scroll;
   bool _chromeVisible = true;
 
   @override
@@ -53,6 +57,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
       if (list.isEmpty) return;
       _pageController?.dispose();
       _pageController = PageController(initialPage: _c.initialPage);
+      // Continuous mode resumes by pixel offset, which is the only thing that
+      // means anything on a strip with no page boundaries. `initialScrollOffset`
+      // is applied before the first layout, so the list opens at the stored
+      // position rather than jumping after the user can already see the top.
+      _scroll?.dispose();
+      _scroll = ScrollController(initialScrollOffset: _c.initialOffset);
       if (mounted) setState(() {});
     });
   }
@@ -61,7 +71,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   void dispose() {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _pageController?.dispose();
-    _scroll.dispose();
+    _scroll?.dispose();
     Get.delete<ReaderController>(tag: _tag);
     super.dispose();
   }
@@ -107,28 +117,34 @@ class _ReaderScreenState extends State<ReaderScreen> {
       itemBuilder: (context, i) => InteractiveViewer(
         minScale: 1,
         maxScale: 4,
-        child: Center(child: _Page(page: _c.pages[i])),
+        child: Center(
+          child: _Page(page: _c.pages[i], baseUrl: _c.sourceBaseUrl.value),
+        ),
       ),
     );
   }
 
   Widget _webtoon() {
+    final controller = _scroll;
+    if (controller == null) return const SizedBox.shrink();
     return NotificationListener<ScrollNotification>(
       onNotification: (notification) {
         final metrics = notification.metrics;
         if (metrics.maxScrollExtent <= 0) return false;
-        // Continuous mode has no page boundaries, so position is reported as a
-        // fraction of the strip mapped onto the page count. That is what makes
-        // "resume where I was" mean anything in webtoon mode.
+        // Two things are recorded, because they answer different questions.
+        // The pixel offset is what a resume restores; the page index is only
+        // for the counter and for deciding the chapter has been finished.
+        _c.onScroll(metrics.pixels, metrics.maxScrollExtent);
         final fraction = metrics.pixels / metrics.maxScrollExtent;
         final index = (fraction * (_c.pages.length - 1)).round();
         _c.onPageChanged(index.clamp(0, _c.pages.length - 1));
         return false;
       },
       child: ListView.builder(
-        controller: _scroll,
+        controller: controller,
         itemCount: _c.pages.length,
-        itemBuilder: (context, i) => _Page(page: _c.pages[i]),
+        itemBuilder: (context, i) =>
+            _Page(page: _c.pages[i], baseUrl: _c.sourceBaseUrl.value),
       ),
     );
   }
@@ -233,16 +249,20 @@ class _ReaderScreenState extends State<ReaderScreen> {
 }
 
 class _Page extends StatelessWidget {
-  const _Page({required this.page});
+  const _Page({required this.page, required this.baseUrl});
 
   final PageUrl page;
+  final String baseUrl;
 
   @override
   Widget build(BuildContext context) => CachedNetworkImage(
     imageUrl: page.url,
-    // Headers the source attached to this specific page win: a source that
-    // bothered to set one knows something a generic default does not.
-    httpHeaders: page.headers,
+    // Merged, not replaced. Most sources attach no headers at all, and sending
+    // none means no User-Agent, Referer or Origin -- which is exactly what
+    // hotlink-protected CDNs answer with 403. `pageImageHeaders` supplies those
+    // defaults and lets anything the source set override them, because a source
+    // that bothered to set a header knows something a default does not.
+    httpHeaders: MClient.pageImageHeaders(page.headers, baseUrl),
     fit: BoxFit.contain,
     placeholder: (_, _) => const SizedBox(
       height: 400,

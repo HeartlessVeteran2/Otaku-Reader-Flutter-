@@ -169,10 +169,11 @@ void main() {
     expect(identical(first, second), isFalse);
     expect(
       first.disposed,
-      isTrue,
+      isFalse,
       reason:
-          'the superseded runtime holds interpreter state and a '
-          'preference registration keyed by source id',
+          'a superseded runtime is dropped, not disposed -- a browse or '
+          'reader screen may still be awaiting a call on it, and disposing '
+          'nulls the interpreter out from under it',
     );
   });
 
@@ -209,18 +210,58 @@ void main() {
     expect(built, hasLength(1));
   });
 
-  test('evict disposes the runtime so the next call rebuilds', () async {
+  test('evict drops the runtime without disposing it', () async {
+    // Disposing would kill a request another screen has in flight on this
+    // runtime -- exactly what happens when the user updates a source from the
+    // extensions screen while browsing it elsewhere.
     put(_source(id: 1));
     final repo = repository();
     final first = await repo.methodsFor(1) as _FakeRuntime;
 
     repo.evict(1);
 
-    expect(first.disposed, isTrue);
+    expect(first.disposed, isFalse, reason: 'still usable by whoever holds it');
+    expect(
+      identical(await repo.methodsFor(1), first),
+      isFalse,
+      reason: 'but the cache no longer serves it',
+    );
+  });
+
+  test('a changed base URL rebuilds, even with identical code', () async {
+    // toMSource() hands baseUrl, apiUrl and additionalParams to the extension
+    // at construction, so the source's own fields are part of a runtime's
+    // identity -- not just the script text.
+    put(_source(id: 1, code: 'SAME CODE'));
+    final repo = repository();
+    final first = await repo.methodsFor(1);
+
+    final row = db.isar.sources.filter().sourceIdEqualTo(1).findFirstSync()!;
+    db.isar.writeTxnSync(() {
+      row.baseUrl = 'https://moved.example';
+      db.isar.sources.putSync(row);
+    });
+
     expect(identical(await repo.methodsFor(1), first), isFalse);
   });
 
-  test('evictAll disposes every cached runtime', () async {
+  test('changed additionalParams rebuilds, even with identical code', () async {
+    // additionalParams is what distinguishes one Madara site from the other 150
+    // sharing that script.
+    put(_source(id: 1, code: 'SAME CODE'));
+    final repo = repository();
+    final first = await repo.methodsFor(1);
+
+    final row = db.isar.sources.filter().sourceIdEqualTo(1).findFirstSync()!;
+    db.isar.writeTxnSync(() {
+      row.additionalParams = '{"sourceName":"other"}';
+      db.isar.sources.putSync(row);
+    });
+
+    expect(identical(await repo.methodsFor(1), first), isFalse);
+  });
+
+  test('evictAll does dispose, because it is teardown', () async {
     put(_source(id: 1));
     put(_source(id: 2, name: 'Second'));
     final repo = repository();

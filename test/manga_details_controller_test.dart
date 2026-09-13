@@ -177,6 +177,34 @@ void main() {
     expect(c.chapters.last.url, '/extra');
   });
 
+  test('unnumbered chapters keep the order the source listed them in', () async {
+    // Dart's List.sort is not stable, so a comparator returning 0 lets their
+    // order shuffle between rebuilds. Their position in the source's listing is
+    // the only order they have.
+    final (c, _) = await build(
+      MManga(
+        name: 'Example',
+        chapters: [
+          _ch('/omake', 'Omake'),
+          _ch('/c-1', 'Chapter 1'),
+          _ch('/extra', 'Extra'),
+          _ch('/afterword', 'Afterword'),
+        ],
+      ),
+    );
+
+    final unnumbered = c.chapters.where((x) => x.number == null).toList();
+    expect(unnumbered.map((x) => x.url), ['/omake', '/extra', '/afterword']);
+
+    // Flipping the numeric direction must not reorder them either.
+    c.toggleSort();
+    expect(c.chapters.where((x) => x.number == null).map((x) => x.url), [
+      '/omake',
+      '/extra',
+      '/afterword',
+    ]);
+  });
+
   test('the unread filter hides read chapters and the count follows', () async {
     final (c, _) = await build(
       MManga(

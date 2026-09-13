@@ -104,9 +104,13 @@ class LibraryRepositoryImpl implements LibraryRepository {
       final chapter = existing ?? Chapter();
       chapter
         ..url = fresh.url
-        ..name = fresh.name ?? chapter.name
-        ..scanlator = fresh.scanlator ?? chapter.scanlator
-        ..dateUpload = fresh.dateUpload ?? chapter.dateUpload
+        // `_preferNullable`, not `??`: a source that returns an empty string
+        // rather than null would otherwise erase a good stored name. Every
+        // other source field already treats blank as missing, and chapters were
+        // the one place that did not.
+        ..name = _preferNullable(fresh.name, chapter.name)
+        ..scanlator = _preferNullable(fresh.scanlator, chapter.scanlator)
+        ..dateUpload = _preferNullable(fresh.dateUpload, chapter.dateUpload)
         ..number = parseChapterNumber(fresh.name) ?? chapter.number;
       // read / lastPageRead / currentOffset / maxOffset / lastReadTime /
       // localPath are deliberately untouched: they belong to the user.
@@ -206,6 +210,8 @@ class LibraryRepositoryImpl implements LibraryRepository {
     required String chapterUrl,
     required int lastPageRead,
     required int totalPages,
+    double? currentOffset,
+    double? maxOffset,
     bool markRead = false,
   }) async {
     db.isar.writeTxnSync(() {
@@ -221,6 +227,10 @@ class LibraryRepositoryImpl implements LibraryRepository {
             (c
               ..lastPageRead = lastPageRead
               ..totalPages = totalPages
+              // Null means "the reader was not in continuous mode", which must
+              // not erase an offset stored by a previous webtoon session.
+              ..currentOffset = currentOffset ?? c.currentOffset
+              ..maxOffset = maxOffset ?? c.maxOffset
               // Never flips back to unread. The reader calls this on every page
               // change, so a chapter finished earlier would otherwise become
               // unread the moment the user reopened it at page one.

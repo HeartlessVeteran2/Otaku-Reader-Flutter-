@@ -185,6 +185,33 @@ void main() {
     expect(c.items.map((m) => m.name), isNot(contains('popular-p2-a')));
   });
 
+  test('a superseded loadMore does not wedge paging forever', () async {
+    // Resetting isLoadingMore only for the current generation left it stuck
+    // true whenever a reload superseded an in-flight loadMore -- and loadMore
+    // refuses to run while it is set, so paging was dead for the rest of the
+    // screen's life. My own stale-response test missed this because it never
+    // looked at the flag afterwards.
+    final (c, methods, _) = await build();
+
+    methods.gates['popular:2'] = Completer<void>();
+    final slow = c.loadMore();
+    await Future<void>.delayed(Duration.zero);
+    expect(c.isLoadingMore.value, isTrue);
+
+    c.setQuery('naruto');
+    await Future<void>.delayed(Duration.zero);
+    methods.gates['popular:2']!.complete();
+    await slow;
+    await Future<void>.delayed(Duration.zero);
+
+    expect(c.isLoadingMore.value, isFalse, reason: 'the flag was released');
+
+    // And paging actually works again.
+    methods.calls.clear();
+    await c.loadMore();
+    expect(methods.calls, isNotEmpty);
+  });
+
   test('switching mode restarts from page 1', () async {
     final (c, methods, _) = await build();
     await c.loadMore();
