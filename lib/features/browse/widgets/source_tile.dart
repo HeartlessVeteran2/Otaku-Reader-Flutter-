@@ -27,7 +27,9 @@ class SourceTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return ListTile(
-      onTap: onTap,
+      // A row with an install or uninstall in flight must not open: the source
+      // it would open is the one being replaced or removed.
+      onTap: busy ? null : onTap,
       leading: _Icon(url: source.iconUrl, name: source.name),
       title: Row(
         children: [
@@ -78,10 +80,10 @@ class _Action extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (busy) {
-      // Same footprint as the buttons it replaces, so a row does not jump when
-      // an install starts.
+      // Sized to the widest action it replaces ("Update"), so the title does
+      // not shift sideways when a mutation starts.
       return const SizedBox(
-        width: 40,
+        width: 84,
         height: 40,
         child: Center(
           child: SizedBox(
@@ -92,17 +94,21 @@ class _Action extends StatelessWidget {
         ),
       );
     }
-    if (source.hasUpdate) {
-      return TextButton(onPressed: onUpdate, child: const Text('Update'));
-    }
-    if (source.isInstalled) {
-      return IconButton(
-        onPressed: onUninstall,
-        icon: const Icon(Iconsax.trash),
-        tooltip: 'Uninstall',
-      );
-    }
-    return TextButton(onPressed: onInstall, child: const Text('Install'));
+    return SizedBox(
+      width: 84,
+      child: switch (source) {
+        _ when source.hasUpdate => TextButton(
+          onPressed: onUpdate,
+          child: const Text('Update'),
+        ),
+        _ when source.isInstalled => IconButton(
+          onPressed: onUninstall,
+          icon: const Icon(Iconsax.trash),
+          tooltip: 'Uninstall',
+        ),
+        _ => TextButton(onPressed: onInstall, child: const Text('Install')),
+      },
+    );
   }
 }
 

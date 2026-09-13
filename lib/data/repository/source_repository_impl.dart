@@ -14,7 +14,23 @@ import 'package:otaku_reader/source/source_methods.dart';
 /// without this class knowing about either engine.
 typedef SourceRuntimeFactory = SourceMethods Function(Source source);
 
-SourceMethods _defaultFactory(Source source) => DartSourceRuntime(source);
+SourceMethods _defaultFactory(Source source) {
+  // The index carries both languages and this app has only a Dart interpreter,
+  // so a JavaScript entry handed to `DartSourceRuntime` fails at evaluation with
+  // a parse error that reads like a broken extension. Refuse it here, where the
+  // message can say what is actually wrong.
+  //
+  // This is not a gap worth papering over: the Dart half *is* the ecosystem —
+  // 249 index entries across ~245 sites, against 18 distinct JavaScript
+  // scripts. See CLAUDE.md.
+  if (source.sourceCodeLanguage == SourceCodeLanguage.javascript) {
+    throw UnsupportedError(
+      '${source.name} is a JavaScript extension, and this app runs the Dart '
+      'half of the Mangayomi ecosystem. Nothing can open it.',
+    );
+  }
+  return DartSourceRuntime(source);
+}
 
 class SourceRepositoryImpl implements SourceRepository {
   SourceRepositoryImpl({SourceRuntimeFactory? runtimeFactory})
@@ -22,6 +38,20 @@ class SourceRepositoryImpl implements SourceRepository {
 
   final SourceRuntimeFactory _runtimeFactory;
   final Map<int, _CachedRuntime> _cache = {};
+
+  /// Runtimes dropped from the cache but not yet disposed.
+  ///
+  /// They are kept because a browse or reader screen may still be awaiting a
+  /// call on one, and `dispose()` nulls the interpreter out from under it.
+  ///
+  /// This is a **bounded, deliberate** hold rather than a solved problem: a
+  /// retired runtime stays reachable through `SourcePreferenceResolver`, whose
+  /// entry is a bound method on it. A replacement runtime for the same id
+  /// overwrites that entry, so the ordinary update path releases it; an
+  /// uninstall with no replacement holds one runtime until [evictAll].
+  /// Releasing it sooner needs the runtime to know whether a call is in
+  /// flight, which `SourceMethods` deliberately does not expose.
+  final List<SourceMethods> _retired = [];
 
   @override
   Future<List<Source>> installedSources({
@@ -71,6 +101,7 @@ class SourceRepositoryImpl implements SourceRepository {
       if (cached.fingerprint == fingerprint) return cached.runtime;
       // Superseded, not disposed — see [evict]. A call already in flight on the
       // old runtime must be allowed to finish.
+      _retired.add(cached.runtime);
       _cache.remove(sourceId);
     }
 
@@ -103,12 +134,19 @@ class SourceRepositoryImpl implements SourceRepository {
       source.version,
       code.length,
       digest,
+      // Every field `toMSource()` hands the extension at construction. Listing
+      // a subset is how this went wrong the first time: a refresh that changed
+      // only `hasCloudflare` or `notes` kept the old runtime.
+      source.name,
       source.baseUrl,
       source.apiUrl,
-      source.additionalParams,
       source.lang,
+      source.isFullData,
+      source.hasCloudflare,
       source.dateFormat,
       source.dateFormatLocale,
+      source.additionalParams,
+      source.notes,
     ].join('\u0000');
   }
 
@@ -120,9 +158,11 @@ class SourceRepositoryImpl implements SourceRepository {
     // the source from another screen. The dropped instance finishes whatever it
     // was doing and is then collected.
     //
-    // Nothing leaks by not disposing: the preference resolver is keyed by
-    // source id, so the replacement runtime registers over the old entry.
-    _cache.remove(sourceId);
+    // The preference resolver is keyed by source id, so a replacement runtime
+    // overwrites the old entry; with no replacement the runtime is held in
+    // [_retired] until teardown rather than being disposed under a live call.
+    final cached = _cache.remove(sourceId);
+    if (cached != null) _retired.add(cached.runtime);
   }
 
   @override
@@ -132,6 +172,10 @@ class SourceRepositoryImpl implements SourceRepository {
     for (final entry in _cache.values) {
       entry.runtime.dispose();
     }
+    for (final runtime in _retired) {
+      runtime.dispose();
+    }
+    _retired.clear();
     _cache.clear();
   }
 

@@ -119,6 +119,10 @@ class _ExtensionsScreenState extends State<ExtensionsScreen>
           // A scrollable is required for pull-to-refresh to work at all, so the
           // empty state is a list rather than a bare centred column.
           child: ListView(
+            // Without this a short list cannot overscroll, so pull-to-refresh --
+            // the only way to fetch the catalogue in the first place -- does
+            // nothing on exactly the empty screen that needs it.
+            physics: const AlwaysScrollableScrollPhysics(),
             children: [
               SizedBox(height: MediaQuery.sizeOf(context).height * 0.2),
               _EmptyState(tab: tab, filtered: _c.query.value.isNotEmpty),
@@ -129,6 +133,7 @@ class _ExtensionsScreenState extends State<ExtensionsScreen>
       return RefreshIndicator(
         onRefresh: _c.refreshRepos,
         child: ListView.builder(
+          physics: const AlwaysScrollableScrollPhysics(),
           itemCount: items.length,
           itemBuilder: (context, i) {
             final source = items[i];

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:iconsax/iconsax.dart';
 
 import 'package:otaku_reader/data/isar/manga_entry.dart';
+import 'package:otaku_reader/source/http/m_client.dart';
 
 /// One library entry: cover, title, and an unread badge.
 class LibraryCard extends StatelessWidget {
@@ -10,11 +11,18 @@ class LibraryCard extends StatelessWidget {
     super.key,
     required this.entry,
     required this.unread,
+    this.sourceBaseUrl = '',
     this.onTap,
   });
 
   final MangaEntry entry;
   final int unread;
+
+  /// For the cover request, not for display: hotlink-protected hosts answer a
+  /// bare GET with 403, and a library full of fallback covers looks like the
+  /// app lost them.
+  final String sourceBaseUrl;
+
   final VoidCallback? onTap;
 
   @override
@@ -27,48 +35,50 @@ class LibraryCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: AspectRatio(
-                aspectRatio: 2 / 3,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    if (cover != null && cover.isNotEmpty)
-                      CachedNetworkImage(
-                        imageUrl: cover,
-                        fit: BoxFit.cover,
-                        errorWidget: (_, _, _) => const _Fallback(),
-                        placeholder: (_, _) => const _Fallback(),
-                      )
-                    else
-                      const _Fallback(),
-                    if (unread > 0)
-                      Positioned(
-                        top: 4,
-                        right: 4,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.primary,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            '$unread',
-                            style: TextStyle(
-                              color: theme.colorScheme.onPrimary,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                            ),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: AspectRatio(
+              aspectRatio: 2 / 3,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (cover != null && cover.isNotEmpty)
+                    CachedNetworkImage(
+                      imageUrl: cover,
+                      httpHeaders: MClient.pageImageHeaders(
+                        null,
+                        sourceBaseUrl,
+                      ),
+                      fit: BoxFit.cover,
+                      errorWidget: (_, _, _) => const _Fallback(),
+                      placeholder: (_, _) => const _Fallback(),
+                    )
+                  else
+                    const _Fallback(),
+                  if (unread > 0)
+                    Positioned(
+                      top: 4,
+                      right: 4,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.primary,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          '$unread',
+                          style: TextStyle(
+                            color: theme.colorScheme.onPrimary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ),
-                  ],
-                ),
+                    ),
+                ],
               ),
             ),
           ),

@@ -321,6 +321,39 @@ void main() {
     expect(stored.lastPageRead, 2);
   });
 
+  test('opening a one-page chapter does not mark it read', () async {
+    // Page 0 of 1 is also the last page, so an unguarded save on load would
+    // finish a chapter the user has not looked at.
+    await seed();
+    final (c, _) = await open('/c-1', pages: {'/c-1': _pages(1)});
+
+    final chapter = (await library.find(
+      _sourceId,
+      _manga,
+    ))!.chapters.firstWhere((x) => x.url == '/c-1');
+    expect(chapter.read, isFalse);
+    expect(c.pages, hasLength(1));
+  });
+
+  test('unnumbered extras sort after numbered chapters, not before', () async {
+    // `?? 0` put every extra before chapter 1, so Next walked the extras first.
+    await library.upsertFromSource(
+      sourceId: _sourceId,
+      url: _manga,
+      manga: MManga(
+        name: 'Example',
+        chapters: [
+          MChapter(url: '/extra', name: 'Omake'),
+          MChapter(url: '/c-1', name: 'Chapter 1'),
+          MChapter(url: '/c-2', name: 'Chapter 2'),
+        ],
+      ),
+    );
+    final (c, _) = await open('/c-1', pages: {'/c-1': _pages(2)});
+
+    expect(c.chaptersInOrder.map((x) => x.url), ['/c-1', '/c-2', '/extra']);
+  });
+
   test('next moves forward and saves the chapter being left', () async {
     await seed();
     final (c, _) = await open('/c-1');

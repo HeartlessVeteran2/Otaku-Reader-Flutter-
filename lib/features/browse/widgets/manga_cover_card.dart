@@ -32,16 +32,14 @@ class MangaCoverCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: AspectRatio(
-                aspectRatio: 2 / 3,
-                child: _Cover(
-                  url: manga.imageUrl,
-                  sourceBaseUrl: sourceBaseUrl,
-                ),
-              ),
+          // AspectRatio is the direct child, not wrapped in Expanded: Expanded
+          // forces its child to fill the leftover grid height, which overrides
+          // the ratio and stretches every cover vertically.
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: AspectRatio(
+              aspectRatio: 2 / 3,
+              child: _Cover(url: manga.imageUrl, sourceBaseUrl: sourceBaseUrl),
             ),
           ),
           const SizedBox(height: 6),

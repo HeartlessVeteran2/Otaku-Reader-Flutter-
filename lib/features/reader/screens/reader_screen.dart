@@ -46,6 +46,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
   ScrollController? _scroll;
   bool _chromeVisible = true;
 
+  /// Retained so it can be disposed. An unowned `ever` worker keeps firing
+  /// after the screen is popped — creating controllers for an unmounted state
+  /// and disposing ones already disposed — whenever the reader is closed while
+  /// `load()` is still awaiting pages.
+  Worker? _pagesWorker;
+
   @override
   void initState() {
     super.initState();
@@ -53,8 +59,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
     // are pure obstruction.
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersive);
     // Rebuild the PageView at the resume position once the pages arrive.
-    ever<List<PageUrl>>(_c.pages, (list) {
-      if (list.isEmpty) return;
+    _pagesWorker = ever<List<PageUrl>>(_c.pages, (list) {
+      if (list.isEmpty || !mounted) return;
       _pageController?.dispose();
       _pageController = PageController(initialPage: _c.initialPage);
       // Continuous mode resumes by pixel offset, which is the only thing that
@@ -63,13 +69,16 @@ class _ReaderScreenState extends State<ReaderScreen> {
       // position rather than jumping after the user can already see the top.
       _scroll?.dispose();
       _scroll = ScrollController(initialScrollOffset: _c.initialOffset);
-      if (mounted) setState(() {});
+      setState(() {});
     });
   }
 
   @override
   void dispose() {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    // Before deleting the controller, so the worker cannot fire against a
+    // disposed Rx or a dead State.
+    _pagesWorker?.dispose();
     _pageController?.dispose();
     _scroll?.dispose();
     Get.delete<ReaderController>(tag: _tag);

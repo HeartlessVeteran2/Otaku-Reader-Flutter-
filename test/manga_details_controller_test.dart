@@ -177,32 +177,50 @@ void main() {
     expect(c.chapters.last.url, '/extra');
   });
 
-  test('unnumbered chapters keep the order the source listed them in', () async {
-    // Dart's List.sort is not stable, so a comparator returning 0 lets their
-    // order shuffle between rebuilds. Their position in the source's listing is
-    // the only order they have.
+  test('unnumbered chapters keep source order through an unstable sort', () async {
+    // Dart's List.sort only switches to (unstable) quicksort above 32 elements;
+    // below that it uses a stable insertion sort. An earlier version of this
+    // test used four chapters and therefore passed with the tie-break deleted —
+    // green, and proving nothing. 40 unnumbered chapters reach the unstable
+    // path, so this now fails without the tie-break.
+    // Digit-free titles: the parser reads a number anywhere in a title, so
+    // "Extra 7" would parse as chapter 7 and leave nothing to order.
+    String label(int i) =>
+        String.fromCharCode(65 + i ~/ 26) + String.fromCharCode(65 + i % 26);
+    final extras = [
+      for (var i = 0; i < 40; i++)
+        _ch('/extra-$i', 'Extra ${label(i)}: a side story'),
+    ];
     final (c, _) = await build(
-      MManga(
-        name: 'Example',
-        chapters: [
-          _ch('/omake', 'Omake'),
-          _ch('/c-1', 'Chapter 1'),
-          _ch('/extra', 'Extra'),
-          _ch('/afterword', 'Afterword'),
-        ],
-      ),
+      MManga(name: 'Example', chapters: [_ch('/c-1', 'Chapter 1'), ...extras]),
     );
 
     final unnumbered = c.chapters.where((x) => x.number == null).toList();
-    expect(unnumbered.map((x) => x.url), ['/omake', '/extra', '/afterword']);
+    expect(unnumbered, hasLength(40), reason: 'none parsed a number');
+    expect(unnumbered.map((x) => x.url), [
+      for (var i = 0; i < 40; i++) '/extra-$i',
+    ]);
 
     // Flipping the numeric direction must not reorder them either.
     c.toggleSort();
     expect(c.chapters.where((x) => x.number == null).map((x) => x.url), [
-      '/omake',
-      '/extra',
-      '/afterword',
+      for (var i = 0; i < 40; i++) '/extra-$i',
     ]);
+  });
+
+  test('a stale load cannot overwrite a newer one', () async {
+    // A pull-to-refresh started before the first load returns must not let the
+    // older response land last.
+    final (c, methods) = await build(MManga(name: 'First'));
+    expect(c.entry.value?.title, 'First');
+
+    methods.detail = MManga(name: 'Second');
+    final slow = c.load();
+    methods.detail = MManga(name: 'Third');
+    await c.load();
+    await slow;
+
+    expect(c.entry.value?.title, 'Third');
   });
 
   test('the unread filter hides read chapters and the count follows', () async {

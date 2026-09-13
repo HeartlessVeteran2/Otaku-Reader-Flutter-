@@ -9,6 +9,7 @@ import 'package:get/get.dart';
 import 'package:otaku_reader/core/database/data_keys/keys.dart';
 import 'package:otaku_reader/core/database/kv_helper.dart';
 import 'package:otaku_reader/domain/repository/extension_repository.dart';
+import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/source/model/source.dart';
 
@@ -24,11 +25,14 @@ class ExtensionsController extends GetxController {
   ExtensionsController({
     required ExtensionRepository extensions,
     required SourceRepository sources,
+    required LibraryRepository library,
   }) : _extensions = extensions,
-       _sources = sources;
+       _sources = sources,
+       _library = library;
 
   final ExtensionRepository _extensions;
   final SourceRepository _sources;
+  final LibraryRepository _library;
 
   final all = <Source>[].obs;
   final query = ''.obs;
@@ -90,10 +94,13 @@ class ExtensionsController extends GetxController {
 
   int get updateCount => all.where((s) => s.hasUpdate).length;
 
-  /// Every language present in the catalogue, so the filter offers exactly the
-  /// ones that can actually match rather than a hardcoded list that drifts.
+  /// Every language present in the catalogue, plus any the user has selected.
+  ///
+  /// The selected ones matter: if a language disappears from the index while it
+  /// is still enabled, offering only what is present hides the very checkbox
+  /// needed to turn the now-empty filter off.
   List<String> get availableLangs =>
-      all.map((s) => s.lang).toSet().toList()..sort();
+      {...all.map((s) => s.lang), ...enabledLangs}.toList()..sort();
 
   Future<void> load() async {
     isLoading.value = true;
@@ -194,10 +201,33 @@ class ExtensionsController extends GetxController {
     return result.isSuccess ? null : 'Could not read that index';
   }
 
+  /// How many library entries would be stranded by removing [url].
+  ///
+  /// Deleting a repo deletes its source rows, and every library entry pointing
+  /// at one then fails with "No source with id ...". That is the exact failure
+  /// the Kotlin app calls its highest-impact bug ever, so the UI asks before
+  /// causing it rather than discovering it later.
+  Future<int> affectedLibraryEntries(String url) async {
+    final ids = all
+        .where((s) => s.repoUrl == url)
+        .map((s) => s.sourceId)
+        .toSet();
+    if (ids.isEmpty) return 0;
+    final favourites = await _library.favorites();
+    return favourites
+        .where((e) => ids.contains(LibraryRepository.sourceIdOf(e)))
+        .length;
+  }
+
+  /// Removes a repo, and only the sources that are safe to remove.
+  ///
+  /// An **installed** source with library entries pointing at it is kept, even
+  /// though its repo is gone: deleting it strands those entries with no way
+  /// back to a source. It simply stops receiving updates, which is what
+  /// removing its repo should mean. Everything else goes.
   Future<void> removeRepo(String url) async {
-    // The rows are about to be deleted, so their cached runtimes have nothing
-    // left to validate against. Collect the ids first: after the removal there
-    // is no row to tell us which sources belonged to this repo.
+    // Collect first: after the removal there is no row left to say which
+    // sources belonged to this repo.
     final orphaned = all
         .where((s) => s.repoUrl == url)
         .map((s) => s.sourceId)

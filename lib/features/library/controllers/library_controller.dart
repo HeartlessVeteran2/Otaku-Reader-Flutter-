@@ -10,14 +10,30 @@ import 'package:otaku_reader/core/database/data_keys/keys.dart';
 import 'package:otaku_reader/core/database/kv_helper.dart';
 import 'package:otaku_reader/data/isar/manga_entry.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
+import 'package:otaku_reader/domain/repository/source_repository.dart';
 
 enum LibrarySort { title, lastRead, dateAdded, unread }
 
 /// The user's saved manga.
 class LibraryController extends GetxController {
-  LibraryController({required LibraryRepository library}) : _library = library;
+  LibraryController({
+    required LibraryRepository library,
+    required SourceRepository sources,
+  }) : _library = library,
+       _sources = sources;
 
   final LibraryRepository _library;
+  final SourceRepository _sources;
+
+  /// Base URL per source id, for cover Referer/Origin headers. Resolved once
+  /// per load rather than per card, because every card in the grid rebuilds
+  /// constantly while scrolling.
+  final _baseUrls = <int, String>{};
+
+  String baseUrlFor(MangaEntry entry) {
+    final id = LibraryRepository.sourceIdOf(entry);
+    return id == null ? '' : _baseUrls[id] ?? '';
+  }
 
   final entries = <MangaEntry>[].obs;
   final query = ''.obs;
@@ -39,7 +55,16 @@ class LibraryController extends GetxController {
   Future<void> load() async {
     isLoading.value = true;
     try {
-      entries.value = await _library.favorites();
+      final favourites = await _library.favorites();
+      entries.value = favourites;
+
+      // Hotlink-protected hosts answer a bare GET with 403, so a library of
+      // fallback covers looks like the app lost them.
+      for (final entry in favourites) {
+        final id = LibraryRepository.sourceIdOf(entry);
+        if (id == null || _baseUrls.containsKey(id)) continue;
+        _baseUrls[id] = (await _sources.sourceById(id))?.baseUrl ?? '';
+      }
     } finally {
       isLoading.value = false;
     }

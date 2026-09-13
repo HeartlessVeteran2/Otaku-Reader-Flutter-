@@ -194,21 +194,41 @@ void main() {
     expect(second.builtFromCode, 'OTHER');
   });
 
-  test('unchanged code does not rebuild, even across a row rewrite', () async {
+  test('a rewrite the runtime cannot see does not rebuild', () async {
+    // `iconUrl` is not among the fields `toMSource()` hands the extension, so
+    // the runtime is unaffected by it. Fields that *are* passed -- name,
+    // baseUrl, additionalParams and the rest -- must rebuild, and do; see the
+    // cases above.
     put(_source(id: 1));
     final repo = repository();
     final first = await repo.methodsFor(1);
 
-    // A refresh rewrites the row without touching the code.
     final row = db.isar.sources.filter().sourceIdEqualTo(1).findFirstSync()!;
     db.isar.writeTxnSync(() {
-      row.name = 'Renamed upstream';
+      row.iconUrl = 'https://example.test/new-icon.png';
       db.isar.sources.putSync(row);
     });
 
     expect(identical(await repo.methodsFor(1), first), isTrue);
     expect(built, hasLength(1));
   });
+
+  test(
+    'a renamed source rebuilds, because the extension is given its name',
+    () async {
+      put(_source(id: 1));
+      final repo = repository();
+      final first = await repo.methodsFor(1);
+
+      final row = db.isar.sources.filter().sourceIdEqualTo(1).findFirstSync()!;
+      db.isar.writeTxnSync(() {
+        row.name = 'Renamed upstream';
+        db.isar.sources.putSync(row);
+      });
+
+      expect(identical(await repo.methodsFor(1), first), isFalse);
+    },
+  );
 
   test('evict drops the runtime without disposing it', () async {
     // Disposing would kill a request another screen has in flight on this

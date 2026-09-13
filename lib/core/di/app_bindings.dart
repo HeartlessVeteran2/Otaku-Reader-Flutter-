@@ -37,11 +37,15 @@ class AppBindings extends Bindings {
       () => ExtensionsController(
         extensions: Get.find<ExtensionRepository>(),
         sources: Get.find<SourceRepository>(),
+        library: Get.find<LibraryRepository>(),
       ),
       fenix: true,
     );
     Get.lazyPut<LibraryController>(
-      () => LibraryController(library: Get.find<LibraryRepository>()),
+      () => LibraryController(
+        library: Get.find<LibraryRepository>(),
+        sources: Get.find<SourceRepository>(),
+      ),
       fenix: true,
     );
   }

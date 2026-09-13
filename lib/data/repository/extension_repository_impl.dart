@@ -153,6 +153,11 @@ class ExtensionRepositoryImpl implements ExtensionRepository {
       // This app has no anime or novel surface, so an entry it could never open
       // is noise in the browse list rather than a feature.
       if (parsed.itemType != ItemType.manga) continue;
+      // Same reasoning for JavaScript entries: there is no JS interpreter here,
+      // so listing one only offers an install that leads to a source which
+      // cannot open. The Dart half is the ecosystem -- 249 entries across ~245
+      // sites, against 18 distinct JS scripts (CLAUDE.md).
+      if (parsed.sourceCodeLanguage != SourceCodeLanguage.dart) continue;
       incoming[parsed.sourceId] = parsed;
     }
 

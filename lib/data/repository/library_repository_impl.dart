@@ -56,8 +56,11 @@ class LibraryRepositoryImpl implements LibraryRepository {
             ..url = url
             ..title = (manga.name?.trim().isNotEmpty ?? false)
                 ? manga.name!
-                : 'Untitled'
-            ..dateAdded = DateTime.now());
+                : 'Untitled');
+      // `dateAdded` is deliberately left null here. Opening a detail page is
+      // not adding to the library, and stamping it now makes "date added"
+      // sorting order by when a manga was first *looked at*. toggleFavorite
+      // sets it on the first favourite.
 
       // Source-owned fields. A blank from the source is a gap, not an erasure:
       // details pages routinely omit an author the listing had, and letting the
@@ -136,17 +139,30 @@ class LibraryRepositoryImpl implements LibraryRepository {
   /// extras by name — and yields null rather than a misleading 0.
   static double? parseChapterNumber(String? name) {
     if (name == null) return null;
+
     // Skip a leading volume marker so "Vol.2 Ch.5" is chapter 5, not 2.
     final withoutVolume = name.replaceAll(
       RegExp(r'vol(ume)?\.?\s*\d+(\.\d+)?', caseSensitive: false),
-      '',
+      ' ',
     );
-    final match = RegExp(
-      r'(?:ch(?:apter)?\.?\s*)?(\d+(?:\.\d+)?)',
+
+    // An explicit marker wins, wherever it appears. Without this, a title
+    // carrying an incidental number first -- a numbered series name like
+    // "86 Chapter 3", a year, a season -- yields that number instead of the
+    // chapter.
+    final marked = RegExp(
+      r'\bch(?:apter|\.)?\s*(\d+(?:\.\d+)?)',
       caseSensitive: false,
     ).firstMatch(withoutVolume);
-    if (match == null) return null;
-    return double.tryParse(match.group(1)!);
+    if (marked != null) return double.tryParse(marked.group(1)!);
+
+    // No marker: fall back to the first number, which covers the very common
+    // bare "12" and "12.5" titles. A title with no number at all is normal --
+    // many sources title one-shots and extras by name -- and yields null rather
+    // than a misleading 0.
+    final bare = RegExp(r'(\d+(?:\.\d+)?)').firstMatch(withoutVolume);
+    if (bare == null) return null;
+    return double.tryParse(bare.group(1)!);
   }
 
   @override

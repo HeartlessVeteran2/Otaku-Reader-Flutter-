@@ -39,6 +39,13 @@ class MangaDetailsController extends GetxController {
   final filter = ChapterFilter.all.obs;
   final sourceBaseUrl = ''.obs;
 
+  /// Incremented on every [load]. A response carrying a stale token is dropped.
+  ///
+  /// Without it, a pull-to-refresh started before the first load returns lets
+  /// the older response land last and overwrite the newer metadata and chapter
+  /// list. The browse and reader controllers already guard this way.
+  int _generation = 0;
+
   /// What the browse grid already knew, shown immediately so the page is not a
   /// spinner over nothing while the detail request runs.
   MManga? get preview => _initial;
@@ -50,11 +57,19 @@ class MangaDetailsController extends GetxController {
     final visible = filter.value == ChapterFilter.unread
         ? all.where((c) => !c.read).toList()
         : all.toList();
-    // Dart's List.sort is *not* stable, so returning 0 for two unnumbered
-    // chapters lets their order shuffle between rebuilds. Their position in the
-    // source's own listing is the only order they have, so it is captured here
-    // and used as the tie-break.
-    final sourceOrder = {for (var i = 0; i < all.length; i++) all[i].url: i};
+    // Dart's List.sort is *not* stable above 32 elements (below that it uses
+    // insertion sort), so returning 0 for two unnumbered chapters lets their
+    // order shuffle. Their position in the source's own listing is the only
+    // order they have, so it is captured here as the tie-break.
+    //
+    // Keyed by **identity**, not by url: a source can return several chapters
+    // with no url at all, and a url-keyed map collapses them onto one entry —
+    // which puts the tie-break back to returning 0 for exactly the rows it was
+    // added to protect.
+    final sourceOrder = Map<Chapter, int>.identity();
+    for (var i = 0; i < all.length; i++) {
+      sourceOrder[all[i]] = i;
+    }
 
     visible.sort((a, b) {
       // Unnumbered chapters sort last either way -- many sources title
@@ -63,13 +78,13 @@ class MangaDetailsController extends GetxController {
       final an = a.number;
       final bn = b.number;
       if (an == null && bn == null) {
-        return (sourceOrder[a.url] ?? 0).compareTo(sourceOrder[b.url] ?? 0);
+        return (sourceOrder[a] ?? 0).compareTo(sourceOrder[b] ?? 0);
       }
       if (an == null) return 1;
       if (bn == null) return -1;
       final byNumber = descending.value ? bn.compareTo(an) : an.compareTo(bn);
       if (byNumber != 0) return byNumber;
-      return (sourceOrder[a.url] ?? 0).compareTo(sourceOrder[b.url] ?? 0);
+      return (sourceOrder[a] ?? 0).compareTo(sourceOrder[b] ?? 0);
     });
     return visible;
   }
@@ -84,17 +99,27 @@ class MangaDetailsController extends GetxController {
   }
 
   Future<void> load() async {
+    final generation = ++_generation;
     isLoading.value = true;
     error.value = null;
     try {
       // Show whatever is already stored before the network call, so reopening a
       // manga you have read is instant and works offline.
-      entry.value = await _library.find(sourceId, url);
+      final stored = await _library.find(sourceId, url);
+      if (generation != _generation) return;
+      entry.value = stored;
 
       final source = await _sources.sourceById(sourceId);
-      sourceBaseUrl.value = source?.baseUrl ?? '';
       final methods = await _sources.methodsFor(sourceId);
+      // The runtime's effective base URL, not the stored one: a source can
+      // override it from a mirror preference, and this value becomes the
+      // Referer/Origin on every cover request.
+      final effective = methods.sourceBaseUrl;
+      sourceBaseUrl.value = effective.isNotEmpty
+          ? effective
+          : source?.baseUrl ?? '';
       final detail = await methods.getDetail(url);
+      if (generation != _generation) return;
 
       entry.value = await _library.upsertFromSource(
         sourceId: sourceId,
@@ -102,6 +127,7 @@ class MangaDetailsController extends GetxController {
         manga: detail,
       );
     } catch (e) {
+      if (generation != _generation) return;
       // Only an error if there is nothing to show. A stored entry plus a failed
       // refresh is a usable page, not a failure.
       if (entry.value == null) {
@@ -110,7 +136,7 @@ class MangaDetailsController extends GetxController {
             'blocking requests.\n\n$e';
       }
     } finally {
-      isLoading.value = false;
+      if (generation == _generation) isLoading.value = false;
     }
   }
 

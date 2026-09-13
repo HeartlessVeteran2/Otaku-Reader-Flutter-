@@ -40,6 +40,11 @@ class SourceBrowseController extends GetxController {
   final source = Rxn<Source>();
   final supportsLatest = true.obs;
 
+  /// The base URL actually in effect, which is what cover requests need for
+  /// their Referer and Origin. A source can override it from a mirror
+  /// preference, so the stored `Source.baseUrl` is not necessarily right.
+  final effectiveBaseUrl = ''.obs;
+
   int _page = 1;
   SourceMethods? _methods;
 
@@ -50,6 +55,15 @@ class SourceBrowseController extends GetxController {
   /// that only appears on a slow network, which is exactly where it is hardest
   /// to notice and most likely to happen.
   int _generation = 0;
+
+  /// Identifies which `loadMore` currently owns [isLoadingMore].
+  ///
+  /// Clearing the flag unconditionally in `finally` fixed the stuck-forever
+  /// case but introduced a narrower one: a superseded page finishing after a
+  /// *newer* loadMore had started would clear the newer request's guard, and
+  /// the next scroll would fetch and append the same page twice. Only the
+  /// owning operation clears it.
+  int _loadMoreToken = 0;
 
   @override
   void onInit() {
@@ -62,6 +76,10 @@ class SourceBrowseController extends GetxController {
       source.value = await _sources.sourceById(sourceId);
       _methods = await _sources.methodsFor(sourceId);
       supportsLatest.value = _methods!.supportsLatest;
+      final effective = _methods!.sourceBaseUrl;
+      effectiveBaseUrl.value = effective.isNotEmpty
+          ? effective
+          : source.value?.baseUrl ?? '';
       await _sources.markUsed(sourceId);
       await reload();
     } catch (e) {
@@ -87,6 +105,10 @@ class SourceBrowseController extends GetxController {
     final generation = ++_generation;
     _page = 1;
     hasNextPage.value = true;
+    // A reload invalidates any in-flight paging: disown it and release the
+    // guard now, rather than waiting for a response that will be discarded.
+    _loadMoreToken++;
+    isLoadingMore.value = false;
     error.value = null;
     isLoading.value = true;
     try {
@@ -108,6 +130,7 @@ class SourceBrowseController extends GetxController {
   Future<void> loadMore() async {
     if (isLoading.value || isLoadingMore.value || !hasNextPage.value) return;
     final generation = _generation;
+    final token = ++_loadMoreToken;
     isLoadingMore.value = true;
     try {
       final page = await _fetch(_page + 1);
@@ -122,12 +145,11 @@ class SourceBrowseController extends GetxController {
       // the user reaches the bottom.
       hasNextPage.value = false;
     } finally {
-      // Reset unconditionally. Guarding this on the generation left the flag
-      // stuck true whenever a reload superseded an in-flight loadMore, and
-      // `loadMore` refuses to run while it is set -- so paging was dead for the
-      // rest of the screen's life. The guard belongs on the *writes* above,
-      // which must not land, not on the flag that gates future work.
-      isLoadingMore.value = false;
+      // Only the owning operation releases the guard. Guarding on the
+      // *generation* left it stuck true forever after a reload; clearing it
+      // unconditionally let a superseded page release a newer request's guard
+      // and duplicate a page. The token distinguishes the two.
+      if (token == _loadMoreToken) isLoadingMore.value = false;
     }
   }
 

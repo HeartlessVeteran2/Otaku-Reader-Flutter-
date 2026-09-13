@@ -15,14 +15,38 @@ class LibraryScreen extends StatefulWidget {
   State<LibraryScreen> createState() => _LibraryScreenState();
 }
 
-class _LibraryScreenState extends State<LibraryScreen> {
+class _LibraryScreenState extends State<LibraryScreen>
+    with WidgetsBindingObserver {
   LibraryController get _c => Get.find<LibraryController>();
   final _search = TextEditingController();
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _search.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Favourites change from Browse, which never touches this controller. The
+    // shell keeps every tab alive in a LazyIndexedStack, so without a reload
+    // the grid can show a library that is several additions out of date.
+    if (state == AppLifecycleState.resumed) _c.load();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Cheap, and covers the common case: the tab is rebuilt when it is
+    // re-selected, and a stale grid is worse than one redundant read.
+    _c.load();
   }
 
   @override
@@ -89,6 +113,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           return RefreshIndicator(
             onRefresh: _c.load,
             child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
               children: [
                 SizedBox(height: MediaQuery.sizeOf(context).height * 0.25),
                 Icon(
@@ -115,6 +140,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         return RefreshIndicator(
           onRefresh: _c.load,
           child: GridView.builder(
+            physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.all(12),
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: columns,
@@ -138,6 +164,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return LibraryCard(
       entry: entry,
       unread: LibraryController.unreadOf(entry),
+      sourceBaseUrl: _c.baseUrlFor(entry),
       onTap: sourceId == null
           ? null
           : () async {

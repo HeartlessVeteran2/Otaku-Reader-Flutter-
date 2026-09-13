@@ -6,6 +6,14 @@ import 'package:otaku_reader/source/model/m_manga.dart';
 /// An entry is identified by `(sourceId, url)` — the same pair everywhere, so
 /// there is exactly one way to find a manga again.
 abstract interface class LibraryRepository {
+  /// The source id a library row points at, or null if it cannot be read.
+  ///
+  /// `MangaEntry.sourceId` is the decimal of the source's id, never a hash, so
+  /// this is a straight conversion back. Kept here rather than on the
+  /// implementation because it is the identity rule every caller has to share —
+  /// the Kotlin app's highest-impact bug ever was screens disagreeing about it.
+  static int? sourceIdOf(MangaEntry entry) => int.tryParse(entry.sourceId);
+
   /// The stored entry for this source and url, or null.
   Future<MangaEntry?> find(int sourceId, String url);
 

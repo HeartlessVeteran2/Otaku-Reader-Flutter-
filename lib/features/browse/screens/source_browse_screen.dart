@@ -121,55 +121,81 @@ class _SourceBrowseScreenState extends State<SourceBrowseScreen> {
         if (error != null && _c.items.isEmpty) {
           return _SourceError(message: error, onRetry: _c.reload);
         }
+        // A failed refresh keeps the previous results, so the failure would
+        // otherwise be invisible -- the user would see a stale grid and no hint
+        // that the reload did not work.
+        final banner = error == null
+            ? null
+            : _RefreshFailedBanner(onRetry: _c.reload);
         if (_c.items.isEmpty) {
-          return _Empty(searching: _c.mode.value == BrowseMode.search);
+          // Wrapped so a source that legitimately returns nothing can still be
+          // retried; a bare centred message is a dead end.
+          return RefreshIndicator(
+            onRefresh: _c.reload,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [
+                SizedBox(height: MediaQuery.sizeOf(context).height * 0.3),
+                _Empty(searching: _c.mode.value == BrowseMode.search),
+              ],
+            ),
+          );
         }
 
-        final baseUrl = _c.source.value?.baseUrl ?? '';
-        return RefreshIndicator(
-          onRefresh: _c.reload,
-          child: GridView.builder(
-            controller: _scroll,
-            padding: const EdgeInsets.all(12),
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: columns,
-              childAspectRatio: 0.52,
-              crossAxisSpacing: 10,
-              mainAxisSpacing: 12,
-            ),
-            itemCount: _c.items.length + (_c.isLoadingMore.value ? columns : 0),
-            itemBuilder: (context, i) {
-              if (i >= _c.items.length) {
-                return const Center(
-                  child: SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+        final baseUrl = _c.effectiveBaseUrl.value;
+        return Column(
+          children: [
+            if (banner != null) banner,
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: _c.reload,
+                child: GridView.builder(
+                  controller: _scroll,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(12),
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: columns,
+                    childAspectRatio: 0.52,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 12,
                   ),
-                );
-              }
-              final manga = _c.items[i];
-              final link = manga.link;
-              return MangaCoverCard(
-                manga: manga,
-                sourceBaseUrl: baseUrl,
-                // A listing entry with no link cannot be opened. Sources do
-                // emit them, and a tap that silently does nothing is worse
-                // than a tile that plainly is not tappable.
-                onTap: link == null || link.isEmpty
-                    ? null
-                    : () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => MangaDetailsScreen(
-                            sourceId: widget.sourceId,
-                            url: link,
-                            initial: manga,
-                          ),
+                  itemCount:
+                      _c.items.length + (_c.isLoadingMore.value ? columns : 0),
+                  itemBuilder: (context, i) {
+                    if (i >= _c.items.length) {
+                      return const Center(
+                        child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
                         ),
-                      ),
-              );
-            },
-          ),
+                      );
+                    }
+                    final manga = _c.items[i];
+                    final link = manga.link;
+                    return MangaCoverCard(
+                      manga: manga,
+                      sourceBaseUrl: baseUrl,
+                      // A listing entry with no link cannot be opened. Sources do
+                      // emit them, and a tap that silently does nothing is worse
+                      // than a tile that plainly is not tappable.
+                      onTap: link == null || link.isEmpty
+                          ? null
+                          : () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => MangaDetailsScreen(
+                                  sourceId: widget.sourceId,
+                                  url: link,
+                                  initial: manga,
+                                ),
+                              ),
+                            ),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ],
         );
       }),
     );
@@ -181,6 +207,50 @@ class _SourceBrowseScreenState extends State<SourceBrowseScreen> {
     final preferred = LibraryKeys.gridSize.get<int>(3);
     final fit = (width / 130).floor();
     return fit.clamp(2, preferred.clamp(2, 6) + 2);
+  }
+}
+
+/// Shown above a retained grid when a refresh failed.
+class _RefreshFailedBanner extends StatelessWidget {
+  const _RefreshFailedBanner({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.errorContainer,
+      child: InkWell(
+        onTap: onRetry,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
+            children: [
+              Icon(Iconsax.warning_2, size: 16, color: scheme.onErrorContainer),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Could not refresh. Showing the last results.',
+                  style: TextStyle(
+                    color: scheme.onErrorContainer,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+              Text(
+                'Retry',
+                style: TextStyle(
+                  color: scheme.onErrorContainer,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

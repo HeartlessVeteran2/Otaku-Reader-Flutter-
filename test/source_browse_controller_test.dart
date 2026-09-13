@@ -212,6 +212,42 @@ void main() {
     expect(methods.calls, isNotEmpty);
   });
 
+  test('a superseded page does not release a newer requestguard', () async {
+    // The first fix cleared the flag unconditionally, which swapped a
+    // stuck-forever bug for a subtler one: the late response released the
+    // *newer* request's guard, and the next scroll appended a duplicate page.
+    final (c, methods, _) = await build();
+
+    methods.gates['popular:2'] = Completer<void>();
+    final first = c.loadMore();
+    await Future<void>.delayed(Duration.zero);
+
+    c.setQuery('naruto');
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+
+    // A new page request on the search listing.
+    methods.gates['search(naruto):2'] = Completer<void>();
+    final second = c.loadMore();
+    await Future<void>.delayed(Duration.zero);
+    expect(c.isLoadingMore.value, isTrue);
+
+    // The superseded popular page finally lands.
+    methods.gates['popular:2']!.complete();
+    await first;
+    await Future<void>.delayed(Duration.zero);
+
+    expect(
+      c.isLoadingMore.value,
+      isTrue,
+      reason: 'the newer request still owns the guard',
+    );
+
+    methods.gates['search(naruto):2']!.complete();
+    await second;
+    expect(c.isLoadingMore.value, isFalse);
+  });
+
   test('switching mode restarts from page 1', () async {
     final (c, methods, _) = await build();
     await c.loadMore();

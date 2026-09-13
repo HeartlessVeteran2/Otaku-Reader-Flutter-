@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:otaku_reader/core/database/database.dart' as db;
+import 'package:otaku_reader/data/repository/library_repository_impl.dart';
 import 'package:otaku_reader/domain/repository/extension_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/features/browse/controllers/extensions_controller.dart';
@@ -133,6 +134,7 @@ void main() {
     final controller = ExtensionsController(
       extensions: extensions,
       sources: sources,
+      library: LibraryRepositoryImpl(),
     )..onInit();
     // onInit kicks off load() without awaiting; let it settle.
     await Future<void>.delayed(Duration.zero);
@@ -234,6 +236,41 @@ void main() {
     expect(src.evicted, [1], reason: 'a stale interpreter must not linger');
     expect(c.busy, isEmpty, reason: 'busy is cleared even on the happy path');
     expect(c.lastError.value, isNull);
+  });
+
+  test('updating routes through the same guard, eviction and reload', () async {
+    final (c, ext, src) = await build([
+      _source(id: 1, code: 'OLD', versionLast: '2.0.0'),
+    ]);
+
+    await c.updateSource(ext.rows.single);
+
+    expect(ext.calls, contains('update:1'));
+    expect(src.evicted, [1], reason: 'the old interpreter must not be served');
+    expect(c.busy, isEmpty);
+    expect(c.lastError.value, isNull);
+  });
+
+  test('uninstalling keeps the row listed and clears busy', () async {
+    final (c, ext, src) = await build([_source(id: 1, code: 'X')]);
+
+    await c.uninstall(ext.rows.single);
+
+    expect(ext.calls, contains('uninstall:1'));
+    expect(src.evicted, [1]);
+    expect(c.busy, isEmpty);
+    expect(c.visible(ExtensionTab.available).map((s) => s.name), [
+      'Example',
+    ], reason: 'still in the catalogue, re-installable');
+  });
+
+  test('a language still selected but gone from the index stays selectable', () async {
+    // Otherwise the checkbox needed to turn the now-empty filter off is itself
+    // hidden, and the user sees an empty list with no way out.
+    final (c, _, _) = await build([_source(id: 1, lang: 'en', code: 'X')]);
+    c.toggleLang('fr');
+
+    expect(c.availableLangs, containsAll(['en', 'fr']));
   });
 
   test(

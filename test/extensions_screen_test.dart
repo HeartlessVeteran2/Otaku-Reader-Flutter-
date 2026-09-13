@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
 
 import 'package:otaku_reader/core/database/database.dart' as db;
+import 'package:otaku_reader/data/repository/library_repository_impl.dart';
 import 'package:otaku_reader/domain/repository/extension_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/features/browse/controllers/extensions_controller.dart';
@@ -94,7 +95,11 @@ void main() {
   Future<_StubExtensions> pump(WidgetTester tester, List<Source> rows) async {
     final extensions = _StubExtensions(rows);
     Get.put<ExtensionsController>(
-      ExtensionsController(extensions: extensions, sources: _StubSources()),
+      ExtensionsController(
+        extensions: extensions,
+        sources: _StubSources(),
+        library: LibraryRepositoryImpl(),
+      ),
     );
     await tester.pumpWidget(const GetMaterialApp(home: ExtensionsScreen()));
     await tester.pumpAndSettle();

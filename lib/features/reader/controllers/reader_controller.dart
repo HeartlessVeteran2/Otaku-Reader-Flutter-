@@ -122,14 +122,39 @@ class ReaderController extends GetxController {
         // Ascending, so "next chapter" means the next one to read. The details
         // screen shows newest first; the reader must not inherit that or Next
         // would walk backwards.
-        final ordered = [...entry.chapters]
-          ..sort((a, b) => (a.number ?? 0).compareTo(b.number ?? 0));
+        // `?? 0` would sort every unnumbered extra *before* chapter 1, so the
+        // reader's Next button would walk through the extras first. Nulls go
+        // last, keeping their source order.
+        final ordered = [...entry.chapters];
+        final sourceOrder = Map<Chapter, int>.identity();
+        for (var i = 0; i < ordered.length; i++) {
+          sourceOrder[ordered[i]] = i;
+        }
+        ordered.sort((a, b) {
+          final an = a.number;
+          final bn = b.number;
+          if (an == null && bn == null) {
+            return (sourceOrder[a] ?? 0).compareTo(sourceOrder[b] ?? 0);
+          }
+          if (an == null) return 1;
+          if (bn == null) return -1;
+          final byNumber = an.compareTo(bn);
+          return byNumber != 0
+              ? byNumber
+              : (sourceOrder[a] ?? 0).compareTo(sourceOrder[b] ?? 0);
+        });
         chaptersInOrder.value = ordered;
       }
 
       final source = await _sources.sourceById(sourceId);
-      sourceBaseUrl.value = source?.baseUrl ?? '';
       final methods = await _sources.methodsFor(sourceId);
+      // The runtime's effective base URL, not the stored one: a mirror
+      // preference changes where the images actually come from, and this value
+      // becomes the Referer/Origin on every page request.
+      final effective = methods.sourceBaseUrl;
+      sourceBaseUrl.value = effective.isNotEmpty
+          ? effective
+          : source?.baseUrl ?? '';
       final list = await methods.getPageList(currentChapterUrl.value);
       if (generation != _generation) return;
 
@@ -148,7 +173,11 @@ class ReaderController extends GetxController {
       initialOffset = _resumeOffset();
       _offset = initialOffset;
       _maxOffset = currentChapter?.maxOffset ?? 0;
-      await _persist();
+      // `markRead: false` explicitly. Opening a one-page chapter puts page 0 at
+      // the last page, so an unguarded save here would mark it read before the
+      // user has done anything. Only a page turn or a scroll finishes a
+      // chapter.
+      await _persist(markRead: false);
     } catch (e) {
       if (generation != _generation) return;
       error.value =
@@ -202,7 +231,7 @@ class ReaderController extends GetxController {
     });
   }
 
-  Future<void> _persist() async {
+  Future<void> _persist({bool? markRead}) async {
     final chapterUrl = currentChapterUrl.value;
     final total = pages.length;
     if (total == 0) return;
@@ -219,8 +248,9 @@ class ReaderController extends GetxController {
       currentOffset: _offset,
       maxOffset: _maxOffset,
       // Reaching the last page is what marks a chapter read. Doing it on open
-      // would mark a chapter read that was merely glanced at.
-      markRead: reachedEnd,
+      // would mark a chapter read that was merely glanced at -- see the
+      // explicit `markRead: false` on the initial save.
+      markRead: markRead ?? reachedEnd,
     );
   }
 
