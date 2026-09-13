@@ -304,6 +304,30 @@ void main() {
     },
   );
 
+  test('two removals at once do not resurrect one another', () async {
+    // Both calls read the stored list, filter it, and write the whole thing
+    // back. Interleaved -- two quick taps is enough -- the second write is
+    // built from a list read before the first write landed, so the first
+    // removal is undone and a repository the user deleted comes back.
+    final fetcher = _Fetcher({
+      _repo: jsonEncode([_entry(id: 1)]),
+      _otherRepo: jsonEncode([_entry(id: 2)]),
+    });
+    final repository = repoWith(fetcher);
+    await repository.addRepo(const ExtensionRepo(url: _repo));
+    await repository.addRepo(const ExtensionRepo(url: _otherRepo));
+
+    await Future.wait([
+      repository.removeRepo(_repo),
+      repository.removeRepo(_otherRepo),
+    ]);
+
+    expect((await repository.getRepos()).map((r) => r.url), [
+      ExtensionRepositoryImpl.defaultRepoUrl,
+    ]);
+    expect(db.isar.sources.countSync(), 0);
+  });
+
   test('adding a repo twice does not duplicate it', () async {
     final fetcher = _Fetcher({
       _repo: jsonEncode([_entry(id: 1)]),

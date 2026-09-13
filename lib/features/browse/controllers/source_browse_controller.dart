@@ -115,8 +115,6 @@ class SourceBrowseController extends GetxController {
   /// Starts the current listing again from page 1.
   Future<void> reload() async {
     final generation = ++_generation;
-    _page = 1;
-    hasNextPage.value = true;
     // A reload invalidates any in-flight paging: disown it and release the
     // guard now, rather than waiting for a response that will be discarded.
     _loadMoreToken++;
@@ -126,12 +124,21 @@ class SourceBrowseController extends GetxController {
     try {
       final page = await _fetch(1);
       if (generation != _generation) return;
+      // Committed only on success. Resetting the cursor up front and then
+      // failing leaves the old pages on screen with `_page` back at 1, so the
+      // next scroll re-fetches page 2 and appends a duplicate of what is
+      // already there.
+      _page = 1;
       items.value = page.list;
       hasNextPage.value = page.hasNextPage;
     } catch (e) {
       if (generation != _generation) return;
       // Deliberately does not clear `items`: a failure on a refresh should
-      // leave what the user was already looking at on screen.
+      // leave what the user was already looking at on screen. Paging stops
+      // until a reload succeeds, though -- the listing on screen and the
+      // cursor pointing into it no longer necessarily describe the same
+      // request, because a failed reload may also have been a mode change.
+      hasNextPage.value = false;
       error.value = _describe(e);
     } finally {
       if (generation == _generation) isLoading.value = false;

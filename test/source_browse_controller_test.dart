@@ -293,6 +293,35 @@ void main() {
     );
   });
 
+  test('a failed reload does not re-append a page already on screen', () async {
+    // The cursor used to reset to page 1 before the fetch. Keeping the old
+    // items (which a failed refresh deliberately does) then left the list
+    // holding page 2 while the cursor said page 1, so the next scroll fetched
+    // page 2 again and appended a second copy of it.
+    final (c, methods, _) = await build();
+    methods.popularPages = 5;
+    await c.loadMore();
+    final beforeFailure = [...c.items.map((m) => m.name)];
+    expect(beforeFailure, hasLength(4));
+
+    methods.failWith = StateError('502 from the site');
+    await c.reload();
+
+    methods.failWith = null;
+    await c.loadMore();
+
+    expect(
+      c.items.map((m) => m.name),
+      beforeFailure,
+      reason: 'paging stops until a reload succeeds',
+    );
+    expect(
+      methods.calls.where((x) => x == 'popular:2'),
+      hasLength(1),
+      reason: 'page 2 was not fetched a second time',
+    );
+  });
+
   test(
     'a failed loadMore stops paging instead of retrying every scroll',
     () async {

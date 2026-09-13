@@ -46,6 +46,17 @@ class _ReaderScreenState extends State<ReaderScreen> {
   ScrollController? _scroll;
   bool _chromeVisible = true;
 
+  /// Identifies the webtoon list itself, so a child's offset can be measured
+  /// against the viewport rather than against the screen.
+  final _webtoonKey = GlobalKey();
+
+  /// One key per page, so [_webtoonPage] can ask where each laid-out page
+  /// actually sits. Cleared when the chapter changes: the keys are indexed, and
+  /// a key left pointing at the previous chapter's widget would answer for it.
+  final _pageKeys = <int, GlobalKey>{};
+
+  GlobalKey _pageKey(int i) => _pageKeys.putIfAbsent(i, GlobalKey.new);
+
   /// Retained so it can be disposed. An unowned `ever` worker keeps firing
   /// after the screen is popped — creating controllers for an unmounted state
   /// and disposing ones already disposed — whenever the reader is closed while
@@ -69,6 +80,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       // position rather than jumping after the user can already see the top.
       _scroll?.dispose();
       _scroll = ScrollController(initialScrollOffset: _c.initialOffset);
+      _pageKeys.clear();
       setState(() {});
     });
   }
@@ -141,21 +153,65 @@ class _ReaderScreenState extends State<ReaderScreen> {
         final metrics = notification.metrics;
         if (metrics.maxScrollExtent <= 0) return false;
         // Two things are recorded, because they answer different questions.
-        // The pixel offset is what a resume restores; the page index is only
-        // for the counter and for deciding the chapter has been finished.
+        // The pixel offset is what a resume restores; the page index is what
+        // the counter shows and what decides the chapter has been finished.
         _c.onScroll(metrics.pixels, metrics.maxScrollExtent);
-        final fraction = metrics.pixels / metrics.maxScrollExtent;
-        final index = (fraction * (_c.pages.length - 1)).round();
-        _c.onPageChanged(index.clamp(0, _c.pages.length - 1));
+        final index = _webtoonPage(metrics);
+        if (index != null) _c.onPageChanged(index);
         return false;
       },
       child: ListView.builder(
+        key: _webtoonKey,
         controller: controller,
         itemCount: _c.pages.length,
-        itemBuilder: (context, i) =>
-            _Page(page: _c.pages[i], baseUrl: _c.sourceBaseUrl.value),
+        itemBuilder: (context, i) => KeyedSubtree(
+          key: _pageKey(i),
+          child: _Page(page: _c.pages[i], baseUrl: _c.sourceBaseUrl.value),
+        ),
       ),
     );
+  }
+
+  /// Which page the reader is actually on, from the laid-out children.
+  ///
+  /// The obvious version — `pixels / maxScrollExtent * (pages - 1)` — assumes
+  /// every page is the same height. Manga pages are not: one tall spread among
+  /// short pages shifts every boundary, and because [_persist] treats "on the
+  /// last page" as "finished", an over-reported index marks a chapter read
+  /// while the user is still several pages from the end. Measuring the children
+  /// is the only thing that cannot drift.
+  ///
+  /// Returns null when nothing is laid out yet, which the caller reads as
+  /// "leave the current page alone" rather than "page 0".
+  int? _webtoonPage(ScrollMetrics metrics) {
+    final total = _c.pages.length;
+    if (total == 0) return null;
+    // Reaching the bottom is finishing the chapter, whatever the measurement
+    // says: a final page shorter than the viewport never gets its top edge
+    // above the fold, so the arithmetic below would never reach it.
+    if (metrics.pixels >= metrics.maxScrollExtent - 1) return total - 1;
+
+    final viewport = _webtoonKey.currentContext?.findRenderObject();
+    if (viewport is! RenderBox || !viewport.hasSize) return null;
+
+    // The page under the top edge of the viewport is the one being read; a page
+    // still entirely below it has not been reached. Only children near the
+    // viewport have a context at all -- the rest are recycled, and they are
+    // exactly the ones that cannot be the current page.
+    int? current;
+    for (final entry in _pageKeys.entries) {
+      if (entry.key >= total) continue;
+      final context = entry.value.currentContext;
+      if (context == null) continue;
+      final child = context.findRenderObject();
+      if (child is! RenderBox || !child.hasSize) continue;
+      final top = child.localToGlobal(Offset.zero, ancestor: viewport).dy;
+      if (top <= 0 && (current == null || entry.key > current)) {
+        current = entry.key;
+      }
+    }
+    // Nothing above the fold means the strip is still at the very top.
+    return current ?? 0;
   }
 
   Widget _chrome() {

@@ -48,6 +48,24 @@ class ExtensionRepositoryImpl implements ExtensionRepository {
 
   final TextFetcher _fetch;
 
+  /// Serialises the repo list's read-modify-write cycles.
+  ///
+  /// Both [addRepo] and [removeRepo] read the stored list, change it, and write
+  /// the whole thing back. Two of those interleaving -- two quick taps on two
+  /// remove buttons is enough -- means the second read happened before the
+  /// first write, so the second write puts the first's removal back and the
+  /// repository the user deleted reappears. The lock has to span *both* steps;
+  /// making each one individually atomic changes nothing.
+  Future<void> _repoLock = Future<void>.value();
+
+  Future<T> _withRepoLock<T>(Future<T> Function() body) {
+    final result = _repoLock.then((_) => body());
+    // The chain must survive a failed body, or one error wedges every later
+    // caller on a future that never completes.
+    _repoLock = result.then((_) {}, onError: (_) {});
+    return result;
+  }
+
   /// The index every Mangayomi client reads. Seeded so a fresh install has
   /// something to browse before the user has added anything.
   static const defaultRepoUrl =
@@ -76,19 +94,26 @@ class ExtensionRepositoryImpl implements ExtensionRepository {
 
   @override
   Future<RefreshResult> addRepo(ExtensionRepo repo) async {
-    // [getRepos] returns the seeded default when nothing is stored, and writing
-    // that list back materialises the seed. That is deliberate: the default is
-    // visible in the UI before any write, so saving only the newly added repo
-    // would make it disappear the moment the user adds their first one.
-    final repos = await getRepos();
-    if (!repos.any((r) => r.url == repo.url)) {
-      await _saveRepos([...repos, repo]);
-    }
+    await _withRepoLock(() async {
+      // [getRepos] returns the seeded default when nothing is stored, and
+      // writing that list back materialises the seed. That is deliberate: the
+      // default is visible in the UI before any write, so saving only the newly
+      // added repo would make it disappear the moment the user adds their
+      // first one.
+      final repos = await getRepos();
+      if (!repos.any((r) => r.url == repo.url)) {
+        await _saveRepos([...repos, repo]);
+      }
+    });
+    // Outside the lock: fetching an index is slow and network-bound, and it
+    // does not touch the repo list.
     return refresh(repo.url);
   }
 
   @override
-  Future<void> removeRepo(String url) async {
+  Future<void> removeRepo(String url) => _withRepoLock(() => _removeRepo(url));
+
+  Future<void> _removeRepo(String url) async {
     final repos = await getRepos();
     await _saveRepos(repos.where((r) => r.url != url).toList());
     db.isar.writeTxnSync(() {
