@@ -14,6 +14,7 @@ import 'package:otaku_reader/source/http/m_client.dart';
 import 'package:otaku_reader/source/model/m_manga.dart';
 import 'package:otaku_reader/source/model/m_status.dart';
 import 'package:otaku_reader/core/util/open_link.dart';
+import 'package:otaku_reader/domain/repository/download_repository.dart';
 
 class MangaDetailsScreen extends StatefulWidget {
   const MangaDetailsScreen({
@@ -38,6 +39,7 @@ class _MangaDetailsScreenState extends State<MangaDetailsScreen> {
       sources: Get.find<SourceRepository>(),
       library: Get.find<LibraryRepository>(),
       anilist: Get.find<AniListMetadataService>(),
+      downloads: Get.find<DownloadRepository>(),
       sourceId: widget.sourceId,
       url: widget.url,
       initial: widget.initial,
@@ -113,30 +115,39 @@ class _MangaDetailsScreenState extends State<MangaDetailsScreen> {
                   itemCount: _c.chapters.length,
                   itemBuilder: (context, i) {
                     final chapter = _c.chapters[i];
-                    return _ChapterTile(
-                      chapter: chapter,
-                      // Tapping a chapter reads it. The read/unread toggle is
-                      // the trailing icon: a list where tapping a row marks it
-                      // read instead of opening it is the wrong default for a
-                      // reader.
-                      onOpen: chapter.url == null
-                          ? null
-                          : () async {
-                              await Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) => ReaderScreen(
-                                    sourceId: widget.sourceId,
-                                    mangaUrl: widget.url,
-                                    chapterUrl: chapter.url!,
+                    // Its own Obx: `itemBuilder` runs during layout, after the
+                    // enclosing Obx's build closure has finished, so a read of
+                    // `downloadTasks` in here would register no dependency and
+                    // the row would never show a download progressing.
+                    return Obx(
+                      () => _ChapterTile(
+                        chapter: chapter,
+                        // Tapping a chapter reads it. The read/unread toggle is
+                        // the trailing icon: a list where tapping a row marks it
+                        // read instead of opening it is the wrong default for a
+                        // reader.
+                        onOpen: chapter.url == null
+                            ? null
+                            : () async {
+                                await Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => ReaderScreen(
+                                      sourceId: widget.sourceId,
+                                      mangaUrl: widget.url,
+                                      chapterUrl: chapter.url!,
+                                    ),
                                   ),
-                                ),
-                              );
-                              // Progress is written by the reader, so the list
-                              // has to re-read it on the way back.
-                              await _c.refreshEntry();
-                            },
-                      onToggleRead: () => _c.setRead(chapter, !chapter.read),
-                      onMarkUpTo: () => _c.markReadUpTo(chapter),
+                                );
+                                // Progress is written by the reader, so the list
+                                // has to re-read it on the way back.
+                                await _c.refreshEntry();
+                              },
+                        onToggleRead: () => _c.setRead(chapter, !chapter.read),
+                        onMarkUpTo: () => _c.markReadUpTo(chapter),
+                        download: _c.downloadFor(chapter),
+                        onDownload: () => _c.download(chapter),
+                        onDeleteDownload: () => _c.deleteDownload(chapter),
+                      ),
                     );
                   },
                 ),
@@ -426,12 +437,21 @@ class _ChapterTile extends StatelessWidget {
     required this.chapter,
     required this.onToggleRead,
     required this.onMarkUpTo,
+    required this.download,
+    required this.onDownload,
+    required this.onDeleteDownload,
     this.onOpen,
   });
 
   final Chapter chapter;
   final VoidCallback onToggleRead;
   final VoidCallback onMarkUpTo;
+
+  /// This chapter's queue entry, or null if it has none.
+  final DownloadTask? download;
+
+  final VoidCallback onDownload;
+  final VoidCallback onDeleteDownload;
   final VoidCallback? onOpen;
 
   @override
@@ -453,16 +473,92 @@ class _ChapterTile extends StatelessWidget {
       subtitle: chapter.scanlator?.isNotEmpty ?? false
           ? Text(chapter.scanlator!, style: theme.textTheme.bodySmall)
           : null,
-      trailing: IconButton(
-        tooltip: read ? 'Mark unread' : 'Mark read',
-        onPressed: onToggleRead,
-        icon: Icon(
-          read ? Iconsax.tick_circle : Iconsax.record_circle,
-          size: 18,
-          color: read ? theme.colorScheme.primary : theme.disabledColor,
-        ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _DownloadButton(
+            downloaded: chapter.localPath != null,
+            task: download,
+            onDownload: onDownload,
+            onDelete: onDeleteDownload,
+          ),
+          IconButton(
+            tooltip: read ? 'Mark unread' : 'Mark read',
+            onPressed: onToggleRead,
+            icon: Icon(
+              read ? Iconsax.tick_circle : Iconsax.record_circle,
+              size: 18,
+              color: read ? theme.colorScheme.primary : theme.disabledColor,
+            ),
+          ),
+        ],
       ),
     );
+  }
+}
+
+/// One chapter's download control: start, progress, or delete.
+///
+/// Every state occupies the same 40dp box, so a row does not shift sideways
+/// the moment a download starts — the same reason the extensions list pins its
+/// action width.
+class _DownloadButton extends StatelessWidget {
+  const _DownloadButton({
+    required this.downloaded,
+    required this.task,
+    required this.onDownload,
+    required this.onDelete,
+  });
+
+  final bool downloaded;
+  final DownloadTask? task;
+  final VoidCallback onDownload;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final state = task?.state;
+
+    Widget content;
+    if (downloaded) {
+      content = IconButton(
+        tooltip: 'Delete download',
+        onPressed: onDelete,
+        icon: Icon(
+          Iconsax.tick_square,
+          size: 18,
+          color: theme.colorScheme.primary,
+        ),
+      );
+    } else if (state == DownloadState.queued ||
+        state == DownloadState.running) {
+      content = Center(
+        child: SizedBox(
+          width: 18,
+          height: 18,
+          // Indeterminate until the page count is known — a bar that sits at
+          // zero looks stuck, and the page list is a network call of its own.
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            value: task?.progress,
+          ),
+        ),
+      );
+    } else if (state == DownloadState.failed) {
+      content = IconButton(
+        tooltip: task?.error ?? 'Download failed — tap to retry',
+        onPressed: onDownload,
+        icon: Icon(Iconsax.warning_2, size: 18, color: theme.colorScheme.error),
+      );
+    } else {
+      content = IconButton(
+        tooltip: 'Download',
+        onPressed: onDownload,
+        icon: Icon(Iconsax.arrow_down_2, size: 18, color: theme.disabledColor),
+      );
+    }
+    return SizedBox(width: 40, height: 40, child: content);
   }
 }
 

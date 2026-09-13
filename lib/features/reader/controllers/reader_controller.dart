@@ -5,6 +5,7 @@
 // ignore_for_file: prefer_initializing_formals
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:get/get.dart';
 
@@ -40,6 +41,11 @@ class ReaderController extends GetxController {
   final RxString currentChapterUrl;
 
   final pages = <PageUrl>[].obs;
+
+  /// True when the pages on screen came off disk. The reader shows a small
+  /// marker, because "why is this instant and working on a plane" is a
+  /// question worth answering on the screen rather than in a settings page.
+  final isOffline = false.obs;
   final page = 0.obs;
   final isLoading = false.obs;
   final error = RxnString();
@@ -147,6 +153,22 @@ class ReaderController extends GetxController {
       }
 
       final source = await _sources.sourceById(sourceId);
+      // Downloaded pages first, and without touching the source at all — that
+      // is what "offline" has to mean. A stored path whose directory has since
+      // gone (the user cleared storage, or moved the download folder) falls
+      // through to the network rather than showing an empty chapter, because a
+      // reader that renders nothing looks like the app lost the images.
+      final local = await _localPages();
+      if (generation != _generation) return;
+      if (local != null) {
+        pages.value = local;
+        isOffline.value = true;
+        _afterPagesLoaded(local.length);
+        await _persist(markRead: false);
+        return;
+      }
+      isOffline.value = false;
+
       final methods = await _sources.methodsFor(sourceId);
       // The runtime's effective base URL, not the stored one: a mirror
       // preference changes where the images actually come from, and this value
@@ -168,12 +190,7 @@ class ReaderController extends GetxController {
       }
 
       pages.value = list;
-      initialPage = _resumePage(list.length);
-      page.value = initialPage;
-      initialOffset = _resumeOffset();
-      _offset = initialOffset;
-      _maxOffset = currentChapter?.maxOffset ?? 0;
-      initialMaxOffset = _maxOffset;
+      _afterPagesLoaded(list.length);
       // `markRead: false` explicitly. Opening a one-page chapter puts page 0 at
       // the last page, so an unguarded save here would mark it read before the
       // user has done anything. Only a page turn or a scroll finishes a
@@ -187,6 +204,33 @@ class ReaderController extends GetxController {
     } finally {
       if (generation == _generation) isLoading.value = false;
     }
+  }
+
+  /// Resolves the resume position once the page list is known, whichever
+  /// source it came from.
+  void _afterPagesLoaded(int total) {
+    initialPage = _resumePage(total);
+    page.value = initialPage;
+    initialOffset = _resumeOffset();
+    _offset = initialOffset;
+    _maxOffset = currentChapter?.maxOffset ?? 0;
+    initialMaxOffset = _maxOffset;
+  }
+
+  /// The downloaded pages for this chapter, or null if there are none.
+  ///
+  /// Sorted by filename, which the downloader zero-pads for exactly this
+  /// reason: "10" sorts before "2" otherwise, and a shuffled chapter is worse
+  /// than one that did not download.
+  Future<List<PageUrl>?> _localPages() async {
+    final path = currentChapter?.localPath;
+    if (path == null || path.isEmpty) return null;
+    final dir = Directory(path);
+    if (!await dir.exists()) return null;
+    final files = (await dir.list().toList()).whereType<File>().toList()
+      ..sort((a, b) => a.path.compareTo(b.path));
+    if (files.isEmpty) return null;
+    return [for (final file in files) PageUrl(file.path)];
   }
 
   /// Where to open the chapter.

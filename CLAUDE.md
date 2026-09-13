@@ -225,6 +225,43 @@ identical from the outside.
 
 ---
 
+### The visual language: One UI over AnymeX's layout
+
+Decided by the developer, and recorded because it is a *house style*, not a
+preference to re-litigate per screen: **build the UI as a Samsung One UI
+engineer would, over AnymeX's information architecture.** AnymeX decides what
+is on a screen and in what order; One UI decides how it looks and where the
+user's thumb goes.
+
+What that means concretely, and what to check a new screen against:
+
+- **A large collapsing header.** One UI's signature is a title that starts
+  oversized in the top half and shrinks into the app bar as the content
+  scrolls — `SliverAppBar.large`, expanded height around 150-170. It is not
+  decoration: it pushes the first row of content into the lower half of a tall
+  phone, which is the only part of the screen a thumb reaches.
+- **Reach matters more than density.** Primary actions belong in the bottom
+  third. A dialog's buttons, a sheet's confirm, a FAB — low, not top-right.
+- **Rounded, grouped lists.** Related settings rows sit inside one rounded
+  container (radius ~26) with the group's label above it in the accent colour,
+  rather than as a flat divider-separated list. Cards and sheets share that
+  radius; it is the most recognisable One UI tell after the header.
+- **Soft surfaces, not shadows.** Elevation is expressed as a container
+  colour step (`surfaceContainer*`), not a drop shadow.
+- **Generous vertical rhythm.** One UI breathes: 20-24 between sections, not
+  8-12.
+- **Motion is short and eased**, never bouncy.
+
+Two things from AnymeX to keep, because they are what the developer asked for:
+the **carousel-of-covers home page** and the **AniList-rich details page**.
+Two to drop: its glass/blur app bars (they fight the collapsing header) and
+its habit of letting a service build its own widgets.
+
+None of this is a reason to change behaviour. A screen that reads better and
+does something different is a regression.
+
+---
+
 ### Deliberate departures from AnymeX
 
 AnymeX is the reference, not the gospel. Do not carry these over:

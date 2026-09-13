@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:get/get.dart';
 
 import 'package:otaku_reader/core/theme/theme_controller.dart';
@@ -14,6 +16,8 @@ import 'package:otaku_reader/features/browse/controllers/extensions_controller.d
 import 'package:otaku_reader/features/home/controllers/home_controller.dart';
 import 'package:otaku_reader/features/library/controllers/library_controller.dart';
 import 'package:otaku_reader/features/updates/controllers/updates_controller.dart';
+import 'package:otaku_reader/data/repository/download_repository_impl.dart';
+import 'package:otaku_reader/domain/repository/download_repository.dart';
 
 /// Explicit dependency wiring.
 ///
@@ -23,6 +27,12 @@ import 'package:otaku_reader/features/updates/controllers/updates_controller.dar
 /// no indication why. Registering through a Bindings class and constructing
 /// dependencies lazily keeps the graph explicit instead.
 class AppBindings extends Bindings {
+  AppBindings({required this.downloadRoot});
+
+  /// Resolved in `main`, because it needs the platform documents directory and
+  /// a stored preference — both of which are async, and `dependencies()` is not.
+  final Directory downloadRoot;
+
   @override
   void dependencies() {
     Get.put<ThemeController>(ThemeController(), permanent: true);
@@ -36,6 +46,17 @@ class AppBindings extends Bindings {
     Get.put<SourceRepository>(SourceRepositoryImpl(), permanent: true);
     Get.put<LibraryRepository>(LibraryRepositoryImpl(), permanent: true);
     Get.put<AniListRepository>(AniListRepositoryImpl(), permanent: true);
+    // Permanent for the same reason as the source repository: it owns a live
+    // queue, and a download must not stop because the screen that started it
+    // was popped.
+    Get.put<DownloadRepository>(
+      DownloadRepositoryImpl(
+        sources: Get.find<SourceRepository>(),
+        library: Get.find<LibraryRepository>(),
+        root: downloadRoot,
+      ),
+      permanent: true,
+    );
     Get.put<AniListMetadataService>(
       AniListMetadataService(anilist: Get.find<AniListRepository>()),
       permanent: true,

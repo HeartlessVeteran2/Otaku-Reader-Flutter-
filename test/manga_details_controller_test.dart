@@ -21,6 +21,7 @@ import 'package:otaku_reader/data/anilist/title_matcher.dart';
 import 'package:otaku_reader/domain/model/anilist_media.dart';
 import 'package:otaku_reader/domain/repository/anilist_repository.dart';
 
+import 'helpers/fake_download_repository.dart';
 import 'helpers/isar_test_env.dart';
 
 /// AniList is supplementary, so these tests run without it: every lookup says
@@ -153,6 +154,7 @@ void main() {
       sources: _Sources(methods, _row()),
       library: library,
       anilist: _anilistService(),
+      downloads: FakeDownloads(),
       sourceId: _sourceId,
       url: _url,
       initial: initial,
@@ -349,6 +351,7 @@ void main() {
         sources: _Sources(methods, _row()),
         library: library,
         anilist: _anilistService(),
+        downloads: FakeDownloads(),
         sourceId: _sourceId,
         url: _url,
       )..onInit();
@@ -367,6 +370,7 @@ void main() {
       sources: _Sources(methods, _row()),
       library: library,
       anilist: _anilistService(),
+      downloads: FakeDownloads(),
       sourceId: _sourceId,
       url: _url,
     )..onInit();
@@ -383,6 +387,7 @@ void main() {
       sources: _Sources(methods, _row()),
       library: library,
       anilist: _anilistService(),
+      downloads: FakeDownloads(),
       sourceId: _sourceId,
       url: _url,
     )..onInit();

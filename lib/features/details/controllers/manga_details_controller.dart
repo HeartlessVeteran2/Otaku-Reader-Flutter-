@@ -15,6 +15,7 @@ import 'package:otaku_reader/domain/model/anilist_media.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/source/model/m_manga.dart';
+import 'package:otaku_reader/domain/repository/download_repository.dart';
 
 /// Which chapters the list is showing.
 enum ChapterFilter { all, unread }
@@ -25,17 +26,20 @@ class MangaDetailsController extends GetxController {
     required SourceRepository sources,
     required LibraryRepository library,
     required AniListMetadataService anilist,
+    required DownloadRepository downloads,
     required this.sourceId,
     required this.url,
     MManga? initial,
   }) : _sources = sources,
        _library = library,
        _anilist = anilist,
+       _downloads = downloads,
        _initial = initial;
 
   final SourceRepository _sources;
   final LibraryRepository _library;
   final AniListMetadataService _anilist;
+  final DownloadRepository _downloads;
   final int sourceId;
   final String url;
   final MManga? _initial;
@@ -117,6 +121,8 @@ class MangaDetailsController extends GetxController {
     // the chapter list does when the reader pops can win that race and leave
     // the list showing stale progress. Watching the repository closes it by
     // reacting to the write itself rather than by guessing the ordering.
+    _readDownloads();
+    _downloadWatch = _downloads.changes.listen((_) => _readDownloads());
     _watch = _library.changes.listen((_) {
       _watchDebounce?.cancel();
       _watchDebounce = Timer(
@@ -128,11 +134,46 @@ class MangaDetailsController extends GetxController {
 
   StreamSubscription<void>? _watch;
   Timer? _watchDebounce;
+  StreamSubscription<void>? _downloadWatch;
+
+  /// Rebuilt on every queue change so the chapter list's per-row control can
+  /// be read synchronously while the list is scrolling.
+  final downloadTasks = <String, DownloadTask>{}.obs;
+
+  DownloadTask? downloadFor(Chapter chapter) =>
+      downloadTasks['$sourceId $url ${chapter.url}'];
+
+  void _readDownloads() {
+    downloadTasks.value = {
+      for (final task in _downloads.tasks)
+        if (task.sourceId == sourceId && task.mangaUrl == url) task.key: task,
+    };
+  }
+
+  /// Queues a chapter, or retries one that failed.
+  Future<void> download(Chapter chapter) => _downloads.enqueue(
+    sourceId: sourceId,
+    mangaUrl: url,
+    chapter: chapter,
+    mangaTitle: entry.value?.displayTitle ?? preview?.name ?? 'Manga',
+  );
+
+  /// Deletes a chapter's downloaded pages. Read state is untouched.
+  Future<void> deleteDownload(Chapter chapter) async {
+    final chapterUrl = chapter.url;
+    if (chapterUrl == null) return;
+    await _downloads.deleteChapter(
+      sourceId: sourceId,
+      mangaUrl: url,
+      chapterUrl: chapterUrl,
+    );
+  }
 
   @override
   void onClose() {
     _watchDebounce?.cancel();
     unawaited(_watch?.cancel());
+    unawaited(_downloadWatch?.cancel());
     super.onClose();
   }
 

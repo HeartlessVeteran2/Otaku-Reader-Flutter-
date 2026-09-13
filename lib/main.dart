@@ -1,10 +1,14 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'package:otaku_reader/core/database/database.dart';
 import 'package:otaku_reader/core/di/app_bindings.dart';
 import 'package:otaku_reader/core/navigation/app_shell.dart';
 import 'package:otaku_reader/core/theme/theme_controller.dart';
+import 'package:otaku_reader/data/repository/download_repository_impl.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -13,18 +17,28 @@ Future<void> main() async {
   // read persisted settings synchronously in their constructors and onInit.
   await AppDatabase.init();
 
-  runApp(const OtakuReaderApp());
+  // Resolved here rather than lazily inside the repository: it needs the
+  // platform's documents directory *and* a stored preference, so it is async,
+  // and a download queue that cannot say where it writes until its first write
+  // has nowhere to report a permission failure.
+  final downloadRoot = await DownloadRepositoryImpl.resolveRoot(
+    await getApplicationDocumentsDirectory(),
+  );
+
+  runApp(OtakuReaderApp(downloadRoot: downloadRoot));
 }
 
 class OtakuReaderApp extends StatelessWidget {
-  const OtakuReaderApp({super.key});
+  const OtakuReaderApp({super.key, required this.downloadRoot});
+
+  final Directory downloadRoot;
 
   @override
   Widget build(BuildContext context) {
     return GetMaterialApp(
       title: 'Otaku Reader',
       debugShowCheckedModeBanner: false,
-      initialBinding: AppBindings(),
+      initialBinding: AppBindings(downloadRoot: downloadRoot),
       home: const _ThemedApp(),
     );
   }

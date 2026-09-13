@@ -264,6 +264,28 @@ class LibraryRepositoryImpl implements LibraryRepository {
   }
 
   @override
+  Future<void> setChapterLocalPath({
+    required int sourceId,
+    required String url,
+    required String chapterUrl,
+    required String? localPath,
+  }) async {
+    db.isar.writeTxnSync(() {
+      final entry = db.isar.mangaEntrys
+          .filter()
+          .sourceIdEqualTo(keyFor(sourceId))
+          .urlEqualTo(url)
+          .findFirstSync();
+      if (entry == null) return;
+      for (final chapter in entry.chapters) {
+        if (chapter.url == chapterUrl) chapter.localPath = localPath;
+      }
+      db.isar.mangaEntrys.putSync(entry);
+    });
+    _notify();
+  }
+
+  @override
   Future<void> setChapterRead(
     int sourceId,
     String url,
