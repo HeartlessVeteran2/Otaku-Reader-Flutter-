@@ -1,4 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
+
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
@@ -260,11 +263,35 @@ class _ReaderScreenState extends State<ReaderScreen> {
                   onPressed: () => Navigator.of(context).pop(),
                 ),
                 Expanded(
-                  child: Text(
-                    _c.currentChapter?.name ?? 'Reading',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                  child: Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          _c.currentChapter?.name ?? 'Reading',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                      // Answers "why is this instant, and why does it work on a
+                      // plane" on the screen rather than in a settings page.
+                      if (_c.isOffline.value) ...[
+                        const SizedBox(width: 8),
+                        const Icon(
+                          Iconsax.tick_square,
+                          size: 14,
+                          color: Colors.white60,
+                        ),
+                        const SizedBox(width: 4),
+                        const Text(
+                          'Downloaded',
+                          style: TextStyle(color: Colors.white60, fontSize: 11),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
                 IconButton(
@@ -346,27 +373,40 @@ class _Page extends StatelessWidget {
   final PageUrl page;
   final String baseUrl;
 
-  @override
-  Widget build(BuildContext context) => CachedNetworkImage(
-    imageUrl: page.url,
-    // Merged, not replaced. Most sources attach no headers at all, and sending
-    // none means no User-Agent, Referer or Origin -- which is exactly what
-    // hotlink-protected CDNs answer with 403. `pageImageHeaders` supplies those
-    // defaults and lets anything the source set override them, because a source
-    // that bothered to set a header knows something a default does not.
-    httpHeaders: MClient.pageImageHeaders(page.headers, baseUrl),
-    fit: BoxFit.contain,
-    placeholder: (_, _) => const SizedBox(
-      height: 400,
-      child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-    ),
-    errorWidget: (_, _, _) => const SizedBox(
-      height: 200,
-      child: Center(
-        child: Icon(Iconsax.image, color: Colors.white24, size: 32),
-      ),
-    ),
+  static const _broken = SizedBox(
+    height: 200,
+    child: Center(child: Icon(Iconsax.image, color: Colors.white24, size: 32)),
   );
+
+  @override
+  Widget build(BuildContext context) {
+    // A downloaded page is a file path, not a URL. Routing it through
+    // CachedNetworkImage would try to fetch "/data/.../0001.jpg" over HTTP and
+    // fail — offline, which is the one situation downloads exist for.
+    if (!page.url.startsWith('http')) {
+      return Image.file(
+        File(page.url),
+        fit: BoxFit.contain,
+        errorBuilder: (_, _, _) => _broken,
+      );
+    }
+    return CachedNetworkImage(
+      imageUrl: page.url,
+      // Merged, not replaced. Most sources attach no headers at all, and
+      // sending none means no User-Agent, Referer or Origin -- which is exactly
+      // what hotlink-protected CDNs answer with 403. `pageImageHeaders`
+      // supplies those defaults and lets anything the source set override them,
+      // because a source that bothered to set a header knows something a
+      // default does not.
+      httpHeaders: MClient.pageImageHeaders(page.headers, baseUrl),
+      fit: BoxFit.contain,
+      placeholder: (_, _) => const SizedBox(
+        height: 400,
+        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+      ),
+      errorWidget: (_, _, _) => _broken,
+    );
+  }
 }
 
 class _Error extends StatelessWidget {

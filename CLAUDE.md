@@ -218,10 +218,70 @@ identical from the outside.
   scheme such as `intent:` or `file:` hands an arbitrary app an argument the
   user never saw. It also surfaces a failure: a tap that silently does nothing
   reads as the app being broken.
+- **A download is all-or-nothing, and cancelling has two windows.** Pages land
+  in a `.part` directory and are moved into place as one step, so there is no
+  half-downloaded state a reader can open. Cancellation is checked *per page*
+  and again *after the loop*, and those two checks do different jobs: the
+  post-loop check is the correctness guard (it stops a cancel landing during
+  the final fetch from renaming and reporting done), while the per-page check
+  stops the **fetching**, so a cancelled download does not quietly pull every
+  remaining page off the site before discarding it. A test asserting only the
+  end state passes with the per-page check deleted.
+- **`deleteChapter` awaits the in-flight run; `cancel` does not.** That
+  asymmetry is deliberate — delete has a row to write and must not race the
+  run writing `localPath` back — but it means `cancel` depends entirely on the
+  run stopping *itself*, which is why the post-loop check exists.
+- **A stale `localPath` is cleared where it is discovered, not where it is
+  rendered.** The reader clears it on falling back. Checking existence at
+  render time instead means a `stat` per visible row in a build method, on a
+  chapter list that can be 3,864 long.
+- **`resolveRoot` never throws for a *configured* path.** It runs before
+  `runApp`, and the path is a stored preference — an unmounted SD card, a
+  revoked permission. A throw there is a blank screen with no route to the
+  setting that caused it, and clearing app data as the only recourse, which
+  takes the library with it. It falls back to app documents and leaves the
+  preference intact, so a card that comes back starts working again.
 - **Read-modify-write on the KV tier needs a lock spanning *both* steps.**
   `ExtensionRepositoryImpl._withRepoLock` exists because two `removeRepo` calls
   interleaving — two quick taps — meant the second write was built from a list
   read before the first landed, and the repository the user deleted came back.
+
+---
+
+### The visual language: One UI over AnymeX's layout
+
+Decided by the developer, and recorded because it is a *house style*, not a
+preference to re-litigate per screen: **build the UI as a Samsung One UI
+engineer would, over AnymeX's information architecture.** AnymeX decides what
+is on a screen and in what order; One UI decides how it looks and where the
+user's thumb goes.
+
+What that means concretely, and what to check a new screen against:
+
+- **A large collapsing header.** One UI's signature is a title that starts
+  oversized in the top half and shrinks into the app bar as the content
+  scrolls — `SliverAppBar.large`, expanded height around 150-170. It is not
+  decoration: it pushes the first row of content into the lower half of a tall
+  phone, which is the only part of the screen a thumb reaches.
+- **Reach matters more than density.** Primary actions belong in the bottom
+  third. A dialog's buttons, a sheet's confirm, a FAB — low, not top-right.
+- **Rounded, grouped lists.** Related settings rows sit inside one rounded
+  container (radius ~26) with the group's label above it in the accent colour,
+  rather than as a flat divider-separated list. Cards and sheets share that
+  radius; it is the most recognisable One UI tell after the header.
+- **Soft surfaces, not shadows.** Elevation is expressed as a container
+  colour step (`surfaceContainer*`), not a drop shadow.
+- **Generous vertical rhythm.** One UI breathes: 20-24 between sections, not
+  8-12.
+- **Motion is short and eased**, never bouncy.
+
+Two things from AnymeX to keep, because they are what the developer asked for:
+the **carousel-of-covers home page** and the **AniList-rich details page**.
+Two to drop: its glass/blur app bars (they fight the collapsing header) and
+its habit of letting a service build its own widgets.
+
+None of this is a reason to change behaviour. A screen that reads better and
+does something different is a regression.
 
 ---
 
@@ -296,6 +356,9 @@ Kept because they repeat.
 | A failed reload reset the pagination cursor anyway | `_page = 1` was written *before* the fetch, and a failed refresh deliberately keeps the items on screen — so the list held page 2 while the cursor said page 1, and the next scroll appended a second copy. Commit a cursor only on success. |
 | The AniList link chips shipped with `onOpen: (_) {}` | Live UI wired to nothing, which this file's own rule forbids. It analysed clean and looked finished. |
 | Two `removeRepo` calls resurrected one another | Read-then-act with no lock across both steps. Making each step individually atomic changes nothing. |
+| A cancel test asserted only the end state | It passed with the per-page cancellation check deleted, because the post-loop check cleans up either way — so the "stop fetching" half of cancel was uncovered. Deleting the guard is the only thing that showed it: the test now asserts the *fetch count*, not just the files. Assert what a guard uniquely prevents, not what any guard would leave behind. |
+| A stored preference could throw out of `main` | `resolveRoot` created the configured download directory before `runApp`. An unmounted SD card meant the app never started, with no way to reach the setting and no recourse but clearing app data — which destroys the library. Anything in `main` that reads a user-supplied value needs a fallback, not an exception. |
+| Reader tests pumped a fixed three microtasks | Adding a disk read and a row write to the load path made three too few, so `open()` returned a controller with no pages and three new tests failed on an empty list rather than on what they asserted. Wait on the condition (`while (c.isLoading.value)`), never on a turn count. |
 
 The general lesson, and the one that keeps recurring across both codebases:
 **a comment describing the goal is not evidence the code achieves it.** After

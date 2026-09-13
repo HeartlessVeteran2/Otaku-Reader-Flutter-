@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:iconsax/iconsax.dart';
 
+import 'package:otaku_reader/features/downloads/screens/downloads_screen.dart';
 import 'package:otaku_reader/features/history/screens/history_screen.dart';
 import 'package:otaku_reader/features/more/screens/about_screen.dart';
 import 'package:otaku_reader/features/settings/screens/settings_screen.dart';
@@ -20,6 +21,12 @@ class MoreScreen extends StatelessWidget {
             title: 'History',
             subtitle: 'What you have read, newest first',
             builder: () => const HistoryScreen(),
+          ),
+          _Row(
+            icon: Iconsax.arrow_down_2,
+            title: 'Downloads',
+            subtitle: 'The queue, and what it is using on disk',
+            builder: () => const DownloadsScreen(),
           ),
           _Row(
             icon: Iconsax.setting_2,

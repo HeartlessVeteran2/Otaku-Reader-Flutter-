@@ -58,6 +58,18 @@ abstract interface class LibraryRepository {
   /// asked to clear a *timeline*, not to be told to re-read their library.
   Future<void> clearHistory();
 
+  /// Points a chapter at its downloaded pages, or clears that pointer.
+  ///
+  /// Separate from [updateChapterProgress] because it is the *downloader's*
+  /// field, not the reader's: writing it through the progress call would mean
+  /// a download had to invent a page position to save a path.
+  Future<void> setChapterLocalPath({
+    required int sourceId,
+    required String url,
+    required String chapterUrl,
+    required String? localPath,
+  });
+
   /// Marks a chapter read or unread, by its url.
   Future<void> setChapterRead(
     int sourceId,
