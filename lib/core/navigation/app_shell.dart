@@ -4,6 +4,7 @@ import 'package:iconsax/iconsax.dart';
 import 'package:otaku_reader/core/database/data_keys/keys.dart';
 import 'package:otaku_reader/core/database/kv_helper.dart';
 import 'package:otaku_reader/features/browse/screens/extensions_screen.dart';
+import 'package:otaku_reader/features/library/screens/library_screen.dart';
 import 'package:otaku_reader/widgets/common/lazy_indexed_stack.dart';
 import 'package:otaku_reader/widgets/common/placeholder_screen.dart';
 
@@ -45,11 +46,7 @@ class _AppShellState extends State<AppShell> {
       'Library',
       Iconsax.book,
       Iconsax.book_saved,
-      () => const PlaceholderScreen(
-        title: 'Library',
-        icon: Iconsax.book,
-        note: 'Your saved manga will appear here.',
-      ),
+      () => const LibraryScreen(),
     ),
     _Tab(
       'Browse',

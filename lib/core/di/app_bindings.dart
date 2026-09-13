@@ -8,6 +8,7 @@ import 'package:otaku_reader/domain/repository/extension_repository.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/features/browse/controllers/extensions_controller.dart';
+import 'package:otaku_reader/features/library/controllers/library_controller.dart';
 
 /// Explicit dependency wiring.
 ///
@@ -37,6 +38,10 @@ class AppBindings extends Bindings {
         extensions: Get.find<ExtensionRepository>(),
         sources: Get.find<SourceRepository>(),
       ),
+      fenix: true,
+    );
+    Get.lazyPut<LibraryController>(
+      () => LibraryController(library: Get.find<LibraryRepository>()),
       fenix: true,
     );
   }

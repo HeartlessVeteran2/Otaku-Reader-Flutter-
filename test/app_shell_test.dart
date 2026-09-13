@@ -3,10 +3,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
 
 import 'package:otaku_reader/core/database/data_keys/keys.dart';
-import 'package:otaku_reader/core/database/key_value.dart';
+import 'package:otaku_reader/core/database/database.dart' as db;
 import 'package:otaku_reader/core/database/kv_helper.dart';
 import 'package:otaku_reader/core/navigation/app_shell.dart';
 import 'package:otaku_reader/core/theme/theme_controller.dart';
+import 'package:otaku_reader/data/repository/library_repository_impl.dart';
+import 'package:otaku_reader/features/library/controllers/library_controller.dart';
 
 import 'helpers/isar_test_env.dart';
 
@@ -17,13 +19,23 @@ void main() {
   // instead of the actual cause.
   IsarTestEnv? env;
 
-  setUpAll(() async => env = await IsarTestEnv.open('shell', [KeyValueSchema]));
+  // The full production schema list, because the shell now builds the real
+  // Library tab and that reads manga rows, not just the key/value tier.
+  setUpAll(
+    () async =>
+        env = await IsarTestEnv.open('shell', db.AppDatabaseSchemas.all),
+  );
   tearDownAll(() async => env?.close());
 
   setUp(() {
     env!.clear();
     Get.reset();
     Get.put<ThemeController>(ThemeController());
+    // The Library tab is a real screen now, so the shell cannot be built
+    // without its controller.
+    Get.put<LibraryController>(
+      LibraryController(library: LibraryRepositoryImpl()),
+    );
   });
 
   Widget wrap(Widget child, {Size size = const Size(400, 800)}) => MediaQuery(
@@ -61,7 +73,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(General.lastOpenedTab.get<int>(0), 1);
-    expect(find.text('Your saved manga will appear here.'), findsOneWidget);
+    expect(
+      find.textContaining('Your library is empty'),
+      findsOneWidget,
+      reason: 'the Library tab is showing, not just selected',
+    );
   });
 
   testWidgets('a persisted tab index out of range is clamped, not crashed', (
