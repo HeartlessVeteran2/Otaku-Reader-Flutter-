@@ -101,10 +101,17 @@ class LibraryRepositoryImpl implements LibraryRepository {
   ) {
     final byUrl = {for (final c in stored) c.url: c};
     final merged = <Chapter>[];
+    // A chapter is an *update* only if it turned up on a refresh. On a first
+    // fetch every chapter is new by definition, and stamping them all would
+    // put a 3,864-chapter back catalogue into the Updates tab the first time
+    // the manga is opened.
+    final isRefresh = stored.isNotEmpty;
+    final now = DateTime.now().millisecondsSinceEpoch;
 
     for (final fresh in incoming) {
       final existing = byUrl[fresh.url];
       final chapter = existing ?? Chapter();
+      if (existing == null && isRefresh) chapter.dateFetch = now;
       chapter
         ..url = fresh.url
         // `_preferNullable`, not `??`: a source that returns an empty string

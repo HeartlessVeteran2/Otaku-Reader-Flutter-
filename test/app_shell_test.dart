@@ -13,6 +13,9 @@ import 'package:otaku_reader/domain/model/anilist_media.dart';
 import 'package:otaku_reader/domain/repository/anilist_repository.dart';
 import 'package:otaku_reader/features/home/controllers/home_controller.dart';
 import 'package:otaku_reader/features/library/controllers/library_controller.dart';
+import 'package:otaku_reader/features/updates/controllers/updates_controller.dart';
+import 'package:otaku_reader/source/model/m_chapter.dart';
+import 'package:otaku_reader/source/model/m_manga.dart';
 
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/source/model/source.dart';
@@ -127,6 +130,53 @@ void main() {
       find.textContaining('Your library is empty'),
       findsOneWidget,
       reason: 'the Library tab is showing, not just selected',
+    );
+  });
+
+  testWidgets('the Updates tab carries an unread badge', (tester) async {
+    // The badge is the only thing that tells a user a refresh found anything
+    // while they were on another tab.
+    final library = LibraryRepositoryImpl();
+    await library.upsertFromSource(
+      sourceId: 7,
+      url: '/m',
+      manga: MManga(
+        name: 'Example',
+        chapters: [MChapter(url: '/c-1', name: 'Chapter 1')],
+      ),
+    );
+    await library.toggleFavorite(7, '/m');
+    // A second fetch, so the new chapter counts as an update rather than as
+    // part of a first import.
+    await library.upsertFromSource(
+      sourceId: 7,
+      url: '/m',
+      manga: MManga(
+        name: 'Example',
+        chapters: [
+          MChapter(url: '/c-1', name: 'Chapter 1'),
+          MChapter(url: '/c-2', name: 'Chapter 2'),
+        ],
+      ),
+    );
+
+    final updates = UpdatesController(library: library, sources: _NoSources())
+      ..onInit();
+    Get.put<UpdatesController>(updates);
+    await tester.pumpAndSettle();
+
+    await tester.pumpWidget(wrap(const AppShell()));
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(Badge, '1'), findsOneWidget);
+
+    await updates.markRead(updates.updates.single, true);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byType(Badge),
+      findsNothing,
+      reason: 'a read update is still listed, but it is not outstanding',
     );
   });
 

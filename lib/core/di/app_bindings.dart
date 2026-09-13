@@ -13,6 +13,7 @@ import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/features/browse/controllers/extensions_controller.dart';
 import 'package:otaku_reader/features/home/controllers/home_controller.dart';
 import 'package:otaku_reader/features/library/controllers/library_controller.dart';
+import 'package:otaku_reader/features/updates/controllers/updates_controller.dart';
 
 /// Explicit dependency wiring.
 ///
@@ -54,6 +55,13 @@ class AppBindings extends Bindings {
       () => HomeController(
         anilist: Get.find<AniListRepository>(),
         library: Get.find<LibraryRepository>(),
+      ),
+      fenix: true,
+    );
+    Get.lazyPut<UpdatesController>(
+      () => UpdatesController(
+        library: Get.find<LibraryRepository>(),
+        sources: Get.find<SourceRepository>(),
       ),
       fenix: true,
     );

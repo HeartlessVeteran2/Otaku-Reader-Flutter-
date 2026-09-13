@@ -3686,55 +3686,60 @@ const ChapterSchema = Schema(
       name: r'currentOffset',
       type: IsarType.double,
     ),
-    r'dateUpload': PropertySchema(
+    r'dateFetch': PropertySchema(
       id: 1,
+      name: r'dateFetch',
+      type: IsarType.long,
+    ),
+    r'dateUpload': PropertySchema(
+      id: 2,
       name: r'dateUpload',
       type: IsarType.string,
     ),
     r'headerKeys': PropertySchema(
-      id: 2,
+      id: 3,
       name: r'headerKeys',
       type: IsarType.stringList,
     ),
     r'headerValues': PropertySchema(
-      id: 3,
+      id: 4,
       name: r'headerValues',
       type: IsarType.stringList,
     ),
     r'lastPageRead': PropertySchema(
-      id: 4,
+      id: 5,
       name: r'lastPageRead',
       type: IsarType.long,
     ),
     r'lastReadTime': PropertySchema(
-      id: 5,
+      id: 6,
       name: r'lastReadTime',
       type: IsarType.long,
     ),
     r'localPath': PropertySchema(
-      id: 6,
+      id: 7,
       name: r'localPath',
       type: IsarType.string,
     ),
     r'maxOffset': PropertySchema(
-      id: 7,
+      id: 8,
       name: r'maxOffset',
       type: IsarType.double,
     ),
-    r'name': PropertySchema(id: 8, name: r'name', type: IsarType.string),
-    r'number': PropertySchema(id: 9, name: r'number', type: IsarType.double),
-    r'read': PropertySchema(id: 10, name: r'read', type: IsarType.bool),
+    r'name': PropertySchema(id: 9, name: r'name', type: IsarType.string),
+    r'number': PropertySchema(id: 10, name: r'number', type: IsarType.double),
+    r'read': PropertySchema(id: 11, name: r'read', type: IsarType.bool),
     r'scanlator': PropertySchema(
-      id: 11,
+      id: 12,
       name: r'scanlator',
       type: IsarType.string,
     ),
     r'totalPages': PropertySchema(
-      id: 12,
+      id: 13,
       name: r'totalPages',
       type: IsarType.long,
     ),
-    r'url': PropertySchema(id: 13, name: r'url', type: IsarType.string),
+    r'url': PropertySchema(id: 14, name: r'url', type: IsarType.string),
   },
 
   estimateSize: _chapterEstimateSize,
@@ -3803,19 +3808,20 @@ void _chapterSerialize(
   Map<Type, List<int>> allOffsets,
 ) {
   writer.writeDouble(offsets[0], object.currentOffset);
-  writer.writeString(offsets[1], object.dateUpload);
-  writer.writeStringList(offsets[2], object.headerKeys);
-  writer.writeStringList(offsets[3], object.headerValues);
-  writer.writeLong(offsets[4], object.lastPageRead);
-  writer.writeLong(offsets[5], object.lastReadTime);
-  writer.writeString(offsets[6], object.localPath);
-  writer.writeDouble(offsets[7], object.maxOffset);
-  writer.writeString(offsets[8], object.name);
-  writer.writeDouble(offsets[9], object.number);
-  writer.writeBool(offsets[10], object.read);
-  writer.writeString(offsets[11], object.scanlator);
-  writer.writeLong(offsets[12], object.totalPages);
-  writer.writeString(offsets[13], object.url);
+  writer.writeLong(offsets[1], object.dateFetch);
+  writer.writeString(offsets[2], object.dateUpload);
+  writer.writeStringList(offsets[3], object.headerKeys);
+  writer.writeStringList(offsets[4], object.headerValues);
+  writer.writeLong(offsets[5], object.lastPageRead);
+  writer.writeLong(offsets[6], object.lastReadTime);
+  writer.writeString(offsets[7], object.localPath);
+  writer.writeDouble(offsets[8], object.maxOffset);
+  writer.writeString(offsets[9], object.name);
+  writer.writeDouble(offsets[10], object.number);
+  writer.writeBool(offsets[11], object.read);
+  writer.writeString(offsets[12], object.scanlator);
+  writer.writeLong(offsets[13], object.totalPages);
+  writer.writeString(offsets[14], object.url);
 }
 
 Chapter _chapterDeserialize(
@@ -3826,19 +3832,20 @@ Chapter _chapterDeserialize(
 ) {
   final object = Chapter();
   object.currentOffset = reader.readDoubleOrNull(offsets[0]);
-  object.dateUpload = reader.readStringOrNull(offsets[1]);
-  object.headerKeys = reader.readStringList(offsets[2]) ?? [];
-  object.headerValues = reader.readStringList(offsets[3]) ?? [];
-  object.lastPageRead = reader.readLongOrNull(offsets[4]);
-  object.lastReadTime = reader.readLongOrNull(offsets[5]);
-  object.localPath = reader.readStringOrNull(offsets[6]);
-  object.maxOffset = reader.readDoubleOrNull(offsets[7]);
-  object.name = reader.readStringOrNull(offsets[8]);
-  object.number = reader.readDoubleOrNull(offsets[9]);
-  object.read = reader.readBool(offsets[10]);
-  object.scanlator = reader.readStringOrNull(offsets[11]);
-  object.totalPages = reader.readLongOrNull(offsets[12]);
-  object.url = reader.readStringOrNull(offsets[13]);
+  object.dateFetch = reader.readLongOrNull(offsets[1]);
+  object.dateUpload = reader.readStringOrNull(offsets[2]);
+  object.headerKeys = reader.readStringList(offsets[3]) ?? [];
+  object.headerValues = reader.readStringList(offsets[4]) ?? [];
+  object.lastPageRead = reader.readLongOrNull(offsets[5]);
+  object.lastReadTime = reader.readLongOrNull(offsets[6]);
+  object.localPath = reader.readStringOrNull(offsets[7]);
+  object.maxOffset = reader.readDoubleOrNull(offsets[8]);
+  object.name = reader.readStringOrNull(offsets[9]);
+  object.number = reader.readDoubleOrNull(offsets[10]);
+  object.read = reader.readBool(offsets[11]);
+  object.scanlator = reader.readStringOrNull(offsets[12]);
+  object.totalPages = reader.readLongOrNull(offsets[13]);
+  object.url = reader.readStringOrNull(offsets[14]);
   return object;
 }
 
@@ -3852,30 +3859,32 @@ P _chapterDeserializeProp<P>(
     case 0:
       return (reader.readDoubleOrNull(offset)) as P;
     case 1:
-      return (reader.readStringOrNull(offset)) as P;
+      return (reader.readLongOrNull(offset)) as P;
     case 2:
-      return (reader.readStringList(offset) ?? []) as P;
+      return (reader.readStringOrNull(offset)) as P;
     case 3:
       return (reader.readStringList(offset) ?? []) as P;
     case 4:
-      return (reader.readLongOrNull(offset)) as P;
+      return (reader.readStringList(offset) ?? []) as P;
     case 5:
       return (reader.readLongOrNull(offset)) as P;
     case 6:
-      return (reader.readStringOrNull(offset)) as P;
-    case 7:
-      return (reader.readDoubleOrNull(offset)) as P;
-    case 8:
-      return (reader.readStringOrNull(offset)) as P;
-    case 9:
-      return (reader.readDoubleOrNull(offset)) as P;
-    case 10:
-      return (reader.readBool(offset)) as P;
-    case 11:
-      return (reader.readStringOrNull(offset)) as P;
-    case 12:
       return (reader.readLongOrNull(offset)) as P;
+    case 7:
+      return (reader.readStringOrNull(offset)) as P;
+    case 8:
+      return (reader.readDoubleOrNull(offset)) as P;
+    case 9:
+      return (reader.readStringOrNull(offset)) as P;
+    case 10:
+      return (reader.readDoubleOrNull(offset)) as P;
+    case 11:
+      return (reader.readBool(offset)) as P;
+    case 12:
+      return (reader.readStringOrNull(offset)) as P;
     case 13:
+      return (reader.readLongOrNull(offset)) as P;
+    case 14:
       return (reader.readStringOrNull(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -3971,6 +3980,81 @@ extension ChapterQueryFilter
           includeUpper: includeUpper,
 
           epsilon: epsilon,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Chapter, Chapter, QAfterFilterCondition> dateFetchIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'dateFetch'),
+      );
+    });
+  }
+
+  QueryBuilder<Chapter, Chapter, QAfterFilterCondition> dateFetchIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'dateFetch'),
+      );
+    });
+  }
+
+  QueryBuilder<Chapter, Chapter, QAfterFilterCondition> dateFetchEqualTo(
+    int? value,
+  ) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'dateFetch', value: value),
+      );
+    });
+  }
+
+  QueryBuilder<Chapter, Chapter, QAfterFilterCondition> dateFetchGreaterThan(
+    int? value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'dateFetch',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Chapter, Chapter, QAfterFilterCondition> dateFetchLessThan(
+    int? value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'dateFetch',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Chapter, Chapter, QAfterFilterCondition> dateFetchBetween(
+    int? lower,
+    int? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'dateFetch',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
         ),
       );
     });

@@ -84,6 +84,14 @@ class Chapter {
 
   int? lastReadTime;
 
+  /// When this chapter was first seen on a **refresh**, in milliseconds.
+  ///
+  /// Null on every chapter of a manga's first fetch, and that is the whole
+  /// point: the Updates tab reads this, and a first import of a series with
+  /// 3,864 chapters would otherwise announce all 3,864 of them as new. An
+  /// update is a chapter that appeared after the app already knew the series.
+  int? dateFetch;
+
   /// Set when the chapter is downloaded; the reader then lists this directory
   /// instead of calling the source.
   String? localPath;
