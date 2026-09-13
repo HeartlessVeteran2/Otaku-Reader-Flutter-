@@ -33,6 +33,20 @@ abstract interface class LibraryRepository {
 
   Future<List<MangaEntry>> favorites();
 
+  /// Every stored entry, favourite or not.
+  ///
+  /// History spans more than the library: a chapter read from a source and
+  /// never added is exactly the thing a user comes back looking for, and
+  /// filtering to favourites would lose it.
+  Future<List<MangaEntry>> allEntries();
+
+  /// Forgets that one chapter was read, leaving the entry and the rest alone.
+  Future<void> clearChapterHistory(int sourceId, String url, String chapterUrl);
+
+  /// Forgets every read timestamp. Read state itself is untouched: the user
+  /// asked to clear a *timeline*, not to be told to re-read their library.
+  Future<void> clearHistory();
+
   /// Marks a chapter read or unread, by its url.
   Future<void> setChapterRead(
     int sourceId,

@@ -195,6 +195,53 @@ class LibraryRepositoryImpl implements LibraryRepository {
       db.isar.mangaEntrys.filter().favoriteEqualTo(true).findAllSync();
 
   @override
+  Future<List<MangaEntry>> allEntries() async =>
+      db.isar.mangaEntrys.where().findAllSync();
+
+  @override
+  Future<void> clearChapterHistory(
+    int sourceId,
+    String url,
+    String chapterUrl,
+  ) async {
+    db.isar.writeTxnSync(() {
+      final entry = db.isar.mangaEntrys
+          .filter()
+          .sourceIdEqualTo('$sourceId')
+          .urlEqualTo(url)
+          .findFirstSync();
+      if (entry == null) return;
+      for (final chapter in entry.chapters) {
+        if (chapter.url == chapterUrl) chapter.lastReadTime = null;
+      }
+      db.isar.mangaEntrys.putSync(entry);
+    });
+  }
+
+  @override
+  Future<void> clearHistory() async {
+    db.isar.writeTxnSync(() {
+      final entries = db.isar.mangaEntrys.where().findAllSync();
+      for (final entry in entries) {
+        // `read` is deliberately untouched. Clearing the timeline must not
+        // hand the user back a library that thinks they have read nothing.
+        var touched = false;
+        for (final chapter in entry.chapters) {
+          if (chapter.lastReadTime != null) {
+            chapter.lastReadTime = null;
+            touched = true;
+          }
+        }
+        if (entry.lastRead != null) {
+          entry.lastRead = null;
+          touched = true;
+        }
+        if (touched) db.isar.mangaEntrys.putSync(entry);
+      }
+    });
+  }
+
+  @override
   Future<void> setChapterRead(
     int sourceId,
     String url,

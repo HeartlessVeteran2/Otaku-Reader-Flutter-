@@ -13,6 +13,7 @@ import 'package:otaku_reader/features/reader/screens/reader_screen.dart';
 import 'package:otaku_reader/source/http/m_client.dart';
 import 'package:otaku_reader/source/model/m_manga.dart';
 import 'package:otaku_reader/source/model/m_status.dart';
+import 'package:otaku_reader/core/util/open_link.dart';
 
 class MangaDetailsScreen extends StatefulWidget {
   const MangaDetailsScreen({
@@ -206,7 +207,10 @@ class _AniList extends StatelessWidget {
           ],
         ),
         AlternativeTitles(media: media),
-        ExternalLinkChips(links: media.externalLinks, onOpen: (_) {}),
+        ExternalLinkChips(
+          links: media.externalLinks,
+          onOpen: (url) => openLink(context, url),
+        ),
       ],
     );
   });

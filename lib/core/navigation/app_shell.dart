@@ -7,10 +7,10 @@ import 'package:otaku_reader/core/database/kv_helper.dart';
 import 'package:otaku_reader/features/browse/screens/extensions_screen.dart';
 import 'package:otaku_reader/features/home/screens/home_screen.dart';
 import 'package:otaku_reader/features/library/screens/library_screen.dart';
+import 'package:otaku_reader/features/more/screens/more_screen.dart';
 import 'package:otaku_reader/features/updates/controllers/updates_controller.dart';
 import 'package:otaku_reader/features/updates/screens/updates_screen.dart';
 import 'package:otaku_reader/widgets/common/lazy_indexed_stack.dart';
-import 'package:otaku_reader/widgets/common/placeholder_screen.dart';
 
 class _Tab {
   const _Tab(
@@ -65,16 +65,7 @@ class _AppShellState extends State<AppShell> {
       () => const UpdatesScreen(),
       badge: true,
     ),
-    _Tab(
-      'More',
-      Iconsax.category,
-      Iconsax.category,
-      () => const PlaceholderScreen(
-        title: 'More',
-        icon: Iconsax.category,
-        note: 'History, statistics, downloads and settings.',
-      ),
-    ),
+    _Tab('More', Iconsax.category, Iconsax.category, () => const MoreScreen()),
   ];
 
   late int _index = General.lastOpenedTab

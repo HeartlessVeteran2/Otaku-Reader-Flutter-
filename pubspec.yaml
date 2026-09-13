@@ -51,6 +51,11 @@ dependencies:
     # ── Misc ──
     intl: ^0.20.1
     collection: ^1.19.0
+    # Added in phase 5, with the two screens that need them: About shows the
+    # build's own version, and AniList's external-link chips had a no-op tap
+    # handler until there was something to open them with.
+    package_info_plus: ^8.1.1
+    url_launcher: ^6.3.1
 
 dev_dependencies:
     flutter_test:
