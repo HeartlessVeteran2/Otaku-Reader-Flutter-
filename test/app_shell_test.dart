@@ -11,13 +11,17 @@ import 'package:otaku_reader/core/theme/theme_controller.dart';
 import 'helpers/isar_test_env.dart';
 
 void main() {
-  late IsarTestEnv env;
+  // Nullable, not `late`: when open() throws -- a missing native library is
+  // the realistic case -- a `late` field makes tearDownAll throw
+  // LateInitializationError on top, and that cascade is what the reader sees
+  // instead of the actual cause.
+  IsarTestEnv? env;
 
   setUpAll(() async => env = await IsarTestEnv.open('shell', [KeyValueSchema]));
-  tearDownAll(() async => env.close());
+  tearDownAll(() async => env?.close());
 
   setUp(() {
-    env.clear();
+    env!.clear();
     Get.reset();
     Get.put<ThemeController>(ThemeController());
   });

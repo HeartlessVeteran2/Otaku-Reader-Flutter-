@@ -39,10 +39,29 @@ class KvHelper {
     // cast below throw.
     if (val is num && T == double) return val.toDouble() as T;
     if (val is num && T == int) return val.toInt() as T;
-    if (val is List && T == const <String>[].runtimeType) {
-      return val.cast<String>() as T;
+    // A list's element type lives only in T, and jsonDecode erases it to
+    // List<dynamic>. This used to cast *every* list to List<String>, which
+    // succeeds at the cast and then throws on first element access for any list
+    // that is not strings -- so every list of maps this app stores (repo URLs,
+    // home-page cards) round-tripped in name only. Deciding from the data's own
+    // element type rather than from T also gets the nullable spellings right,
+    // because List<String> satisfies List<String>? for free.
+    if (val is List) {
+      if (val is T) return val as T;
+      if (val.every((e) => e is String)) {
+        return val.cast<String>().toList() as T;
+      }
+      if (val.every((e) => e is num)) {
+        final ints = val.map((e) => (e as num).toInt()).toList();
+        if (ints is T) return ints as T;
+        return val.map((e) => (e as num).toDouble()).toList() as T;
+      }
+      if (val.every((e) => e is Map)) {
+        return val.map((e) => Map<String, dynamic>.from(e as Map)).toList()
+            as T;
+      }
+      return val as T;
     }
-    if (val is List) return val.cast<String>() as T;
     if (val is Map) return Map<String, dynamic>.from(val) as T;
     return val as T;
   }

@@ -7,7 +7,19 @@ import 'package:otaku_reader/core/database/kv_helper.dart';
 
 import 'helpers/isar_test_env.dart';
 
-enum _TestKeys { aString, anInt, aDouble, aBool, aList, aMap, absent }
+enum _TestKeys {
+  aString,
+  anInt,
+  aDouble,
+  aBool,
+  aList,
+  aMap,
+  listOfMaps,
+  listOfInts,
+  listOfDoubles,
+  emptyList,
+  absent,
+}
 
 enum _TestDynamicKeys {
   perManga;
@@ -18,11 +30,15 @@ enum _TestDynamicKeys {
 }
 
 void main() {
-  late IsarTestEnv env;
+  // Nullable, not `late`: when open() throws -- a missing native library is
+  // the realistic case -- a `late` field makes tearDownAll throw
+  // LateInitializationError on top, and that cascade is what the reader sees
+  // instead of the actual cause.
+  IsarTestEnv? env;
 
   setUpAll(() async => env = await IsarTestEnv.open('kv', [KeyValueSchema]));
-  tearDownAll(() async => env.close());
-  setUp(() => env.clear());
+  tearDownAll(() async => env?.close());
+  setUp(() => env!.clear());
 
   test('round-trips every JSON-representable type', () {
     _TestKeys.aString.set<String>('hello');
@@ -38,6 +54,46 @@ void main() {
     expect(_TestKeys.aBool.get<bool>(false), true);
     expect(_TestKeys.aList.get<List<String>>(const []), ['a', 'b']);
     expect(_TestKeys.aMap.get<Map<String, dynamic>>(const {}), {'x': 1});
+  });
+
+  // The list cases below are separate because the suite above only ever stored
+  // a List<String>, and that is exactly the one element type the old
+  // implementation handled -- it cast every list to List<String>, which
+  // succeeds at the cast and throws on first element access for anything else.
+  // A green test that covers only the working case is how the defect survived.
+  test('a list of maps round-trips with its elements intact', () {
+    _TestKeys.listOfMaps.set<List<dynamic>>([
+      {'url': 'https://example.com/index.json', 'name': 'default'},
+      {'url': 'https://example.org/index.json'},
+    ]);
+
+    final back = _TestKeys.listOfMaps.get<List<dynamic>?>();
+
+    // Reading the elements is the assertion. The broken version returned a
+    // CastList that compared fine until something touched an element.
+    expect(back, hasLength(2));
+    expect(back!.first, isA<Map>());
+    expect((back.first as Map)['url'], 'https://example.com/index.json');
+    expect((back.last as Map)['name'], isNull);
+  });
+
+  test('a list of ints round-trips as ints, not strings', () {
+    _TestKeys.listOfInts.set<List<int>>([1, 2, 3]);
+    expect(_TestKeys.listOfInts.get<List<int>>(const []), [1, 2, 3]);
+  });
+
+  test('a list of whole-number doubles re-widens', () {
+    // Same numeric collapse as the scalar case: [1.0, 2.0] encodes to [1.0,2.0]
+    // but a list written as [1, 2] must still read back as doubles when asked.
+    _TestKeys.listOfDoubles.set<List<double>>([1.5, 2.0]);
+    expect(_TestKeys.listOfDoubles.get<List<double>>(const []), [1.5, 2.0]);
+  });
+
+  test('an empty list keeps the requested element type', () {
+    // `every` is vacuously true on an empty list, so this is the case where a
+    // type decided from the data alone has no data to decide from.
+    _TestKeys.emptyList.set<List<String>>(const []);
+    expect(_TestKeys.emptyList.get<List<String>>(const ['x']), isEmpty);
   });
 
   test('a whole-number double survives the JSON numeric collapse', () {

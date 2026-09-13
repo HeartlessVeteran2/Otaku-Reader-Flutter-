@@ -20,13 +20,17 @@ import 'helpers/isar_test_env.dart';
 /// Round-tripping a row per collection is the assertion — merely opening the
 /// database would not prove the collection is usable.
 void main() {
-  late IsarTestEnv env;
+  // Nullable, not `late`: when open() throws -- a missing native library is
+  // the realistic case -- a `late` field makes tearDownAll throw
+  // LateInitializationError on top, and that cascade is what the reader sees
+  // instead of the actual cause.
+  IsarTestEnv? env;
 
   setUpAll(
     () async =>
         env = await IsarTestEnv.open('schema', db.AppDatabaseSchemas.all),
   );
-  tearDownAll(() async => env.close());
+  tearDownAll(() async => env?.close());
 
   test('every generated collection is registered and usable', () {
     // If a schema is missing from the list, the matching accessor throws here

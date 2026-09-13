@@ -163,6 +163,18 @@ Repositories stay interfaces so GetX is not load-bearing in the domain layer.
   ever a string literal. Values are stored as `{'val': ...}` so `null`, `bool`,
   `num`, `String`, `List` and `Map` all round-trip through one nullable column.
   `DynamicKeys` namespaces per-media values by id.
+- **A `get<T>()` with no default and a non-nullable `T` throws when the key is
+  absent** — it ends in `null as T`. Read with a nullable `T` whenever "absent"
+  is a state you need to tell apart from a stored value, which it usually is:
+  for `SourceKeys.repoUrls`, absent means "seed the default repo" and empty means
+  "the user deleted every repo", and conflating them resurrects a repo they
+  removed on every launch.
+- **A list's element type comes from the data, not from `T`.** `jsonDecode`
+  erases it to `List<dynamic>`. `KvHelper` used to cast *every* list to
+  `List<String>`, which succeeds at the cast and then throws on first element
+  access for anything else — so a `List<Map>` round-tripped in name only. The
+  suite covered exactly one list case, `List<String>`, which is the one that
+  worked.
 - **`MangaEntry.sourceId` is the source's *string* id, stored verbatim.** The
   Kotlin app keyed rows by `sourceStringId.hashCode()` and calls the resulting
   one-way mapping its highest-impact bug ever. Isar needs no integer key, so that
@@ -194,9 +206,22 @@ flutter pub get
 dart run build_runner build && git diff --exit-code
 dart format --set-exit-if-changed lib test tool
 flutter analyze
+dart run tool/fetch_isar_core.dart
 flutter test
 flutter build apk --debug
 ```
+
+**`dart run tool/fetch_isar_core.dart` is not optional, and not a cache warmer.**
+Isar's native library is downloaded rather than vendored, and
+`TestWidgetsFlutterBinding` replaces `HttpClient` with one that answers every
+request `400` and makes no network call — so a **widget** suite can never fetch
+it, and fails with the opaque `Could not download IsarCore library:` and an empty
+reason phrase. Whichever Isar-using suite runs first decides whether the run
+passes. Fetching it from a plain Dart VM first removes the download from the test
+run entirely. `IsarTestEnv` and the script agree on one pinned path
+(`.dart_tool/otaku/`), because Isar otherwise derives the path from
+`Platform.script` — a per-suite generated entrypoint under `flutter test`, so
+suites disagree about where the library even is.
 
 Two things only a **release** build shows: the merged manifest (the `INTERNET`
 permission lives in `src/main`, not `src/debug` — a debug-only check cannot see
@@ -215,6 +240,8 @@ Kept because they repeat.
 | `int status = 5` as a default | `Status` index 5 is `publishingFinished`, so every new entry claimed to be finished. Use the enum, not a literal. |
 | A dead FFI helper allocated N *bytes* for N *pointers* | Unused, so it was deleted rather than fixed — along with the `ffi` dependency it dragged in. |
 | The plan claimed AnymeX's manga details page renders news/adaptation/prediction | It does not: `buildExtrasSection` is guarded by `if (controller.isAnime)`, and `manga_stats.dart` is orphaned with zero imports. Verify what actually renders before promising parity with it. |
+| CI's first red was diagnosed as a cold-cache race between suites downloading `libisar.so`, and "fixed" with `flutter test -j 1` | Wrong cause, and the "verified locally" claim behind it was worthless — the file was already on disk from an earlier run. Serialising just moved the failure to whichever Isar suite ran first, which was the **widget** suite, which can never download anything. Reproduce a CI failure locally *from the same starting state* before believing a fix. |
+| `KvHelper` cast every stored list to `List<String>` | It succeeds at the cast and throws on first element access, so a `List<Map>` looked fine until something read it. The test covered only `List<String>` — the single case that worked. A green test that exercises only the working shape is how this survives. |
 
 The general lesson, and the one that keeps recurring across both codebases:
 **a comment describing the goal is not evidence the code achieves it.** After

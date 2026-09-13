@@ -64,21 +64,24 @@ jobs:
             - name: Analyze
               run: flutter analyze
 
-            # -j 1 runs suites serially, and that is load-bearing rather than
-            # cosmetic. Each suite opens its own native Isar instance and
-            # downloads libisar.so on first use; run concurrently from a cold
-            # cache they race to write the same file, and the loser dies with a
-            # signal instead of a test failure. That is exactly how the first CI
-            # run failed — two suites crashed at finalisation with exit code -7
-            # while every assertion inside them had passed.
+            # Isar loads a native library that is downloaded, not vendored, and
+            # a widget-test suite cannot fetch it: TestWidgetsFlutterBinding
+            # replaces HttpClient with one that answers every request 400 and
+            # makes no network call. So whichever Isar-using suite ran first
+            # decided whether the run passed — app_shell_test.dart is a widget
+            # suite, it ran first, and it failed with an empty reason phrase.
             #
-            # Serialising also matches production, which opens exactly one Isar
-            # instance; concurrent instances are a test-harness artifact. The
-            # suite is small, so determinism costs a few seconds.
-            #
-            # Verified locally with `rm -f libisar.so && flutter test -j 1`.
+            # Fetching it here, from a plain Dart VM with a real HttpClient,
+            # takes the download out of the test run entirely. The script and
+            # the suites agree on one pinned path, because Isar otherwise
+            # derives it from Platform.script — a per-suite generated
+            # entrypoint under `flutter test`, so suites disagree about where
+            # the library even is.
+            - name: Fetch the Isar native library
+              run: dart run tool/fetch_isar_core.dart
+
             - name: Test
-              run: flutter test -j 1
+              run: flutter test
 
             - name: Build debug APK
               run: flutter build apk --debug

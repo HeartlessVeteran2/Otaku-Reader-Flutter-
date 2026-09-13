@@ -16,11 +16,15 @@ import 'helpers/isar_test_env.dart';
 /// freezes it, so when the source later ships a new mirror because the old
 /// domain died, a user who never touched the setting keeps the dead one.
 void main() {
-  late IsarTestEnv env;
+  // Nullable, not `late`: when open() throws -- a missing native library is
+  // the realistic case -- a `late` field makes tearDownAll throw
+  // LateInitializationError on top, and that cascade is what the reader sees
+  // instead of the actual cause.
+  IsarTestEnv? env;
 
   setUpAll(() async => env = await IsarTestEnv.open('pref', [KeyValueSchema]));
-  tearDownAll(() async => env.close());
-  setUp(() => env.clear());
+  tearDownAll(() async => env?.close());
+  setUp(() => env!.clear());
 
   List<SourcePreference> declaring(String mirror) => [
     SourcePreference(
