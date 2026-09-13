@@ -3,6 +3,7 @@ import 'package:iconsax/iconsax.dart';
 
 import 'package:otaku_reader/core/database/data_keys/keys.dart';
 import 'package:otaku_reader/core/database/kv_helper.dart';
+import 'package:otaku_reader/features/browse/screens/extensions_screen.dart';
 import 'package:otaku_reader/widgets/common/lazy_indexed_stack.dart';
 import 'package:otaku_reader/widgets/common/placeholder_screen.dart';
 
@@ -54,11 +55,7 @@ class _AppShellState extends State<AppShell> {
       'Browse',
       Iconsax.global,
       Iconsax.global,
-      () => const PlaceholderScreen(
-        title: 'Browse',
-        icon: Iconsax.global,
-        note: 'Install a source to start browsing.',
-      ),
+      () => const ExtensionsScreen(),
     ),
     _Tab(
       'Updates',
