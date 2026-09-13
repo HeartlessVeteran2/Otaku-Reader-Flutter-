@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 
 import 'package:otaku_reader/core/database/database.dart' as db;
 import 'package:otaku_reader/data/repository/library_repository_impl.dart';
@@ -28,8 +31,14 @@ class _Methods implements SourceMethods {
   Map<String, List<PageUrl>> pagesByChapter = {};
   Object? failWith;
 
+  /// Every chapter the source was actually asked for. A downloaded chapter
+  /// must not appear here — reading from disk that still hits the site is
+  /// indistinguishable from not being downloaded at all.
+  final pageListCalls = <String>[];
+
   @override
   Future<List<PageUrl>> getPageList(String url) async {
+    pageListCalls.add(url);
     if (failWith != null) throw failWith!;
     return pagesByChapter[url] ?? const [];
   }
@@ -132,9 +141,14 @@ void main() {
       mangaUrl: _manga,
       chapterUrl: chapterUrl,
     )..onInit();
-    await Future<void>.delayed(Duration.zero);
-    await Future<void>.delayed(Duration.zero);
-    await Future<void>.delayed(Duration.zero);
+    // Waited on rather than pumped a fixed number of times: how many turns the
+    // load takes depends on the path it goes down — reading a directory from
+    // disk and clearing a stale pointer are both several more than a plain
+    // fetch, and a fixed count silently returns an empty controller instead of
+    // failing on what the test meant to assert.
+    for (var i = 0; i < 100 && c.isLoading.value; i++) {
+      await Future<void>.delayed(Duration.zero);
+    }
     return (c, methods);
   }
 
@@ -411,5 +425,89 @@ void main() {
 
     expect(c.error.value, contains('site may be down'));
     expect(c.isLoading.value, isFalse);
+  });
+
+  group('reading from disk', () {
+    late Directory downloads;
+
+    setUp(() {
+      downloads = Directory.systemTemp.createTempSync('otaku-reader-offline');
+    });
+    tearDown(() {
+      if (downloads.existsSync()) downloads.deleteSync(recursive: true);
+    });
+
+    Future<void> markDownloaded(String chapterUrl, String path) =>
+        library.setChapterLocalPath(
+          sourceId: _sourceId,
+          url: _manga,
+          chapterUrl: chapterUrl,
+          localPath: path,
+        );
+
+    test('a downloaded chapter reads from disk, not from the source', () async {
+      await seed();
+      for (final name in ['0001.jpg', '0002.png', '0003.webp']) {
+        File(p.join(downloads.path, name)).writeAsBytesSync([0]);
+      }
+      await markDownloaded('/c-1', downloads.path);
+
+      final (c, methods) = await open('/c-1');
+
+      expect(c.isOffline.value, isTrue);
+      expect(c.pages, hasLength(3));
+      expect(methods.pageListCalls, isEmpty, reason: 'the site is not touched');
+      expect(c.pages.map((x) => p.basename(x.url)), [
+        '0001.jpg',
+        '0002.png',
+        '0003.webp',
+      ]);
+    });
+
+    test('a file the downloader did not write is not a page', () async {
+      // A `.nomedia`, or a thumbnail from a gallery app that scanned the
+      // folder. It sorts ahead of `0001.jpg`, so without the filter it becomes
+      // the broken first page of every downloaded chapter.
+      await seed();
+      File(p.join(downloads.path, '.nomedia')).writeAsBytesSync([0]);
+      File(p.join(downloads.path, '0001.jpg')).writeAsBytesSync([0]);
+      File(p.join(downloads.path, 'Thumbs.db')).writeAsBytesSync([0]);
+      await markDownloaded('/c-1', downloads.path);
+
+      final (c, _) = await open('/c-1');
+
+      expect(c.pages.map((x) => p.basename(x.url)), ['0001.jpg']);
+    });
+
+    test('a stale pointer falls back to the source and is cleared', () async {
+      // Storage cleared, or the folder moved. Falling back is only half an
+      // answer: the details screen reads the same field and would go on
+      // offering "delete" for a download that is not there.
+      await seed();
+      await markDownloaded('/c-1', p.join(downloads.path, 'gone'));
+
+      final (c, methods) = await open('/c-1');
+
+      expect(c.isOffline.value, isFalse);
+      expect(c.pages, hasLength(3), reason: 'fetched from the source instead');
+      expect(methods.pageListCalls, ['/c-1']);
+
+      final entry = await library.find(_sourceId, _manga);
+      final chapter = entry!.chapters.firstWhere((x) => x.url == '/c-1');
+      expect(chapter.localPath, isNull);
+    });
+
+    test('a downloaded chapter that is empty is treated as stale', () async {
+      await seed();
+      await markDownloaded('/c-1', downloads.path);
+
+      final (c, _) = await open('/c-1');
+
+      expect(c.isOffline.value, isFalse);
+      expect(c.pages, hasLength(3));
+      final entry = await library.find(_sourceId, _manga);
+      final chapter = entry!.chapters.firstWhere((x) => x.url == '/c-1');
+      expect(chapter.localPath, isNull);
+    });
   });
 }

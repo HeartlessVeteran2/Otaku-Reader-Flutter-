@@ -2,8 +2,11 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 
+import 'package:otaku_reader/core/database/data_keys/keys.dart';
 import 'package:otaku_reader/core/database/database.dart' as db;
+import 'package:otaku_reader/core/database/kv_helper.dart';
 import 'package:otaku_reader/data/isar/manga_entry.dart';
 import 'package:otaku_reader/data/repository/download_repository_impl.dart';
 import 'package:otaku_reader/data/repository/library_repository_impl.dart';
@@ -662,5 +665,39 @@ void main() {
     expect(first, isNotNull);
     expect(second, isNotNull);
     expect(first, isNot(second));
+  });
+
+  group('resolveRoot', () {
+    test('a configured path that cannot be created falls back', () async {
+      // This runs before `runApp`, and the path is a *stored preference* — an
+      // SD card that was removed, a permission revoked. Throwing means a blank
+      // screen with no route to the setting that caused it, and clearing app
+      // data as the only way out, which takes the library with it.
+      final blocker = File(p.join(root.path, 'not-a-directory'))
+        ..writeAsBytesSync([0]);
+      DownloadKeys.downloadPath.set<String>(p.join(blocker.path, 'downloads'));
+      addTearDown(DownloadKeys.downloadPath.delete);
+
+      final resolved = await DownloadRepositoryImpl.resolveRoot(root);
+
+      expect(resolved.existsSync(), isTrue);
+      expect(resolved.path, p.join(root.path, 'downloads'));
+      expect(
+        DownloadKeys.downloadPath.get<String?>(null),
+        isNotNull,
+        reason: 'the setting still records what the user chose',
+      );
+    });
+
+    test('a usable configured path is honoured', () async {
+      final chosen = p.join(root.path, 'sd-card', 'scans');
+      DownloadKeys.downloadPath.set<String>(chosen);
+      addTearDown(DownloadKeys.downloadPath.delete);
+
+      final resolved = await DownloadRepositoryImpl.resolveRoot(root);
+
+      expect(resolved.path, chosen);
+      expect(resolved.existsSync(), isTrue);
+    });
   });
 }

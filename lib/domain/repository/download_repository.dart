@@ -1,5 +1,20 @@
 import 'package:otaku_reader/data/isar/manga_entry.dart';
 
+/// The image extensions a downloaded page can have on disk.
+///
+/// Shared, because the two sides have to agree: the downloader normalises
+/// every page url to one of these, and the reader shows only files that match.
+/// Held apart, adding a format to the downloader would make those pages
+/// invisible to the reader with nothing failing to say so.
+const kDownloadedPageExtensions = {
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.webp',
+  '.gif',
+  '.avif',
+};
+
 /// Where a chapter is in the download pipeline.
 enum DownloadState {
   /// Not downloaded and not queued.

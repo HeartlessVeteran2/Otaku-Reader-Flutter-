@@ -8,10 +8,12 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:get/get.dart';
+import 'package:path/path.dart' as p;
 
 import 'package:otaku_reader/core/database/data_keys/keys.dart';
 import 'package:otaku_reader/core/database/kv_helper.dart';
 import 'package:otaku_reader/data/isar/manga_entry.dart';
+import 'package:otaku_reader/domain/repository/download_repository.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/source/model/page_url.dart';
@@ -227,8 +229,19 @@ class ReaderController extends GetxController {
     if (path == null || path.isEmpty) return null;
 
     final dir = Directory(path);
+    // Filtered to the extensions the downloader itself writes. Anything else
+    // in here was put there by something else — a `.nomedia`, a thumbnail from
+    // a gallery app that scanned the folder — and it would sort ahead of
+    // `0001.jpg` and render as a broken first page.
     final files = await dir.exists()
-        ? (await dir.list().toList()).whereType<File>().toList()
+        ? (await dir.list().toList())
+              .whereType<File>()
+              .where(
+                (f) => kDownloadedPageExtensions.contains(
+                  p.extension(f.path).toLowerCase(),
+                ),
+              )
+              .toList()
         : <File>[];
     if (files.isEmpty) {
       // The pointer is stale — storage was cleared, or the download folder was

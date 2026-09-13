@@ -348,8 +348,7 @@ class DownloadRepositoryImpl implements DownloadRepository {
     final ext = p.extension(path).toLowerCase();
     // Anything unfamiliar becomes .jpg rather than being trusted: the string
     // comes from a third-party url, and it lands on disk as a filename.
-    const known = {'.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif'};
-    return known.contains(ext) ? ext : '.jpg';
+    return kDownloadedPageExtensions.contains(ext) ? ext : '.jpg';
   }
 
   static String _label(Chapter chapter) {
@@ -395,19 +394,44 @@ class DownloadRepositoryImpl implements DownloadRepository {
   /// configured path — an SD card that is not mounted, a directory the app
   /// cannot write — surfaces as a failed download rather than as something the
   /// app can report, and only for the user who tried. Doing it in `main` puts
-  /// the failure where it can be handled once.
+  /// the failure in one place.
+  ///
+  /// **Never throws for a configured path.** This runs before `runApp`, so a
+  /// throw here is a blank screen with no route to the setting that caused it.
+  /// An unusable configured path falls back to the app documents directory;
+  /// only the platform's own directory failing is allowed to propagate,
+  /// because at that point there is nothing left to fall back to.
   ///
   /// Honours [DownloadKeys.downloadPath] when the user has set one, so a device
   /// with an SD card can put a library of scans somewhere other than internal
   /// storage.
   static Future<Directory> resolveRoot(Directory appDocuments) async {
     final configured = DownloadKeys.downloadPath.get<String?>(null);
-    final dir = Directory(
-      configured != null && configured.trim().isNotEmpty
-          ? configured.trim()
-          : p.join(appDocuments.path, 'downloads'),
-    );
-    if (!await dir.exists()) await dir.create(recursive: true);
-    return dir;
+    if (configured != null && configured.trim().isNotEmpty) {
+      final dir = Directory(configured.trim());
+      try {
+        if (!await dir.exists()) await dir.create(recursive: true);
+        return dir;
+      } catch (e) {
+        // A configured path is a *stored preference*, so it can name somewhere
+        // that is no longer usable — an SD card removed, a permission revoked,
+        // a path typed by hand. This runs before `runApp`, so letting it throw
+        // means the app never starts and the user cannot reach the setting to
+        // correct it; clearing app data would be the only way out, and that
+        // takes the library with it.
+        //
+        // The preference is deliberately *not* cleared. It still records what
+        // the user chose, and it starts working again by itself when the
+        // volume comes back — discarding it would make a removable card a
+        // permanent loss of the setting.
+        Log.error('Download path "$configured" is unusable, falling back: $e');
+      }
+    }
+    // The platform's own documents directory. If this fails there is nothing
+    // left to fall back to, and the failure is the device's rather than
+    // anything the user configured.
+    final fallback = Directory(p.join(appDocuments.path, 'downloads'));
+    if (!await fallback.exists()) await fallback.create(recursive: true);
+    return fallback;
   }
 }
