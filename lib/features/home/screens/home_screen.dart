@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:iconsax/iconsax.dart';
 
+import 'package:otaku_reader/core/theme/one_ui.dart';
 import 'package:otaku_reader/data/isar/manga_entry.dart';
 import 'package:otaku_reader/domain/model/anilist_media.dart';
 import 'package:otaku_reader/features/details/screens/manga_details_screen.dart';
@@ -18,47 +19,59 @@ class HomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Home'),
-        actions: [
-          IconButton(
-            icon: const Icon(Iconsax.search_normal),
-            tooltip: 'Search all sources',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const GlobalSearchScreen(),
-              ),
-            ),
+    return OneUiScaffold(
+      title: 'Home',
+      onRefresh: _c.load,
+      actions: [
+        IconButton(
+          icon: const Icon(Iconsax.search_normal),
+          tooltip: 'Search all sources',
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const GlobalSearchScreen()),
           ),
-        ],
-      ),
-      body: Obx(() {
-        if (_c.isLoading.value &&
-            _c.shelves.isEmpty &&
-            _c.continueReading.isEmpty) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        final error = _c.error.value;
-        return RefreshIndicator(
-          onRefresh: _c.load,
-          child: ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            children: [
+        ),
+      ],
+      slivers: [
+        Obx(() {
+          if (_c.isLoading.value &&
+              _c.shelves.isEmpty &&
+              _c.continueReading.isEmpty) {
+            return const SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(child: CircularProgressIndicator()),
+            );
+          }
+          final error = _c.error.value;
+          return SliverMainAxisGroup(
+            slivers: [
               // The banner sits above the content rather than replacing it:
-              // Continue Reading is local and still works when AniList does not.
-              if (error != null) _Banner(message: error, onRetry: _c.load),
+              // Continue Reading is local and still works when AniList does
+              // not.
+              if (error != null)
+                SliverToBoxAdapter(
+                  child: _Banner(message: error, onRetry: _c.load),
+                ),
               if (_c.continueReading.isNotEmpty)
-                _ContinueReading(entries: _c.continueReading),
+                SliverToBoxAdapter(
+                  child: _ContinueReading(entries: _c.continueReading),
+                ),
+              // One sliver per shelf rather than a `SliverList` over them: each
+              // is a fixed-height carousel that builds its own children lazily,
+              // so there is nothing for a list to gain by deferring them, and
+              // the shelves stay individually addressable.
               for (final shelf in _c.shelves)
-                _Shelf(title: shelf.title, items: shelf.items),
+                SliverToBoxAdapter(
+                  child: _Shelf(title: shelf.title, items: shelf.items),
+                ),
               if (_c.continueReading.isEmpty && _c.shelves.isEmpty)
-                const _Empty(),
-              const SizedBox(height: 24),
+                const SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: _Empty(),
+                ),
             ],
-          ),
-        );
-      }),
+          );
+        }),
+      ],
     );
   }
 }
