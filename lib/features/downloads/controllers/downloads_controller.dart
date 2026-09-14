@@ -43,9 +43,20 @@ class DownloadsController extends GetxController {
     // filesystem work, and this fires once per page of every active download.
   }
 
+  /// Counts the scans started, so a slower earlier one cannot land last.
+  ///
+  /// `onInit` fires one without awaiting it and a pull-to-refresh fires
+  /// another, so two walks of the download directory can be in flight at once.
+  /// Without this the older one wins whenever it happens to finish second, and
+  /// the header shows a figure from before the download that prompted the pull.
+  int _scan = 0;
+
   /// Re-measures what downloads are using. Called on open and on pull.
   Future<void> refreshUsage() async {
-    usedBytes.value = await _downloads.usedBytes();
+    final scan = ++_scan;
+    final bytes = await _downloads.usedBytes();
+    if (scan != _scan) return;
+    usedBytes.value = bytes;
   }
 
   int get activeCount => tasks

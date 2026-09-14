@@ -4,6 +4,7 @@ import 'package:iconsax/iconsax.dart';
 
 import 'package:otaku_reader/core/database/data_keys/keys.dart';
 import 'package:otaku_reader/core/database/kv_helper.dart';
+import 'package:otaku_reader/core/theme/one_ui.dart';
 import 'package:otaku_reader/core/theme/theme_controller.dart';
 import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
 
@@ -39,123 +40,136 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
-      body: ListView(
-        children: [
-          const _SectionHeader('Appearance'),
-          Obx(
-            () => ListTile(
-              leading: const Icon(Iconsax.moon),
-              title: const Text('Theme'),
-              subtitle: Text(switch (_theme.themeMode.value) {
-                ThemeMode.system => 'Follow the system',
-                ThemeMode.light => 'Light',
-                ThemeMode.dark => 'Dark',
+    return OneUiScaffold(
+      title: 'Settings',
+      slivers: [
+        SliverOneUiGroup(
+          label: 'Appearance',
+          children: [
+            Obx(
+              () => ListTile(
+                leading: const Icon(Iconsax.moon),
+                title: const Text('Theme'),
+                subtitle: Text(switch (_theme.themeMode.value) {
+                  ThemeMode.system => 'Follow the system',
+                  ThemeMode.light => 'Light',
+                  ThemeMode.dark => 'Dark',
+                }),
+                onTap: _pickThemeMode,
+              ),
+            ),
+            Obx(
+              () => SwitchListTile(
+                secondary: const Icon(Iconsax.mobile),
+                title: const Text('Pure black dark theme'),
+                subtitle: const Text('Saves power on OLED screens'),
+                value: _theme.isOled.value,
+                onChanged: _theme.setOled,
+              ),
+            ),
+            Obx(
+              () => ListTile(
+                leading: const Icon(Iconsax.colorfilter),
+                title: const Text('Colour source'),
+                subtitle: Text(switch (_theme.source.value) {
+                  ThemeSource.standard => 'App default',
+                  ThemeSource.dynamicColor =>
+                    'Material You (from the wallpaper)',
+                  ThemeSource.custom => 'Custom',
+                }),
+                onTap: _pickColourSource,
+              ),
+            ),
+            Obx(
+              () => SwitchListTile(
+                secondary: const Icon(Iconsax.brush_2),
+                title: const Text('Tint from the cover'),
+                subtitle: const Text('The manga you have open colours the app'),
+                value: _theme.useCoverColor.value,
+                onChanged: _theme.setUseCoverColor,
+              ),
+            ),
+          ],
+        ),
+        SliverOneUiGroup(
+          label: 'Reader defaults',
+          children: [
+            ListTile(
+              leading: const Icon(Iconsax.book_1),
+              title: const Text('Reading layout'),
+              subtitle: Text(
+                _readerInt(ReaderKeys.readingLayout, 0) ==
+                        ReadingLayout.webtoon.index
+                    ? 'Webtoon (continuous)'
+                    : 'Paged',
+              ),
+              // A default, not an override: a manga already opened keeps whatever
+              // it was last read with, because that choice was made per series.
+              onTap: () => _pick<int>(
+                title: 'Reading layout',
+                current: _readerInt(ReaderKeys.readingLayout, 0),
+                options: const {0: 'Paged', 1: 'Webtoon (continuous)'},
+                onPicked: (v) => _setInt(ReaderKeys.readingLayout, v),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Iconsax.arrow_swap_horizontal),
+              title: const Text('Reading direction'),
+              subtitle: Text(switch (_readerInt(
+                ReaderKeys.readingDirection,
+                0,
+              )) {
+                1 => 'Right to left',
+                _ => 'Left to right',
               }),
-              onTap: _pickThemeMode,
+              onTap: () => _pick<int>(
+                title: 'Reading direction',
+                current: _readerInt(ReaderKeys.readingDirection, 0),
+                options: const {
+                  0: 'Left to right',
+                  1: 'Right to left (most manga)',
+                },
+                onPicked: (v) => _setInt(ReaderKeys.readingDirection, v),
+              ),
             ),
-          ),
-          Obx(
-            () => SwitchListTile(
-              secondary: const Icon(Iconsax.mobile),
-              title: const Text('Pure black dark theme'),
-              subtitle: const Text('Saves power on OLED screens'),
-              value: _theme.isOled.value,
-              onChanged: _theme.setOled,
+            SwitchListTile(
+              secondary: const Icon(Iconsax.sun_1),
+              title: const Text('Keep the screen on'),
+              value: _readerBool(ReaderKeys.keepScreenOn, true),
+              onChanged: (v) => _setBool(ReaderKeys.keepScreenOn, v),
             ),
-          ),
-          Obx(
-            () => ListTile(
-              leading: const Icon(Iconsax.colorfilter),
-              title: const Text('Colour source'),
-              subtitle: Text(switch (_theme.source.value) {
-                ThemeSource.standard => 'App default',
-                ThemeSource.dynamicColor => 'Material You (from the wallpaper)',
-                ThemeSource.custom => 'Custom',
-              }),
-              onTap: _pickColourSource,
+            SwitchListTile(
+              secondary: const Icon(Iconsax.document),
+              title: const Text('Show the page number'),
+              value: _readerBool(ReaderKeys.showPageIndicator, true),
+              onChanged: (v) => _setBool(ReaderKeys.showPageIndicator, v),
             ),
-          ),
-          Obx(
-            () => SwitchListTile(
-              secondary: const Icon(Iconsax.brush_2),
-              title: const Text('Tint from the cover'),
-              subtitle: const Text('The manga you have open colours the app'),
-              value: _theme.useCoverColor.value,
-              onChanged: _theme.setUseCoverColor,
-            ),
-          ),
-
-          const _SectionHeader('Reader defaults'),
-          ListTile(
-            leading: const Icon(Iconsax.book_1),
-            title: const Text('Reading layout'),
-            subtitle: Text(
-              _readerInt(ReaderKeys.readingLayout, 0) ==
-                      ReadingLayout.webtoon.index
-                  ? 'Webtoon (continuous)'
-                  : 'Paged',
-            ),
-            // A default, not an override: a manga already opened keeps whatever
-            // it was last read with, because that choice was made per series.
-            onTap: () => _pick<int>(
-              title: 'Reading layout',
-              current: _readerInt(ReaderKeys.readingLayout, 0),
-              options: const {0: 'Paged', 1: 'Webtoon (continuous)'},
-              onPicked: (v) => _setInt(ReaderKeys.readingLayout, v),
-            ),
-          ),
-          ListTile(
-            leading: const Icon(Iconsax.arrow_swap_horizontal),
-            title: const Text('Reading direction'),
-            subtitle: Text(switch (_readerInt(ReaderKeys.readingDirection, 0)) {
-              1 => 'Right to left',
-              _ => 'Left to right',
-            }),
-            onTap: () => _pick<int>(
-              title: 'Reading direction',
-              current: _readerInt(ReaderKeys.readingDirection, 0),
-              options: const {
-                0: 'Left to right',
-                1: 'Right to left (most manga)',
+          ],
+        ),
+        SliverOneUiGroup(
+          label: 'Sources',
+          children: [
+            SwitchListTile(
+              secondary: const Icon(Iconsax.eye_slash),
+              title: const Text('Show 18+ sources'),
+              subtitle: const Text(
+                'Also hides adult titles from the home page',
+              ),
+              value: SourceKeys.showNsfwSources.get<bool>(false),
+              onChanged: (v) {
+                SourceKeys.showNsfwSources.set<bool>(v);
+                setState(() {});
               },
-              onPicked: (v) => _setInt(ReaderKeys.readingDirection, v),
             ),
-          ),
-          SwitchListTile(
-            secondary: const Icon(Iconsax.sun_1),
-            title: const Text('Keep the screen on'),
-            value: _readerBool(ReaderKeys.keepScreenOn, true),
-            onChanged: (v) => _setBool(ReaderKeys.keepScreenOn, v),
-          ),
-          SwitchListTile(
-            secondary: const Icon(Iconsax.document),
-            title: const Text('Show the page number'),
-            value: _readerBool(ReaderKeys.showPageIndicator, true),
-            onChanged: (v) => _setBool(ReaderKeys.showPageIndicator, v),
-          ),
-
-          const _SectionHeader('Sources'),
-          SwitchListTile(
-            secondary: const Icon(Iconsax.eye_slash),
-            title: const Text('Show 18+ sources'),
-            subtitle: const Text('Also hides adult titles from the home page'),
-            value: SourceKeys.showNsfwSources.get<bool>(false),
-            onChanged: (v) {
-              SourceKeys.showNsfwSources.set<bool>(v);
-              setState(() {});
-            },
-          ),
-          ListTile(
-            leading: const Icon(Iconsax.info_circle),
-            title: const Text('Extensions and repositories'),
-            subtitle: const Text('Manage these from the Browse tab'),
-            enabled: false,
-          ),
-          const SizedBox(height: 24),
-        ],
-      ),
+            ListTile(
+              leading: const Icon(Iconsax.info_circle),
+              title: const Text('Extensions and repositories'),
+              subtitle: const Text('Manage these from the Browse tab'),
+              enabled: false,
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -214,25 +228,5 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
     if (picked != null) onPicked(picked);
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader(this.label);
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 6),
-      child: Text(
-        label,
-        style: theme.textTheme.labelLarge?.copyWith(
-          color: theme.colorScheme.primary,
-        ),
-      ),
-    );
   }
 }

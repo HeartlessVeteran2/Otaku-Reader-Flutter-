@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:iconsax/iconsax.dart';
 
+import 'package:otaku_reader/core/theme/one_ui.dart';
 import 'package:otaku_reader/domain/repository/download_repository.dart';
 import 'package:otaku_reader/features/downloads/controllers/downloads_controller.dart';
 
@@ -29,45 +30,51 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Downloads'),
-        actions: [
-          Obx(
-            () => IconButton(
-              icon: const Icon(Iconsax.broom),
-              tooltip: 'Clear finished',
-              // Clears the *list*, not the files — which the tooltip on the
-              // empty state says, because "clear downloads" could plausibly
-              // mean either and one of them is destructive.
-              onPressed: _c.tasks.length == _c.activeCount
-                  ? null
-                  : _c.clearFinished,
-            ),
+    return OneUiScaffold(
+      title: 'Downloads',
+      onRefresh: _c.refreshUsage,
+      actions: [
+        Obx(
+          () => IconButton(
+            icon: const Icon(Iconsax.broom),
+            tooltip: 'Clear finished',
+            // Clears the *list*, not the files — which the tooltip on the
+            // empty state says, because "clear downloads" could plausibly
+            // mean either and one of them is destructive.
+            onPressed: _c.tasks.length == _c.activeCount
+                ? null
+                : _c.clearFinished,
           ),
-        ],
-      ),
-      body: RefreshIndicator(
-        onRefresh: _c.refreshUsage,
-        child: Obx(() {
+        ),
+      ],
+      slivers: [
+        SliverToBoxAdapter(
+          child: Obx(
+            () =>
+                _UsageHeader(bytes: _c.usedBytes.value, active: _c.activeCount),
+          ),
+        ),
+        // Its own `Obx`, and its own sliver: `itemBuilder` runs during layout,
+        // after an enclosing build closure has already finished, so a read of
+        // `tasks` there would register no dependency and the queue would never
+        // visibly progress.
+        Obx(() {
           final tasks = _c.tasks;
-          return ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            children: [
-              _UsageHeader(bytes: _c.usedBytes.value, active: _c.activeCount),
-              if (tasks.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(24, 48, 24, 24),
-                  child: _Empty(),
-                )
-              else
-                for (final task in tasks)
-                  _TaskTile(task: task, onCancel: () => _c.cancel(task)),
-              const SizedBox(height: 24),
-            ],
+          if (tasks.isEmpty) {
+            return const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(24, 48, 24, 24),
+                child: _Empty(),
+              ),
+            );
+          }
+          return SliverList.builder(
+            itemCount: tasks.length,
+            itemBuilder: (context, i) =>
+                _TaskTile(task: tasks[i], onCancel: () => _c.cancel(tasks[i])),
           );
         }),
-      ),
+      ],
     );
   }
 }
