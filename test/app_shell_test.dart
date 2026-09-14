@@ -55,6 +55,9 @@ void main() {
     env!.clear();
     Get.reset();
     Get.put<ThemeController>(ThemeController());
+    // One instance, registered and injected — see one_ui_test.dart.
+    final nsfw = NsfwPreference();
+    Get.put<NsfwPreference>(nsfw);
     // The Library tab is a real screen now, so the shell cannot be built
     // without its controller.
     Get.put<LibraryController>(
@@ -68,7 +71,7 @@ void main() {
       HomeController(
         anilist: _NoAniList(),
         library: LibraryRepositoryImpl(),
-        nsfw: NsfwPreference(),
+        nsfw: nsfw,
       ),
     );
   });

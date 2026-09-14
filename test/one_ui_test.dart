@@ -70,6 +70,7 @@ void main() {
 
   late Directory root;
   late LibraryRepositoryImpl library;
+  late NsfwPreference nsfw;
 
   setUp(() {
     env!.clear();
@@ -77,7 +78,12 @@ void main() {
     Get.put<ThemeController>(ThemeController());
     // Settings, Home and Browse all resolve the one holder rather than each
     // keeping a copy — registering it is what makes them agree.
-    Get.put<NsfwPreference>(NsfwPreference());
+    // **The same instance everyone else gets.** Registering one and injecting
+    // a *different* one into a controller is the very bug this PR fixes — a
+    // harness shaped that way cannot fail when a Settings write stops reaching
+    // Home, which is the regression the suite exists to catch.
+    nsfw = NsfwPreference();
+    Get.put<NsfwPreference>(nsfw);
     root = Directory.systemTemp.createTempSync('otaku-oneui');
 
     // **One repository instance, shared by everything here.**
@@ -111,11 +117,7 @@ void main() {
     // Every AniList lookup answers "nothing", which is also the path a first
     // launch with no network takes — and the one that renders the empty state.
     Get.put<HomeController>(
-      HomeController(
-        anilist: _NoAniList(),
-        library: library,
-        nsfw: NsfwPreference(),
-      ),
+      HomeController(anilist: _NoAniList(), library: library, nsfw: nsfw),
     );
     // The details screen builds its own controller from these four.
     Get.put<AniListMetadataService>(
@@ -349,11 +351,7 @@ void main() {
     // controller constructed in `setUp` lives outside the fake-async zone.
     await Get.delete<HomeController>();
     Get.put<HomeController>(
-      HomeController(
-        anilist: _NoAniList(),
-        library: library,
-        nsfw: NsfwPreference(),
-      ),
+      HomeController(anilist: _NoAniList(), library: library, nsfw: nsfw),
     );
 
     await tester.pumpWidget(wrap(const HomeScreen()));
@@ -373,11 +371,7 @@ void main() {
     // clean — the shelves are exactly the content Home exists to show.
     await Get.delete<HomeController>();
     Get.put<HomeController>(
-      HomeController(
-        anilist: _OneShelf(),
-        library: library,
-        nsfw: NsfwPreference(),
-      ),
+      HomeController(anilist: _OneShelf(), library: library, nsfw: nsfw),
     );
 
     await tester.pumpWidget(wrap(const HomeScreen()));
@@ -401,11 +395,7 @@ void main() {
     // every branch, that one included.
     final anilist = _GatedShelves();
     await Get.delete<HomeController>();
-    final c = HomeController(
-      anilist: anilist,
-      library: library,
-      nsfw: NsfwPreference(),
-    );
+    final c = HomeController(anilist: anilist, library: library, nsfw: nsfw);
 
     // Load 0 will answer 'Trending now', slowly.
     anilist.answer(0, 'trending', delay: true);
@@ -505,7 +495,7 @@ void main() {
     // Asserting only that `showNsfw` changed would pass with the re-filter
     // missing, which is the whole reason the bug survived: the flag was always
     // correct, the shelves were not. This asserts the shelves.
-    final nsfw = NsfwPreference()..shown.value = true;
+    nsfw.setShown(true);
     await Get.delete<HomeController>();
     final c = HomeController(
       anilist: _AdultShelf(),
@@ -532,6 +522,35 @@ void main() {
       reason: 'and comes back, from the retained payload',
     );
     c.onClose();
+  });
+
+  testWidgets('the Settings switch writes the shared preference', (
+    tester,
+  ) async {
+    // Half of issue #31's chain, and the half a unit test cannot reach: the
+    // switch must write the *shared* holder rather than the key directly or a
+    // copy of its own. The other half — Home re-filtering when that holder
+    // changes — is the test below.
+    //
+    // Deliberately no `HomeController` here. Driving one through `onInit`
+    // inside a widget test hangs on real Isar reads that never complete in the
+    // fake-async zone; that is a known trap in this repo, not a thing to
+    // rediscover by waiting ten minutes for a timeout.
+    nsfw.setShown(true);
+
+    await tester.pumpWidget(wrap(const SettingsScreen()));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -600));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(Switch).last);
+    await tester.pumpAndSettle();
+
+    expect(
+      nsfw.shown.value,
+      isFalse,
+      reason: 'the switch wrote the holder every other screen observes',
+    );
   });
 
   testWidgets('a group renders its label above the rows, not inside them', (
