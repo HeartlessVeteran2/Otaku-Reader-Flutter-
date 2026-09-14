@@ -275,6 +275,23 @@ What that means concretely, and what to check a new screen against:
   8-12.
 - **Motion is short and eased**, never bouncy.
 
+**Where the large header does *not* go, and why.** The pattern is not a
+sweep. A collapsing title costs about 150px of the first screenful, and it
+earns that only where the screen's own content is the point. Decided per
+screen, after looking at each:
+
+| Screen | Header? | Why |
+|---|---|---|
+| Home, Library, Updates, History | **yes** | Content-first lists. The header pushes the first row into thumb reach, which is what it is for. |
+| Settings, More, About, Downloads | **yes** | Grouped lists, the canonical One UI shape. |
+| Global search | **no** | Its app bar *title* is the search field. A large title above the field pushes the thing the user came to type into the middle of the screen. One UI's own search screens do the same: field in the bar, straight to results. |
+| Source browse | **no** | 96px of search field and mode chips already. Adding 152px of title spends half a phone screen before the first cover, and the title is only the source's name — decoration next to controls the user actually presses. |
+| Extensions | **no** | Same, plus 104px of search and a `TabBar` driving a `TabBarView`. A collapsing header over tab views needs `NestedScrollView`, which is a restructure with real regression risk bought for a visual change. |
+
+A screen that keeps a compact app bar is not unconverted — it is converted
+to the right answer. Do not "finish the job" by forcing the header onto
+these three.
+
 Two things from AnymeX to keep, because they are what the developer asked for:
 the **carousel-of-covers home page** and the **AniList-rich details page**.
 Two to drop: its glass/blur app bars (they fight the collapsing header) and

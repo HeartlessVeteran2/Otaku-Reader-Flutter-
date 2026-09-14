@@ -8,7 +8,9 @@ import 'package:get/get.dart';
 import 'package:otaku_reader/core/database/database.dart' as db;
 import 'package:otaku_reader/core/theme/one_ui.dart';
 import 'package:otaku_reader/core/theme/theme_controller.dart';
+import 'package:otaku_reader/data/anilist/title_matcher.dart';
 import 'package:otaku_reader/data/isar/manga_entry.dart';
+import 'package:otaku_reader/domain/model/anilist_media.dart';
 import 'package:otaku_reader/data/repository/download_repository_impl.dart';
 import 'package:otaku_reader/data/repository/library_repository_impl.dart';
 import 'package:otaku_reader/domain/repository/download_repository.dart';
@@ -16,7 +18,10 @@ import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/features/downloads/controllers/downloads_controller.dart';
 import 'package:otaku_reader/features/downloads/screens/downloads_screen.dart';
+import 'package:otaku_reader/domain/repository/anilist_repository.dart';
 import 'package:otaku_reader/features/history/screens/history_screen.dart';
+import 'package:otaku_reader/features/home/controllers/home_controller.dart';
+import 'package:otaku_reader/features/home/screens/home_screen.dart';
 import 'package:otaku_reader/features/library/controllers/library_controller.dart';
 import 'package:otaku_reader/features/library/screens/library_screen.dart';
 import 'package:otaku_reader/features/more/screens/about_screen.dart';
@@ -89,6 +94,11 @@ void main() {
     );
     Get.put<UpdatesController>(
       UpdatesController(library: library, sources: const NoSources()),
+    );
+    // Every AniList lookup answers "nothing", which is also the path a first
+    // launch with no network takes — and the one that renders the empty state.
+    Get.put<HomeController>(
+      HomeController(anilist: _NoAniList(), library: library),
     );
   });
 
@@ -218,6 +228,7 @@ void main() {
     'Library': () => const LibraryScreen(),
     'Updates': () => const UpdatesScreen(),
     'History': () => const HistoryScreen(),
+    'Home': () => const HomeScreen(),
   };
 
   for (final entry in tabs.entries) {
@@ -287,6 +298,99 @@ void main() {
       find.textContaining('Your library is empty'),
       findsNothing,
       reason: 'the populated branch replaced the empty one',
+    );
+  });
+
+  testWidgets('Home renders the Continue Reading carousel', (tester) async {
+    // The populated branch. Shelves are AniList-driven and answer nothing
+    // here, but Continue Reading is local — it is the part of Home that still
+    // works with no network, and the part a fresh-install-only test misses.
+    for (var i = 1; i <= 3; i++) {
+      await library.upsertFromSource(
+        sourceId: 7,
+        url: '/m-$i',
+        manga: MManga(
+          name: 'Series $i',
+          chapters: [
+            MChapter(url: '/c-1'),
+            MChapter(url: '/c-2'),
+          ],
+        ),
+      );
+      await library.toggleFavorite(7, '/m-$i');
+      // Continue Reading means *started*, not merely favourited — it filters
+      // on `lastRead != null` with unread chapters left. Reading the first of
+      // two is exactly that state, and favouriting alone would render nothing.
+      await library.setChapterRead(7, '/m-$i', '/c-1', true);
+    }
+
+    // Built here, after seeding, for the same reason as the Library grid: a
+    // controller constructed in `setUp` lives outside the fake-async zone.
+    await Get.delete<HomeController>();
+    Get.put<HomeController>(
+      HomeController(anilist: _NoAniList(), library: library),
+    );
+
+    await tester.pumpWidget(wrap(const HomeScreen()));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.textContaining('Continue reading'), findsOneWidget);
+    expect(find.text('Series 1'), findsOneWidget);
+  });
+
+  testWidgets('Home renders an AniList shelf as its own sliver', (
+    tester,
+  ) async {
+    // The shelf branch, which every other Home test leaves unrendered because
+    // `_NoAniList` answers nothing. Without this, deleting the
+    // `SliverToBoxAdapter` around `_Shelf` changes no test and analyze stays
+    // clean — the shelves are exactly the content Home exists to show.
+    await Get.delete<HomeController>();
+    Get.put<HomeController>(
+      HomeController(anilist: _OneShelf(), library: library),
+    );
+
+    await tester.pumpWidget(wrap(const HomeScreen()));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Trending now'), findsOneWidget);
+    expect(find.text('Example Manga'), findsOneWidget);
+  });
+
+  testWidgets('a slow earlier Home load cannot overwrite a newer one', (
+    tester,
+  ) async {
+    // Two callers can overlap: pull-to-refresh and the error banner's retry —
+    // and the banner is on screen precisely when a previous load failed, so
+    // tapping retry and then pulling is an ordinary thing to do.
+    //
+    // This PR widened the window rather than inventing it. Before, the loading
+    // branch was a bare spinner with no `RefreshIndicator` above it, so a pull
+    // during the first load was impossible; the scaffold's refresh now wraps
+    // every branch, that one included.
+    final anilist = _GatedShelves();
+    await Get.delete<HomeController>();
+    final c = HomeController(anilist: anilist, library: library);
+
+    // Load 0 will answer 'Trending now', slowly.
+    anilist.answer(0, 'trending', delay: true);
+    final stale = c.load();
+    // Load 1 answers 'Top rated' immediately.
+    anilist.answer(1, 'topRated', delay: false);
+    await c.load();
+    expect(c.shelves.single.title, 'Top rated');
+
+    // Now let the older one land. It must not win, and it must not clear the
+    // spinner out from under a load that is still running.
+    anilist.release();
+    await stale;
+
+    expect(
+      c.shelves.single.title,
+      'Top rated',
+      reason: 'the stale load finished last and was discarded',
     );
   });
 
@@ -574,5 +678,69 @@ class _SlowQueue extends _FixedQueue {
       await gate.future;
     }
     return _answers[call] ?? 0;
+  }
+}
+
+/// Every AniList lookup answers "nothing". The home shelves are AniList-driven
+/// and this suite is about the chrome, not the shelves.
+class _NoAniList implements AniListRepository {
+  @override
+  Future<AniListMedia?> media(int id) async => null;
+  @override
+  Future<TitleMatch?> match(String title) async => null;
+  @override
+  Future<List<TitleMatch>> searchCandidates(String title) async => const [];
+  @override
+  Future<Map<String, List<AniListMedia>>> home({int perPage = 20}) async =>
+      const {};
+}
+
+/// One populated shelf, so the shelf sliver is actually built.
+class _OneShelf extends _NoAniList {
+  @override
+  Future<Map<String, List<AniListMedia>>> home({int perPage = 20}) async => {
+    'trending': [
+      const AniListMedia(
+        id: 1,
+        titles: AniListTitles(userPreferred: 'Example Manga'),
+      ),
+    ],
+  };
+}
+
+/// AniList whose `home()` can be made to answer out of order.
+class _GatedShelves extends _NoAniList {
+  final _held = <Completer<void>>[];
+  final _answers = <int, String>{};
+  final _slow = <int>{};
+  var _call = 0;
+
+  void answer(int call, String shelfKey, {required bool delay}) {
+    _answers[call] = shelfKey;
+    if (delay) _slow.add(call);
+  }
+
+  void release() {
+    for (final c in _held) {
+      if (!c.isCompleted) c.complete();
+    }
+    _held.clear();
+  }
+
+  @override
+  Future<Map<String, List<AniListMedia>>> home({int perPage = 20}) async {
+    final call = _call++;
+    if (_slow.contains(call)) {
+      final gate = Completer<void>();
+      _held.add(gate);
+      await gate.future;
+    }
+    final key = _answers[call];
+    if (key == null) return const {};
+    return {
+      key: [
+        const AniListMedia(id: 1, titles: AniListTitles(userPreferred: 'M')),
+      ],
+    };
   }
 }

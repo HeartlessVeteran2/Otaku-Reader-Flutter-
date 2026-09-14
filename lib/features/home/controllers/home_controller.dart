@@ -87,30 +87,47 @@ class HomeController extends GetxController {
     });
   }
 
+  /// Counts the loads started, so a slower earlier one cannot land last.
+  ///
+  /// Two callers can overlap: pull-to-refresh and the error banner's retry —
+  /// and the banner is on screen precisely when a previous load failed, so
+  /// tapping retry and then pulling is an ordinary thing to do. Without this
+  /// the older response overwrites the newer shelves whenever it finishes
+  /// second, and its `finally` clears `isLoading` while the newer one is still
+  /// running.
+  int _load = 0;
+
   Future<void> load() async {
+    final load = ++_load;
     isLoading.value = true;
     error.value = null;
     try {
       // The library half first, and independently: it works offline, and a
       // failed AniList call must not empty it.
-      await _loadContinueReading();
-      await _loadShelves();
+      await _loadContinueReading(load);
+      await _loadShelves(load);
     } finally {
-      isLoading.value = false;
+      // Only the newest load owns the spinner. An older one clearing it would
+      // hide that a newer fetch is still in flight.
+      if (load == _load) isLoading.value = false;
     }
   }
 
-  Future<void> _loadContinueReading() async {
+  Future<void> _loadContinueReading([int? load]) async {
     final favourites = await _library.favorites();
     final started =
         favourites.where((e) => e.lastRead != null && unreadOf(e) > 0).toList()
           ..sort((a, b) => b.lastRead!.compareTo(a.lastRead!));
+    if (load != null && load != _load) return;
     continueReading.value = started.take(20).toList();
   }
 
-  Future<void> _loadShelves() async {
+  Future<void> _loadShelves([int? load]) async {
     try {
       final data = await _anilist.home();
+      // Every write below is guarded, not just the shelves: a stale failure
+      // would otherwise raise the error banner over a newer load that worked.
+      if (load != null && load != _load) return;
       if (data.isEmpty) {
         // Empty is a failure here, not an empty chart: AniList always has
         // trending manga, so nothing back means the call did not work.
@@ -129,6 +146,7 @@ class HomeController extends GetxController {
             HomeShelf(title: entry.value, items: items),
       ];
     } catch (_) {
+      if (load != null && load != _load) return;
       error.value =
           'Could not reach AniList. Your library is still available below.';
     }
