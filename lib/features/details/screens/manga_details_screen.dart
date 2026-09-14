@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:iconsax/iconsax.dart';
 
+import 'package:otaku_reader/core/theme/one_ui.dart';
 import 'package:otaku_reader/data/isar/manga_entry.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
@@ -151,7 +152,11 @@ class _MangaDetailsScreenState extends State<MangaDetailsScreen> {
                     );
                   },
                 ),
-              const SliverToBoxAdapter(child: SizedBox(height: 24)),
+              // Clears the gesture bar, the same way `OneUiScaffold` does — the
+              // last chapter row must not be what a back-swipe grabs.
+              const SliverToBoxAdapter(
+                child: SizedBox(height: OneUi.sectionGap * 2),
+              ),
             ],
           ),
         );
@@ -285,7 +290,7 @@ class _Meta extends StatelessWidget {
         ? null
         : Status.values[entry!.status.clamp(0, Status.values.length - 1)];
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.fromLTRB(OneUi.gutter, 12, OneUi.gutter, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -400,7 +405,7 @@ class _ChapterHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(16, 20, 8, 4),
+    padding: const EdgeInsets.fromLTRB(OneUi.gutter, OneUi.sectionGap, 8, 4),
     child: Row(
       children: [
         Text(
