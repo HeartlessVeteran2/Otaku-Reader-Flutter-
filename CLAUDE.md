@@ -314,6 +314,12 @@ identical from the outside.
   between. Null means "leave it alone" — which is why `0` must still be sent:
   stepping progress back to the start is a real edit, and treating falsy as
   absent would make it silently do nothing.
+- **"Busy" is not "refused".** `saveAniList` returns three outcomes for the
+  same reason `signIn` does: a write dropped by the in-flight guard was never
+  offered to AniList, so reporting it as "AniList did not save that" is a
+  sentence about a server that was never asked. The row is also untappable
+  while a write is in flight — with a spinner, because a tap target that
+  silently stops responding reads as broken rather than busy.
 - **The saved row comes from the response, not the request.** AniList
   normalises — completing a series moves progress to the chapter count — so
   echoing back what was asked for shows a number the server does not hold.

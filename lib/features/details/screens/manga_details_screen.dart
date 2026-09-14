@@ -188,14 +188,19 @@ Future<void> _editAniList(
   if (edit == null || edit.isEmpty || !context.mounted) return;
 
   final messenger = ScaffoldMessenger.of(context)..clearSnackBars();
-  final ok = await controller.saveAniList(
+  final result = await controller.saveAniList(
     status: edit.status,
     progress: edit.progress,
   );
+  // `busy` says nothing, deliberately. The write already in flight will
+  // report its own outcome, and this one was never offered to AniList — so
+  // there is nothing true to say about it that the other snackbar will not
+  // say a moment later.
+  if (result == AniListSaveResult.busy) return;
   messenger.showSnackBar(
     SnackBar(
       content: Text(
-        ok
+        result == AniListSaveResult.ok
             ? 'Saved to AniList'
             : 'AniList did not save that. Your list is unchanged.',
       ),
@@ -224,7 +229,14 @@ class _AniList extends StatelessWidget {
         AniListListRow(
           result: controller.anilistList.value,
           totalChapters: media.chapters,
-          onEdit: () => _editAniList(context, controller, media.chapters),
+          isSaving: controller.isSavingAniList.value,
+          // Null while a write is in flight, so the row cannot open a second
+          // sheet over the first. The controller refuses the concurrent write
+          // anyway — this stops the user reaching a refusal they would have
+          // no way to understand.
+          onEdit: controller.isSavingAniList.value
+              ? null
+              : () => _editAniList(context, controller, media.chapters),
         ),
         const SizedBox(height: 20),
         AniListStats(media: media),

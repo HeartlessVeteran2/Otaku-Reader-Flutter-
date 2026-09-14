@@ -11,6 +11,8 @@ import 'package:otaku_reader/features/details/widgets/anilist_sections.dart';
 
 import 'helpers/anilist_fakes.dart';
 
+import 'package:iconsax/iconsax.dart';
+
 String _listBody({
   String status = 'CURRENT',
   int progress = 12,
@@ -349,6 +351,66 @@ void main() {
         await AniListListService(auth).save(mediaId: 7, progress: 3),
         isNull,
       );
+    });
+  });
+
+  group('the row while a write is in flight', () {
+    Future<void> show(
+      WidgetTester tester, {
+      required bool isSaving,
+      VoidCallback? onEdit,
+    }) => tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(colorSchemeSeed: Colors.indigo),
+        home: Scaffold(
+          body: AniListListRow(
+            result: const AniListListResult(
+              AniListListLookup.onList,
+              AniListListEntry(id: 1, mediaId: 7, progress: 12),
+            ),
+            totalChapters: 24,
+            isSaving: isSaving,
+            onEdit: onEdit,
+          ),
+        ),
+      ),
+    );
+
+    testWidgets('a null callback really disables the tap target', (
+      tester,
+    ) async {
+      // Asserting a counter stayed at zero while passing no callback proves
+      // nothing — nothing could have incremented it. What is falsifiable is
+      // that the row wires the callback straight through, so a null one
+      // leaves `InkWell.onTap` null rather than the row inventing a handler.
+      await show(tester, isSaving: true, onEdit: null);
+
+      final inkWell = tester.widget<InkWell>(find.byType(InkWell));
+      expect(inkWell.onTap, isNull);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a saving row says it is busy rather than going dead', (
+      tester,
+    ) async {
+      // A tap target that silently stops responding reads as broken. The
+      // spinner is what makes the disabled state legible.
+      await show(tester, isSaving: true, onEdit: null);
+
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.byIcon(Iconsax.edit_2), findsNothing);
+    });
+
+    testWidgets('an idle row offers the edit affordance', (tester) async {
+      var taps = 0;
+      await show(tester, isSaving: false, onEdit: () => taps++);
+
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.byIcon(Iconsax.edit_2), findsOneWidget);
+
+      await tester.tap(find.byType(AniListListRow));
+      await tester.pumpAndSettle();
+      expect(taps, 1);
     });
   });
 

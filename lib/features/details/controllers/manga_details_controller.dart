@@ -23,6 +23,25 @@ import 'package:otaku_reader/domain/repository/download_repository.dart';
 enum ChapterFilter { all, unread }
 
 /// One manga's detail page: metadata, chapter list, and library membership.
+/// What came of writing the user's AniList row.
+///
+/// Three outcomes rather than a bool, for the same reason `SignInResult` has
+/// three: "AniList refused this" and "this app never sent it" are different
+/// events and need different words. Collapsing them made a write dropped by
+/// the in-flight guard report itself as a refusal by AniList — a sentence
+/// about a server that was never asked.
+enum AniListSaveResult {
+  /// AniList took it, and the row on screen is what it now holds.
+  ok,
+
+  /// Offered and declined, or there was nothing to offer it to.
+  refused,
+
+  /// Never offered: another write was already in flight. The write that *is*
+  /// in flight will report itself, so this needs no word of its own.
+  busy,
+}
+
 class MangaDetailsController extends GetxController {
   MangaDetailsController({
     required SourceRepository sources,
@@ -281,14 +300,24 @@ class MangaDetailsController extends GetxController {
     anilistList.value = result;
   }
 
-  /// Writes the user's list row. Returns whether AniList accepted it.
+  /// Writes the user's list row.
   ///
   /// Only what the caller passes is sent — see `AniListListService.save`. The
   /// row is replaced with what AniList returns rather than with what was
   /// asked for, because the server may normalise it.
-  Future<bool> saveAniList({AniListListStatus? status, int? progress}) async {
+  ///
+  /// [AniListSaveResult.busy] is **not** a refusal, and the distinction is the
+  /// whole reason this is not a bool: a write dropped because another was
+  /// already in flight was never offered to AniList, so reporting it as
+  /// "AniList did not save that" states something untrue about a server that
+  /// was never asked.
+  Future<AniListSaveResult> saveAniList({
+    AniListListStatus? status,
+    int? progress,
+  }) async {
     final mediaId = anilist.value?.id;
-    if (mediaId == null || isSavingAniList.value) return false;
+    if (mediaId == null) return AniListSaveResult.refused;
+    if (isSavingAniList.value) return AniListSaveResult.busy;
     isSavingAniList.value = true;
     try {
       final saved = await _anilistList.save(
@@ -296,9 +325,9 @@ class MangaDetailsController extends GetxController {
         status: status,
         progress: progress,
       );
-      if (saved == null) return false;
+      if (saved == null) return AniListSaveResult.refused;
       anilistList.value = AniListListResult(AniListListLookup.onList, saved);
-      return true;
+      return AniListSaveResult.ok;
     } finally {
       isSavingAniList.value = false;
     }

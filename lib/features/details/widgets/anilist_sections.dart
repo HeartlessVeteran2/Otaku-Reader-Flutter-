@@ -406,6 +406,7 @@ class AniListListRow extends StatelessWidget {
     required this.result,
     this.totalChapters,
     this.onEdit,
+    this.isSaving = false,
   });
 
   final AniListListResult result;
@@ -416,6 +417,11 @@ class AniListListRow extends StatelessWidget {
   final int? totalChapters;
 
   final VoidCallback? onEdit;
+
+  /// Shows a spinner in place of the edit affordance. Without it the row just
+  /// stops responding while a write is in flight, which reads as broken
+  /// rather than as busy.
+  final bool isSaving;
 
   @override
   Widget build(BuildContext context) {
@@ -460,7 +466,15 @@ class AniListListRow extends StatelessWidget {
                         alpha: 0.7,
                       ),
                     ),
-                  if (onEdit != null)
+                  if (isSaving)
+                    SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: theme.colorScheme.onSecondaryContainer,
+                      ),
+                    )
+                  else if (onEdit != null)
                     Icon(
                       Iconsax.edit_2,
                       size: 18,
