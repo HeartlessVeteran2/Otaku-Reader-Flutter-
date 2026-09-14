@@ -26,6 +26,25 @@ void main() {
     expect(auth.authorizeUrl.queryParameters['client_id'], 'abc');
   });
 
+  test('the authorize url carries no redirect_uri, on purpose', () async {
+    // A review asked for one, citing this app's own setup instructions. It is
+    // wrong, and the fix it proposed would break working builds — so the
+    // decision is pinned here rather than left to be re-litigated.
+    //
+    // AniList documents `redirect_uri` for the *authorization code* grant
+    // only, warning it "must exactly match the redirect URI you used in your
+    // application settings". The implicit grant takes `client_id` alone and
+    // returns the user "to the redirect URI you specified in your application
+    // settings" — the registered value, not a requested one. Hardcoding the
+    // pin page here would therefore fail that exact-match check for any build
+    // registered with a different redirect, and buy nothing for the rest.
+    final auth = AniListAuth(storage: FakeVault(), clientId: 'abc');
+    expect(auth.authorizeUrl.queryParameters.keys, [
+      'client_id',
+      'response_type',
+    ]);
+  });
+
   test('signing in stores the token only once AniList accepts it', () async {
     final vault = FakeVault();
     final auth = AniListAuth(

@@ -174,6 +174,17 @@ class AniListAuth {
   ///
   /// `response_type=token` is the implicit grant: AniList shows the token on
   /// its pin page rather than redirecting anywhere this app has to catch.
+  ///
+  /// **No `redirect_uri`, deliberately.** AniList documents that parameter for
+  /// the *authorization code* grant only, where it warns it "must exactly
+  /// match the redirect URI you used in your application settings"; the
+  /// implicit grant takes `client_id` alone and sends the user "back to the
+  /// redirect URI you specified in your application settings"
+  /// (docs.anilist.co/guide/auth/implicit vs …/authorization-code). So adding
+  /// one cannot help and can only hurt: a build whose registered redirect is
+  /// anything but the pin page would fail that exact-match check on a request
+  /// that works today. A test asserts the parameter stays absent, because
+  /// adding it looks like a fix.
   Uri get authorizeUrl => Uri.https('anilist.co', '/api/v2/oauth/authorize', {
     'client_id': clientId,
     'response_type': 'token',
