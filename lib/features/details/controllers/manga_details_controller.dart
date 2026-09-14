@@ -71,14 +71,19 @@ class MangaDetailsController extends GetxController {
   final anilist = Rxn<AniListMedia>();
   final isLoadingAniList = false.obs;
 
-  /// The signed-in user's own list row for this manga, or null.
+  /// The signed-in user's own list row for this manga, and what kind of
+  /// answer that is.
   ///
-  /// Null is the answer for signed out, not on their list, and AniList being
-  /// unreachable alike — all three render nothing, so they need not be told
-  /// apart here. Never cached: progress changes whenever the user reads a
-  /// chapter on another device, and a stale number claiming they are on
-  /// chapter 12 after they read 20 is worse than no number.
-  final anilistEntry = Rxn<AniListListEntry>();
+  /// Tri-state rather than a nullable row, because "not on your list" is an
+  /// invitation to add it while "signed out" and "AniList unreachable" are
+  /// not. Never cached: progress changes whenever the user reads a chapter on
+  /// another device, and a stale number claiming they are on chapter 12 after
+  /// they read 20 is worse than no number.
+  final anilistList = const AniListListResult.signedOut().obs;
+
+  /// True while a list edit is in flight, so the sheet can refuse a second
+  /// tap rather than race itself.
+  final isSavingAniList = false.obs;
 
   /// What the browse grid already knew, shown immediately so the page is not a
   /// spinner over nothing while the detail request runs.
@@ -268,12 +273,35 @@ class MangaDetailsController extends GetxController {
 
   Future<void> _loadAniListEntry(int generation, int? mediaId) async {
     if (mediaId == null) {
-      anilistEntry.value = null;
+      anilistList.value = const AniListListResult.signedOut();
       return;
     }
-    final entry = await _anilistList.entryFor(mediaId);
+    final result = await _anilistList.lookUp(mediaId);
     if (generation != _generation) return;
-    anilistEntry.value = entry;
+    anilistList.value = result;
+  }
+
+  /// Writes the user's list row. Returns whether AniList accepted it.
+  ///
+  /// Only what the caller passes is sent — see `AniListListService.save`. The
+  /// row is replaced with what AniList returns rather than with what was
+  /// asked for, because the server may normalise it.
+  Future<bool> saveAniList({AniListListStatus? status, int? progress}) async {
+    final mediaId = anilist.value?.id;
+    if (mediaId == null || isSavingAniList.value) return false;
+    isSavingAniList.value = true;
+    try {
+      final saved = await _anilistList.save(
+        mediaId: mediaId,
+        status: status,
+        progress: progress,
+      );
+      if (saved == null) return false;
+      anilistList.value = AniListListResult(AniListListLookup.onList, saved);
+      return true;
+    } finally {
+      isSavingAniList.value = false;
+    }
   }
 
   /// Candidates for the manual picker, best first.
@@ -299,7 +327,7 @@ class MangaDetailsController extends GetxController {
     // The list row belongs to the media that was just unlinked. Leaving it
     // would show the user's progress on a series this page no longer claims
     // to be.
-    anilistEntry.value = null;
+    anilistList.value = const AniListListResult.signedOut();
   }
 
   Future<void> toggleFavorite() async {

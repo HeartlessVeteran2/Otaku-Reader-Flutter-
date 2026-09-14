@@ -298,6 +298,25 @@ identical from the outside.
   there has nobody to catch it and becomes an unhandled async error at
   startup. That covers the keystore (read, write *and* delete can each fail
   independently) and the payload, whose fields are checked rather than cast.
+- **The list lookup is four answers, not a nullable row.** Signed out,
+  unreachable, not-on-your-list and on-your-list. They were deliberately
+  collapsed into one nullable entry while the row was read-only, because all
+  four rendered the same — nothing. Editing ended that: "not on your list" is
+  an invitation to add it, and offering that while AniList is *unreachable*
+  offers an action about to fail. When a state stops rendering the same as its
+  neighbours, the type that conflated them has to change with it.
+- **`SaveMediaListEntry` creates the row when there is none**, so adding an
+  untracked manga and editing a tracked one are the same call and the same
+  sheet — there is no separate "add" path to keep in step.
+- **Only the fields the user actually changed are sent.** AniList writes
+  exactly what it is given, so passing a field they never touched writes back
+  a value read minutes ago and undoes progress made on another device in
+  between. Null means "leave it alone" — which is why `0` must still be sent:
+  stepping progress back to the start is a real edit, and treating falsy as
+  absent would make it silently do nothing.
+- **The saved row comes from the response, not the request.** AniList
+  normalises — completing a series moves progress to the chapter count — so
+  echoing back what was asked for shows a number the server does not hold.
 - **The user's own list row is never cached; the public record is.**
   `AniListMetadataService` serves the series and caches it per entry on a
   7-day TTL. `AniListListService` serves the reader's own row — status,
@@ -467,6 +486,7 @@ Kept because they repeat.
 | The obvious fix for "a dead token is retried forever" would have signed users out for being offline | `loadViewer` answered "no" for a rejection *and* for no network, AniList down, and our own bad query. Deleting the token on any failure — which is what the finding implied — costs a user with a perfectly good token their account, recoverable only through the whole pin flow. A review finding can be right about the defect and wrong about the remedy; verify the remedy separately, and prove it by applying the naive one and watching the right tests fail. |
 | Disposing a sheet's `TextEditingController` after `await showModalBottomSheet` | That future completes when the sheet is **popped**, while its exit animation is still running and the `TextField` is still mounted — so the dispose throws "A TextEditingController was used after being disposed" part-way through the close. It is the fix that suggests itself, it reads as obviously correct, and a test that asserts only the end state never sees it because the throw happens mid-animation. Let the sheet's own `State` own the controller; the framework disposes it once the route is gone, and that covers the dismissal path too. |
 | A row read `viewer` and ignored `isReady` | Written in the same commit as the rule saying those are different answers, and two files from the screen that honours it — so Settings said "Not signed in" during startup while the Accounts screen it opened said otherwise. Writing a rule down is not applying it; grep for the other readers of a flag whenever you add one. |
+| A four-state distinction had tests for how it *renders* and none for how it is *decided* | Collapsing `notOnList` back into `unavailable` in the service failed nothing — the row's widget tests covered each state, but nothing asserted the service told a successful-but-empty reply apart from a failed call. That distinction is the entire reason the type changed. Rendering tests are not decision tests; assert the branch where the decision is made, not only where its result is shown. |
 | A "signed out asks nothing" test passed with the guard deleted | `AniListAuth.query` already refuses when there is no token, so the service's own `viewer == null` check was covered by somebody else's guard. It earns its keep in a *different* state the obvious test never reaches: an offline launch keeps the stored token deliberately, so `isSignedIn` is true while `viewer` is still null and there is no user id to query by. Found by mutating the guard and watching nothing fail. When a check looks redundant, find the state where it is not — or delete it. |
 | A review filed a High for the authorize URL "missing" `redirect_uri` | AniList documents that parameter for the **authorization code** grant, warning it must exactly match the registered one, and omits it from the **implicit** grant, which takes `client_id` alone and redirects to the value in application settings. Applying the suggestion would have turned a working request into a hard OAuth rejection for any build registered with a different redirect. Two findings running where the bot was right about the *shape* and wrong about the *facts*: when a finding rests on an external contract — an API, an index format, a published spec — go and read that contract before touching the code. Declining is the fix; pinning the decision in a test so the next reader does not re-raise it is the rest of the fix. |
 
