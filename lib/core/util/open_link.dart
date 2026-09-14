@@ -14,14 +14,19 @@ import 'package:url_launcher/url_launcher.dart';
 /// * **A failure must be visible.** `launchUrl` returns false on a device with
 ///   no browser for the scheme, and silently doing nothing on a tap reads as
 ///   the app being broken.
-Future<void> openLink(BuildContext context, String url) async {
+///
+/// Returns whether the browser opened. Most callers ignore it — the snackbar
+/// is the whole response to a failure — but a caller that queues a *next step*
+/// on the user coming back needs to know, because there is nothing to come
+/// back from when the browser never opened.
+Future<bool> openLink(BuildContext context, String url) async {
   final messenger = ScaffoldMessenger.maybeOf(context);
   final uri = Uri.tryParse(url);
   if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
     messenger?.showSnackBar(
       const SnackBar(content: Text('That link cannot be opened')),
     );
-    return;
+    return false;
   }
 
   var opened = false;
@@ -35,4 +40,5 @@ Future<void> openLink(BuildContext context, String url) async {
       SnackBar(content: Text('Could not open ${uri.host}')),
     );
   }
+  return opened;
 }

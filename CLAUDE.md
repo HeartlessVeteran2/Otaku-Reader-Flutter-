@@ -246,6 +246,43 @@ identical from the outside.
   interleaving — two quick taps — meant the second write was built from a list
   read before the first landed, and the repository the user deleted came back.
 
+### The AniList account
+
+- **The token lives in `flutter_secure_storage`, never in the KV tier.** That
+  table is a plain Isar collection: a backup or anything that can read the
+  database file carries the token off in clear text, and an AniList token can
+  rewrite the user's whole list. AnymeX keeps its auth tokens in its KV table,
+  and this is one of the things this app deliberately does not copy.
+- **Sign-in is the PIN flow** (`response_type=token`, redirecting to
+  `…/oauth/pin`), so the user pastes a token back. A real redirect URI needs a
+  WebView to intercept it or an intent filter plus deep-link plumbing — two more
+  Android plugins and a manifest entry, for a flow run approximately once. It
+  also keeps the token out of a WebView this app would then own.
+- **"No client id" is a first-class state, not a failure.** `ANILIST_CLIENT_ID`
+  is a `String.fromEnvironment`, the developer registers it, and a fresh clone
+  has none. Every surface renders a *setup instruction* there, never a sign-in
+  button that fails on tap — the same shape as the Kotlin repo's gitignored
+  `dev-repos.txt`. The Settings row has three states for the same reason:
+  saying "Not signed in" on an unconfigured build contradicts the screen it
+  opens.
+- **`isReady` means "there is an answer to render", not "startup ran".** Every
+  screen gates its spinner on it, so it is set by `restore()` whatever that
+  finds **and** by a successful `signIn()`. Tying it to `restore` alone is
+  invisible in the app — `AppBindings` always restores first — and an endless
+  spinner anywhere else.
+- **The score format is read from the user's own AniList settings.** AniList
+  stores every score as 0-100 regardless; the format only says how to show it,
+  and `POINT_10_DECIMAL` is AniList's own default. So hardcoding it looks
+  correct for most users and shows a five-star user "8.0" for what their
+  profile calls four stars — the wrong number, not merely the wrong unit. An
+  unrecognised value falls back rather than throwing, because AniList adding an
+  enum member must not stop a sign-in.
+- **A 200 from GraphQL is not success.** AniList answers 200 with an `errors`
+  array, and GraphQL's partial-failure shape carries `data` *and* `errors` in
+  the same body. `query()` refuses that, because it is the one authenticated
+  call everything else goes through and a half-failed mutation would otherwise
+  report that a score saved when it did not.
+
 ---
 
 ### The visual language: One UI over AnymeX's layout
@@ -379,6 +416,11 @@ Kept because they repeat.
 | Reader tests pumped a fixed three microtasks | Adding a disk read and a row write to the load path made three too few, so `open()` returned a controller with no pages and three new tests failed on an empty list rather than on what they asserted. Wait on the condition (`while (c.isLoading.value)`), never on a turn count. |
 | A controller built in `setUp` never fires its timers | `setUp` runs outside `testWidgets`' fake-async zone, so a `Timer` the controller starts there is not on the test clock and `tester.pump(anyDuration)` will not fire it. `LibraryController`'s 300ms change debounce never ran, and the grid looked broken when the reload simply never happened. Build a controller whose timers matter *inside* the test body. |
 | Every controller in a suite had its own `LibraryRepositoryImpl` | They share the database but **not** the `changes` stream — `_changes` is a per-instance broadcast controller — so a write through one instance can never notify a listener on another. The harness was structurally unable to fail when the notification path broke, which is the path that exists because `didChangeDependencies` cannot fire on an `IndexedStack` reselection. One instance, shared. Found by `codeant-ai`, not by the suite. |
+| `isReady` was set by `restore()` alone | Its own doc said "once the stored token has been read", and every screen gated its spinner on it meaning "do I have an answer". Signing in produced an answer and left the flag false, so the Accounts screen spun forever on a successful sign-in. Invisible in the app, where `AppBindings` always restores first — four widget tests failed at once and the flag, not the screen, was wrong. |
+| A test named "a GraphQL error is a failure even though the status is 200" passed with the check deleted | Its body was `{"errors": […]}` with no `data`, which already fails on the absent `data`. The check only changes the answer for GraphQL's *partial* shape — a 200 carrying **both** — which is exactly the case a mutation half-failing produces. Deleting the guard is the only thing that showed it. |
+| A sign-out test tapped Cancel and claimed to cover the barrier dismiss | Cancel pops an explicit `false`; the barrier pops **null**, and `ok ?? false` exists only for the null. Rewriting it as `ok != false` — signing the user out for tapping next to a dialog — left the Cancel test green. Whenever a guard turns on `?? `, the test has to produce the absent value, not the falsy one. |
+| The AniList avatar was a bare `NetworkImage` | Every other remote image in this app is a `CachedNetworkImage` with an `errorWidget`. A bare one has no error branch, so a 404 or an offline device throws out of the image resolver, and it refetches on every build. Match the app's existing idiom before inventing a second one. |
+| `flutter analyze` reported "No issues found" on a screen that could not lay out | Demonstrated rather than asserted this time: swapping one `SliverOneUiGroup` for its box-widget twin left analyze clean and failed two widget tests. The sixth instance, and the reason a rendered test per branch is not optional. |
 
 The general lesson, and the one that keeps recurring across both codebases:
 **a comment describing the goal is not evidence the code achieves it.** After

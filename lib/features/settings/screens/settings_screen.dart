@@ -7,6 +7,8 @@ import 'package:otaku_reader/core/database/kv_helper.dart';
 import 'package:otaku_reader/core/preferences/nsfw_preference.dart';
 import 'package:otaku_reader/core/theme/one_ui.dart';
 import 'package:otaku_reader/core/theme/theme_controller.dart';
+import 'package:otaku_reader/data/anilist/anilist_auth.dart';
+import 'package:otaku_reader/features/settings/screens/accounts_screen.dart';
 import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
 
 /// Appearance, reader defaults and source behaviour.
@@ -171,6 +173,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
               subtitle: const Text('Manage these from the Browse tab'),
               enabled: false,
             ),
+          ],
+        ),
+        SliverOneUiGroup(
+          label: 'Accounts',
+          children: [
+            Obx(() {
+              final auth = Get.find<AniListAuth>();
+              final viewer = auth.viewer.value;
+              return ListTile(
+                leading: const Icon(Iconsax.user_octagon),
+                title: const Text('AniList'),
+                // Three states, not two. A build with no client id is not
+                // "not signed in" — there is nothing to sign in to — and
+                // saying so here would contradict the screen this row opens.
+                subtitle: Text(
+                  !auth.isConfigured
+                      ? 'Not set up in this build'
+                      : viewer == null
+                      ? 'Not signed in'
+                      : 'Signed in as ${viewer.name}',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const AccountsScreen(),
+                  ),
+                ),
+              );
+            }),
           ],
         ),
       ],

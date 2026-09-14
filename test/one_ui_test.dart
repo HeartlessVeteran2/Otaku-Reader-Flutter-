@@ -9,6 +9,7 @@ import 'package:otaku_reader/core/database/database.dart' as db;
 import 'package:otaku_reader/core/preferences/nsfw_preference.dart';
 import 'package:otaku_reader/core/theme/one_ui.dart';
 import 'package:otaku_reader/core/theme/theme_controller.dart';
+import 'package:otaku_reader/data/anilist/anilist_auth.dart';
 import 'package:otaku_reader/data/anilist/anilist_metadata_service.dart';
 import 'package:otaku_reader/data/anilist/title_matcher.dart';
 import 'package:otaku_reader/data/isar/manga_entry.dart';
@@ -42,6 +43,7 @@ import 'package:otaku_reader/source/model/source.dart';
 import 'package:otaku_reader/source/model/source_preference.dart';
 import 'package:otaku_reader/source/source_methods.dart';
 
+import 'helpers/anilist_fakes.dart';
 import 'helpers/fake_source_repository.dart';
 import 'helpers/isar_test_env.dart';
 
@@ -123,6 +125,11 @@ void main() {
     Get.put<AniListMetadataService>(
       AniListMetadataService(anilist: _NoAniList()),
     );
+    // Settings reads this for its Accounts row. Unconfigured and never
+    // restored, which is a first launch on a fresh clone — the state every
+    // other suite here would silently fail to notice, because a screen that
+    // calls `Get.find` for something nobody registered throws at *build*.
+    Get.put<AniListAuth>(AniListAuth(storage: FakeVault(), clientId: ''));
   });
 
   tearDown(() {
