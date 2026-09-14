@@ -8,6 +8,7 @@ import 'package:get/get.dart';
 import 'package:otaku_reader/core/database/database.dart' as db;
 import 'package:otaku_reader/core/theme/one_ui.dart';
 import 'package:otaku_reader/core/theme/theme_controller.dart';
+import 'package:otaku_reader/data/anilist/anilist_metadata_service.dart';
 import 'package:otaku_reader/data/anilist/title_matcher.dart';
 import 'package:otaku_reader/data/isar/manga_entry.dart';
 import 'package:otaku_reader/domain/model/anilist_media.dart';
@@ -17,6 +18,7 @@ import 'package:otaku_reader/domain/repository/download_repository.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/features/downloads/controllers/downloads_controller.dart';
+import 'package:otaku_reader/features/details/screens/manga_details_screen.dart';
 import 'package:otaku_reader/features/downloads/screens/downloads_screen.dart';
 import 'package:otaku_reader/domain/repository/anilist_repository.dart';
 import 'package:otaku_reader/features/history/screens/history_screen.dart';
@@ -99,6 +101,10 @@ void main() {
     // launch with no network takes — and the one that renders the empty state.
     Get.put<HomeController>(
       HomeController(anilist: _NoAniList(), library: library),
+    );
+    // The details screen builds its own controller from these four.
+    Get.put<AniListMetadataService>(
+      AniListMetadataService(anilist: _NoAniList()),
     );
   });
 
@@ -392,6 +398,26 @@ void main() {
       'Top rated',
       reason: 'the stale load finished last and was discarded',
     );
+  });
+
+  testWidgets('the details screen renders its sliver body', (tester) async {
+    // The largest screen in the app, and until now rendered by no test at all
+    // — the fourth time in this pass that a whole branch turned out to be
+    // unexercised. It is already sliver-based, so nothing here converted it;
+    // what this guards is that its `CustomScrollView` still lays out, now that
+    // it draws its radii and rhythm from `OneUi` rather than from literals.
+    //
+    // `NoSources` cannot resolve a source, so the screen takes its error
+    // branch. That is the point: the error path is a real path, and it is a
+    // *box* widget returned from the same `Obx` that otherwise returns
+    // slivers — exactly the shape that throws when it is put in the wrong
+    // slot.
+    await tester.pumpWidget(
+      wrap(const MangaDetailsScreen(sourceId: 7, url: '/m')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('a group renders its label above the rows, not inside them', (
