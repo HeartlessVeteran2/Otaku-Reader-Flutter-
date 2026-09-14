@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:iconsax/iconsax.dart';
 
+import 'package:otaku_reader/core/theme/one_ui.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/features/history/controllers/history_controller.dart';
@@ -88,58 +89,66 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('History'),
-        actions: [
-          Obx(
-            () => IconButton(
-              icon: const Icon(Iconsax.trash),
-              tooltip: 'Clear history',
-              onPressed: _c.entries.isEmpty ? null : _confirmClear,
-            ),
+    return OneUiScaffold(
+      title: 'History',
+      actions: [
+        Obx(
+          () => IconButton(
+            icon: const Icon(Iconsax.trash),
+            tooltip: 'Clear history',
+            onPressed: _c.entries.isEmpty ? null : _confirmClear,
           ),
-        ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(56),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-            child: TextField(
-              onChanged: _c.setQuery,
-              decoration: InputDecoration(
-                isDense: true,
-                hintText: 'Search history',
-                prefixIcon: const Icon(Iconsax.search_normal, size: 18),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
+        ),
+      ],
+      bottom: PreferredSize(
+        preferredSize: const Size.fromHeight(56),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+          child: TextField(
+            onChanged: _c.setQuery,
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: 'Search history',
+              prefixIcon: const Icon(Iconsax.search_normal, size: 18),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(OneUi.radiusSmall),
               ),
             ),
           ),
         ),
       ),
-      body: Obx(() {
-        if (_c.isLoading.value && _c.entries.isEmpty) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        final rows = _c.visible;
-        if (rows.isEmpty) {
-          return _Empty(searching: _c.query.value.isNotEmpty);
-        }
-        return ListView.builder(
-          itemCount: rows.length,
-          itemBuilder: (context, i) => Dismissible(
-            key: ValueKey(rows[i].key),
-            background: const _SwipeBackground(),
-            secondaryBackground: const _SwipeBackground(trailing: true),
-            onDismissed: (_) => _remove([rows[i]]),
-            child: _HistoryTile(
-              row: rows[i],
-              baseUrl: _c.baseUrlFor(rows[i].entry),
+      slivers: [
+        // One `Obx`, and every branch returns a sliver — the loading spinner
+        // and the empty state are `SliverFillRemaining`, not bare widgets.
+        Obx(() {
+          if (_c.isLoading.value && _c.entries.isEmpty) {
+            return const SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(child: CircularProgressIndicator()),
+            );
+          }
+          final rows = _c.visible;
+          if (rows.isEmpty) {
+            return SliverFillRemaining(
+              hasScrollBody: false,
+              child: _Empty(searching: _c.query.value.isNotEmpty),
+            );
+          }
+          return SliverList.builder(
+            itemCount: rows.length,
+            itemBuilder: (context, i) => Dismissible(
+              key: ValueKey(rows[i].key),
+              background: const _SwipeBackground(),
+              secondaryBackground: const _SwipeBackground(trailing: true),
+              onDismissed: (_) => _remove([rows[i]]),
+              child: _HistoryTile(
+                row: rows[i],
+                baseUrl: _c.baseUrlFor(rows[i].entry),
+              ),
             ),
-          ),
-        );
-      }),
+          );
+        }),
+      ],
     );
   }
 }

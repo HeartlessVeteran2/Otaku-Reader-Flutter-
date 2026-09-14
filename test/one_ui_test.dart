@@ -12,11 +12,20 @@ import 'package:otaku_reader/data/isar/manga_entry.dart';
 import 'package:otaku_reader/data/repository/download_repository_impl.dart';
 import 'package:otaku_reader/data/repository/library_repository_impl.dart';
 import 'package:otaku_reader/domain/repository/download_repository.dart';
+import 'package:otaku_reader/domain/repository/library_repository.dart';
+import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/features/downloads/controllers/downloads_controller.dart';
 import 'package:otaku_reader/features/downloads/screens/downloads_screen.dart';
+import 'package:otaku_reader/features/history/screens/history_screen.dart';
+import 'package:otaku_reader/features/library/controllers/library_controller.dart';
+import 'package:otaku_reader/features/library/screens/library_screen.dart';
 import 'package:otaku_reader/features/more/screens/about_screen.dart';
 import 'package:otaku_reader/features/more/screens/more_screen.dart';
 import 'package:otaku_reader/features/settings/screens/settings_screen.dart';
+import 'package:otaku_reader/features/updates/controllers/updates_controller.dart';
+import 'package:otaku_reader/features/updates/screens/updates_screen.dart';
+import 'package:otaku_reader/source/model/m_chapter.dart';
+import 'package:otaku_reader/source/model/m_manga.dart';
 
 import 'helpers/fake_source_repository.dart';
 import 'helpers/isar_test_env.dart';
@@ -56,6 +65,22 @@ void main() {
         sources: const NoSources(),
         library: LibraryRepositoryImpl(),
         root: root,
+      ),
+    );
+    // History builds its own controller from these; Library and Updates
+    // resolve theirs with `Get.find`, so those have to be registered too.
+    Get.put<LibraryRepository>(LibraryRepositoryImpl());
+    Get.put<SourceRepository>(const NoSources());
+    Get.put<LibraryController>(
+      LibraryController(
+        library: LibraryRepositoryImpl(),
+        sources: const NoSources(),
+      ),
+    );
+    Get.put<UpdatesController>(
+      UpdatesController(
+        library: LibraryRepositoryImpl(),
+        sources: const NoSources(),
       ),
     );
   });
@@ -172,6 +197,80 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(tester.getTopLeft(large).dy, before);
+  });
+
+  // The three list tabs, converted in the same pass. Each has three states
+  // behind one `Obx` — loading, empty, populated — and every one of them has
+  // to be a sliver. The empty state is the one a fresh install sees and the
+  // one most likely to be written as a bare box.
+  final tabs = <String, Widget Function()>{
+    'Library': () => const LibraryScreen(),
+    'Updates': () => const UpdatesScreen(),
+    'History': () => const HistoryScreen(),
+  };
+
+  for (final entry in tabs.entries) {
+    testWidgets('${entry.key} renders its empty state as a sliver', (
+      tester,
+    ) async {
+      await tester.pumpWidget(wrap(entry.value()));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byType(CustomScrollView), findsOneWidget);
+      expect(find.text(entry.key), findsWidgets);
+    });
+
+    testWidgets('${entry.key} survives being scrolled while empty', (
+      tester,
+    ) async {
+      await tester.pumpWidget(wrap(entry.value()));
+      await tester.pumpAndSettle();
+
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -300));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('the Library grid renders rows through a sliver grid', (
+    tester,
+  ) async {
+    // The populated branch. `SliverGrid` replaced a `GridView` that carried
+    // its own scroll view, so getting this wrong nests two scrollables rather
+    // than failing loudly.
+    final library = LibraryRepositoryImpl();
+    for (var i = 1; i <= 4; i++) {
+      await library.upsertFromSource(
+        sourceId: 7,
+        url: '/m-$i',
+        manga: MManga(
+          name: 'Series $i',
+          chapters: [MChapter(url: '/c-1')],
+        ),
+      );
+      await library.toggleFavorite(7, '/m-$i');
+    }
+
+    // Re-registered after seeding: the controller from `setUp` loaded an empty
+    // library, and nothing tells it the rows arrived.
+    await Get.delete<LibraryController>();
+    Get.put<LibraryController>(
+      LibraryController(library: library, sources: const NoSources()),
+    );
+
+    await tester.pumpWidget(wrap(const LibraryScreen()));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(SliverGrid), findsOneWidget);
+    expect(find.text('Series 1'), findsOneWidget);
+    expect(
+      find.textContaining('Your library is empty'),
+      findsNothing,
+      reason: 'the populated branch replaced the empty one',
+    );
   });
 
   testWidgets('a group renders its label above the rows, not inside them', (
