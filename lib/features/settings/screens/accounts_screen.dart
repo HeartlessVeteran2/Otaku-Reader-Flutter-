@@ -137,7 +137,6 @@ class _SignedOut extends StatelessWidget {
 /// and anything that only appears in the same breath as the browser opening
 /// would be gone by then.
 Future<void> _askForToken(BuildContext context, AniListAuth auth) async {
-  final field = TextEditingController();
   final token = await showModalBottomSheet<String>(
     context: context,
     isScrollControlled: true,
@@ -145,50 +144,7 @@ Future<void> _askForToken(BuildContext context, AniListAuth auth) async {
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(OneUi.radius)),
     ),
-    builder: (context) => Padding(
-      padding: EdgeInsets.fromLTRB(
-        OneUi.gutter,
-        0,
-        OneUi.gutter,
-        MediaQuery.viewInsetsOf(context).bottom + OneUi.gutter,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            'Paste the token',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'AniList shows a long code after you authorise. Copy the whole '
-            'thing and paste it here.',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: field,
-            autofocus: true,
-            maxLines: 3,
-            minLines: 1,
-            decoration: InputDecoration(
-              hintText: 'Access token',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(OneUi.radiusSmall),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          // Low, not top-right: the confirm on a sheet belongs where a thumb
-          // already is.
-          FilledButton(
-            onPressed: () => Navigator.pop(context, field.text),
-            child: const Text('Sign in'),
-          ),
-        ],
-      ),
-    ),
+    builder: (context) => const _TokenSheet(),
   );
   if (token == null || !context.mounted) return;
 
@@ -216,6 +172,85 @@ Future<void> _askForToken(BuildContext context, AniListAuth auth) async {
           : const Duration(seconds: 8),
     ),
   );
+}
+
+/// The sheet's body, and the owner of its text controller.
+///
+/// A `StatefulWidget` purely for that ownership. The obvious alternative —
+/// build a `TextEditingController` beside `showModalBottomSheet` and dispose
+/// it after the await — is **wrong, and fails loudly**: that future completes
+/// when the sheet is *popped*, while its exit animation is still running and
+/// the `TextField` is still in the tree. Disposing there throws "A
+/// TextEditingController was used after being disposed" part-way through the
+/// close.
+///
+/// Letting the sheet's own `State` hold it hands the lifetime to the
+/// framework, which disposes once the route is actually gone — and covers the
+/// dismissal path for free, which is the one a hand-rolled dispose after an
+/// early return misses.
+class _TokenSheet extends StatefulWidget {
+  const _TokenSheet();
+
+  @override
+  State<_TokenSheet> createState() => _TokenSheetState();
+}
+
+class _TokenSheetState extends State<_TokenSheet> {
+  final _field = TextEditingController();
+
+  @override
+  void dispose() {
+    _field.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        OneUi.gutter,
+        0,
+        OneUi.gutter,
+        MediaQuery.viewInsetsOf(context).bottom + OneUi.gutter,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Paste the token',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'AniList shows a long code after you authorise. Copy the whole '
+            'thing and paste it here.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _field,
+            autofocus: true,
+            maxLines: 3,
+            minLines: 1,
+            decoration: InputDecoration(
+              hintText: 'Access token',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(OneUi.radiusSmall),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          // Low, not top-right: the confirm on a sheet belongs where a thumb
+          // already is.
+          FilledButton(
+            onPressed: () => Navigator.pop(context, _field.text),
+            child: const Text('Sign in'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _SignedIn extends StatelessWidget {

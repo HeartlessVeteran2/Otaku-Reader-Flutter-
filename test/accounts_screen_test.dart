@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
 
@@ -158,6 +159,111 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(auth.isSignedIn, isTrue);
     expect(find.text('Reader'), findsOneWidget);
+  });
+
+  /// url_launcher's own channel. Mocking it is what makes the paste sheet
+  /// reachable at all: `openLink` returns false when no browser answers, and
+  /// `_start` deliberately does not open the sheet in that case — so without
+  /// this the entire token-paste path is unreachable live UI.
+  const launcher = MethodChannel('plugins.flutter.io/url_launcher');
+
+  List<String> mockBrowser(WidgetTester tester, {bool opens = true}) {
+    final launched = <String>[];
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(launcher, (call) async {
+      launched.add('${call.arguments}');
+      return opens;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(launcher, null));
+    return launched;
+  }
+
+  testWidgets('pasting a token signs in, and the sheet owns no leak', (
+    tester,
+  ) async {
+    final launched = mockBrowser(tester);
+    final vault = FakeVault();
+    final auth = AniListAuth(
+      storage: vault,
+      clientId: 'abc',
+      client: FakeClient(viewerBody()),
+    );
+    await auth.restore();
+    await show(tester, auth);
+
+    await tester.tap(find.text('Sign in to AniList'));
+    await tester.pumpAndSettle();
+
+    expect(launched.single, contains('response_type=token'));
+    expect(find.text('Paste the token'), findsOneWidget);
+
+    // Held onto so disposal can be asserted once the sheet is gone — the
+    // screen owns this controller privately, so there is no other way to
+    // reach it, and "it is disposed" is not observable from the rendered
+    // tree at all.
+    final field = tester.widget<TextField>(find.byType(TextField)).controller!;
+
+    await tester.enterText(find.byType(TextField), '  pasted-token  ');
+    await tester.tap(find.widgetWithText(FilledButton, 'Sign in'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(vault.store['anilist_access_token'], 'pasted-token');
+    expect(find.text('Signed in to AniList'), findsOneWidget);
+    expect(find.text('Reader'), findsOneWidget);
+    expect(
+      () => field.addListener(() {}),
+      throwsFlutterError,
+      reason: 'one controller per sheet-open is an unbounded leak',
+    );
+  });
+
+  testWidgets('dismissing the paste sheet disposes its controller too', (
+    tester,
+  ) async {
+    // The branch a careless fix misses. Disposing after the "user cancelled"
+    // early return leaks exactly the case where the user opened the sheet and
+    // changed their mind, which is the likeliest way to open it repeatedly.
+    mockBrowser(tester);
+    final auth = AniListAuth(
+      storage: FakeVault(),
+      clientId: 'abc',
+      client: FakeClient(viewerBody()),
+    );
+    await auth.restore();
+    await show(tester, auth);
+
+    await tester.tap(find.text('Sign in to AniList'));
+    await tester.pumpAndSettle();
+    final field = tester.widget<TextField>(find.byType(TextField)).controller!;
+
+    await tester.tapAt(const Offset(8, 8)); // the barrier
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Paste the token'), findsNothing);
+    expect(() => field.addListener(() {}), throwsFlutterError);
+  });
+
+  testWidgets('no browser means no sheet to paste into', (tester) async {
+    // `openLink` already tells the user; opening a sheet asking them to paste
+    // a token from a page that never opened would be the second, confusing
+    // half of one failure.
+    mockBrowser(tester, opens: false);
+    final auth = AniListAuth(
+      storage: FakeVault(),
+      clientId: 'abc',
+      client: FakeClient(viewerBody()),
+    );
+    await auth.restore();
+    await show(tester, auth);
+
+    await tester.tap(find.text('Sign in to AniList'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Paste the token'), findsNothing);
   });
 
   testWidgets('a sign-out that could not erase the token says so', (

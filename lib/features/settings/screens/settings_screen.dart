@@ -184,12 +184,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
               return ListTile(
                 leading: const Icon(Iconsax.user_octagon),
                 title: const Text('AniList'),
-                // Three states, not two. A build with no client id is not
-                // "not signed in" — there is nothing to sign in to — and
-                // saying so here would contradict the screen this row opens.
+                // Four states, not two, and `isReady` is the one that is
+                // easy to miss. `AppBindings` launches `restore()` unawaited,
+                // so at startup there is a real interval where the token has
+                // not been read yet — and rendering "Not signed in" there
+                // tells a signed-in user the opposite of the truth for as
+                // long as the keystore takes. Telling those two apart is the
+                // entire reason `isReady` exists; the Accounts screen this
+                // row opens honours it, and this row did not.
+                //
+                // `isConfigured` is checked first because it is known without
+                // reading anything: a build with no client id has nothing to
+                // be ready for.
                 subtitle: Text(
                   !auth.isConfigured
                       ? 'Not set up in this build'
+                      : !auth.isReady.value
+                      ? 'Checking…'
                       : viewer == null
                       ? 'Not signed in'
                       : 'Signed in as ${viewer.name}',
