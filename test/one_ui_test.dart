@@ -18,6 +18,7 @@ import 'package:otaku_reader/domain/repository/download_repository.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/features/downloads/controllers/downloads_controller.dart';
+import 'package:otaku_reader/features/details/controllers/manga_details_controller.dart';
 import 'package:otaku_reader/features/details/screens/manga_details_screen.dart';
 import 'package:otaku_reader/features/downloads/screens/downloads_screen.dart';
 import 'package:otaku_reader/domain/repository/anilist_repository.dart';
@@ -31,8 +32,14 @@ import 'package:otaku_reader/features/more/screens/more_screen.dart';
 import 'package:otaku_reader/features/settings/screens/settings_screen.dart';
 import 'package:otaku_reader/features/updates/controllers/updates_controller.dart';
 import 'package:otaku_reader/features/updates/screens/updates_screen.dart';
+import 'package:otaku_reader/source/model/filter.dart';
 import 'package:otaku_reader/source/model/m_chapter.dart';
 import 'package:otaku_reader/source/model/m_manga.dart';
+import 'package:otaku_reader/source/model/m_pages.dart';
+import 'package:otaku_reader/source/model/page_url.dart';
+import 'package:otaku_reader/source/model/source.dart';
+import 'package:otaku_reader/source/model/source_preference.dart';
+import 'package:otaku_reader/source/source_methods.dart';
 
 import 'helpers/fake_source_repository.dart';
 import 'helpers/isar_test_env.dart';
@@ -401,23 +408,69 @@ void main() {
   });
 
   testWidgets('the details screen renders its sliver body', (tester) async {
-    // The largest screen in the app, and until now rendered by no test at all
-    // — the fourth time in this pass that a whole branch turned out to be
-    // unexercised. It is already sliver-based, so nothing here converted it;
-    // what this guards is that its `CustomScrollView` still lays out, now that
-    // it draws its radii and rhythm from `OneUi` rather than from literals.
+    // The largest screen in the app, and until this pass rendered by no test
+    // at all. It is already sliver-based, so nothing here converted it; what
+    // this guards is that its `CustomScrollView` still lays out.
     //
-    // `NoSources` cannot resolve a source, so the screen takes its error
-    // branch. That is the point: the error path is a real path, and it is a
-    // *box* widget returned from the same `Obx` that otherwise returns
-    // slivers — exactly the shape that throws when it is put in the wrong
-    // slot.
+    // `NoSources` cannot resolve a source, so this takes the *error* branch —
+    // a box widget returned from the same `Obx` that otherwise returns
+    // slivers, which is exactly the shape that throws in the wrong slot. It
+    // deliberately does **not** cover the AniList sections; the test below
+    // does that, because this one structurally cannot.
     await tester.pumpWidget(
       wrap(const MangaDetailsScreen(sourceId: 7, url: '/m')),
     );
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the AniList sections render at the shared radius', (
+    tester,
+  ) async {
+    // The test that actually covers this PR's change. The one above uses
+    // `NoSources`, so the load fails and `anilist_sections.dart` — the file
+    // whose radii were retokenised — never builds at all. Found by
+    // `codeant-ai`, and it is the fifth time in this pass that a branch turned
+    // out unexercised, this time in the test written to close the fourth.
+    await Get.delete<SourceRepository>();
+    Get.put<SourceRepository>(_OneSource());
+
+    await tester.pumpWidget(
+      wrap(const MangaDetailsScreen(sourceId: 7, url: '/m')),
+    );
+    await tester.pumpAndSettle();
+
+    // Metadata is set on the live controller rather than faked through the
+    // service: what is under test is the rendering, and the resolve path has
+    // its own suite.
+    final c = Get.find<MangaDetailsController>(tag: 'details-7-/m');
+    c.anilist.value = const AniListMedia(
+      id: 1,
+      titles: AniListTitles(userPreferred: 'Example'),
+      chapters: 12,
+      volumes: 3,
+      characters: [AniListPerson(id: 1, name: 'A Character', role: 'MAIN')],
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('A Character'), findsOneWidget);
+    expect(find.text('Chapters'), findsOneWidget);
+
+    // The radius is the change. Asserting the sections merely *appear* would
+    // pass with every literal still in place.
+    final radii = tester
+        .widgetList<ClipRRect>(find.byType(ClipRRect))
+        .map((c) => c.borderRadius)
+        .whereType<BorderRadius>()
+        .map((b) => b.topLeft.x)
+        .toSet();
+    expect(
+      radii,
+      contains(OneUi.radiusSmall),
+      reason: 'the portraits draw from the token, not from a literal 8',
+    );
   });
 
   testWidgets('a group renders its label above the rows, not inside them', (
@@ -769,4 +822,58 @@ class _GatedShelves extends _NoAniList {
       ],
     };
   }
+}
+
+/// A source that actually resolves, so the details screen reaches its loaded
+/// state instead of its error branch.
+class _OneSource implements SourceRepository {
+  static final _row = Source()
+    ..id = 7
+    ..name = 'Example Source'
+    ..baseUrl = 'https://example.test';
+
+  @override
+  Future<SourceMethods> methodsFor(int id) async => _OneMethods();
+  @override
+  Future<Source?> sourceById(int id) async => _row;
+  @override
+  Future<void> markUsed(int id) async {}
+  @override
+  void evict(int id) {}
+  @override
+  void evictAll() {}
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _OneMethods implements SourceMethods {
+  @override
+  Source get source => _OneSource._row;
+  @override
+  String get sourceBaseUrl => 'https://example.test';
+  @override
+  bool get supportsLatest => true;
+  @override
+  Map<String, String> getHeaders() => const {};
+  @override
+  Future<MManga> getDetail(String url) async => MManga(
+    name: 'Example',
+    description: 'A description.',
+    chapters: [MChapter(url: '/c-1', name: 'Chapter 1')],
+  );
+  @override
+  Future<MPages> getPopular(int p) async => MPages(list: []);
+  @override
+  Future<MPages> getLatestUpdates(int p) async => MPages(list: []);
+  @override
+  Future<MPages> search(String q, int p, FilterList f) async =>
+      MPages(list: []);
+  @override
+  Future<List<PageUrl>> getPageList(String url) async => const [];
+  @override
+  FilterList getFilterList() => FilterList([]);
+  @override
+  List<SourcePreference> getSourcePreferences() => const [];
+  @override
+  void dispose() {}
 }
