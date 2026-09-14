@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:iconsax/iconsax.dart';
 
+import 'package:otaku_reader/core/theme/one_ui.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/features/reader/screens/reader_screen.dart';
 import 'package:otaku_reader/features/updates/controllers/updates_controller.dart';
@@ -16,36 +17,39 @@ class UpdatesScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Updates'),
-        actions: [
-          Obx(
-            () => IconButton(
-              icon: const Icon(Iconsax.tick_circle),
-              tooltip: 'Mark all read',
-              onPressed: _c.updates.every((u) => u.chapter.read)
-                  ? null
-                  : _c.markAllRead,
-            ),
+    return OneUiScaffold(
+      title: 'Updates',
+      onRefresh: _c.refreshLibrary,
+      actions: [
+        Obx(
+          () => IconButton(
+            icon: const Icon(Iconsax.tick_circle),
+            tooltip: 'Mark all read',
+            onPressed: _c.updates.every((u) => u.chapter.read)
+                ? null
+                : _c.markAllRead,
           ),
-          Obx(
-            () => IconButton(
-              icon: const Icon(Iconsax.refresh),
-              tooltip: 'Check for new chapters',
-              onPressed: _c.isRefreshing.value ? null : _c.refreshLibrary,
-            ),
+        ),
+        Obx(
+          () => IconButton(
+            icon: const Icon(Iconsax.refresh),
+            tooltip: 'Check for new chapters',
+            onPressed: _c.isRefreshing.value ? null : _c.refreshLibrary,
           ),
-        ],
-      ),
-      body: Obx(() {
-        if (_c.isLoading.value && _c.updates.isEmpty) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        return RefreshIndicator(
-          onRefresh: _c.refreshLibrary,
-          child: CustomScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
+        ),
+      ],
+      slivers: [
+        // One `Obx` over the whole body, every branch a sliver. The refresh
+        // progress and the error list are box widgets, so they are adapted
+        // explicitly rather than handed to the sliver slot raw.
+        Obx(() {
+          if (_c.isLoading.value && _c.updates.isEmpty) {
+            return const SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(child: CircularProgressIndicator()),
+            );
+          }
+          return SliverMainAxisGroup(
             slivers: [
               if (_c.isRefreshing.value)
                 SliverToBoxAdapter(
@@ -61,13 +65,12 @@ class UpdatesScreen extends StatelessWidget {
               else
                 ..._grouped(context),
             ],
-          ),
-        );
-      }),
+          );
+        }),
+      ],
     );
   }
 
-  /// Day headers, so a long list reads as a timeline rather than a wall.
   List<Widget> _grouped(BuildContext context) {
     final groups = <DateTime, List<ChapterUpdate>>{};
     for (final update in _c.updates) {
