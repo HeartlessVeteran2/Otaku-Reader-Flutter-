@@ -359,6 +359,41 @@ void main() {
     expect(find.text('Example Manga'), findsOneWidget);
   });
 
+  testWidgets('a slow earlier Home load cannot overwrite a newer one', (
+    tester,
+  ) async {
+    // Two callers can overlap: pull-to-refresh and the error banner's retry —
+    // and the banner is on screen precisely when a previous load failed, so
+    // tapping retry and then pulling is an ordinary thing to do.
+    //
+    // This PR widened the window rather than inventing it. Before, the loading
+    // branch was a bare spinner with no `RefreshIndicator` above it, so a pull
+    // during the first load was impossible; the scaffold's refresh now wraps
+    // every branch, that one included.
+    final anilist = _GatedShelves();
+    await Get.delete<HomeController>();
+    final c = HomeController(anilist: anilist, library: library);
+
+    // Load 0 will answer 'Trending now', slowly.
+    anilist.answer(0, 'trending', delay: true);
+    final stale = c.load();
+    // Load 1 answers 'Top rated' immediately.
+    anilist.answer(1, 'topRated', delay: false);
+    await c.load();
+    expect(c.shelves.single.title, 'Top rated');
+
+    // Now let the older one land. It must not win, and it must not clear the
+    // spinner out from under a load that is still running.
+    anilist.release();
+    await stale;
+
+    expect(
+      c.shelves.single.title,
+      'Top rated',
+      reason: 'the stale load finished last and was discarded',
+    );
+  });
+
   testWidgets('a group renders its label above the rows, not inside them', (
     tester,
   ) async {
@@ -671,4 +706,41 @@ class _OneShelf extends _NoAniList {
       ),
     ],
   };
+}
+
+/// AniList whose `home()` can be made to answer out of order.
+class _GatedShelves extends _NoAniList {
+  final _held = <Completer<void>>[];
+  final _answers = <int, String>{};
+  final _slow = <int>{};
+  var _call = 0;
+
+  void answer(int call, String shelfKey, {required bool delay}) {
+    _answers[call] = shelfKey;
+    if (delay) _slow.add(call);
+  }
+
+  void release() {
+    for (final c in _held) {
+      if (!c.isCompleted) c.complete();
+    }
+    _held.clear();
+  }
+
+  @override
+  Future<Map<String, List<AniListMedia>>> home({int perPage = 20}) async {
+    final call = _call++;
+    if (_slow.contains(call)) {
+      final gate = Completer<void>();
+      _held.add(gate);
+      await gate.future;
+    }
+    final key = _answers[call];
+    if (key == null) return const {};
+    return {
+      key: [
+        const AniListMedia(id: 1, titles: AniListTitles(userPreferred: 'M')),
+      ],
+    };
+  }
 }
