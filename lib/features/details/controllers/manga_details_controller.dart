@@ -23,6 +23,25 @@ import 'package:otaku_reader/domain/repository/download_repository.dart';
 enum ChapterFilter { all, unread }
 
 /// One manga's detail page: metadata, chapter list, and library membership.
+/// What came of writing the user's AniList row.
+///
+/// Three outcomes rather than a bool, for the same reason `SignInResult` has
+/// three: "AniList refused this" and "this app never sent it" are different
+/// events and need different words. Collapsing them made a write dropped by
+/// the in-flight guard report itself as a refusal by AniList — a sentence
+/// about a server that was never asked.
+enum AniListSaveResult {
+  /// AniList took it, and the row on screen is what it now holds.
+  ok,
+
+  /// Offered and declined, or there was nothing to offer it to.
+  refused,
+
+  /// Never offered: another write was already in flight. The write that *is*
+  /// in flight will report itself, so this needs no word of its own.
+  busy,
+}
+
 class MangaDetailsController extends GetxController {
   MangaDetailsController({
     required SourceRepository sources,
@@ -71,14 +90,19 @@ class MangaDetailsController extends GetxController {
   final anilist = Rxn<AniListMedia>();
   final isLoadingAniList = false.obs;
 
-  /// The signed-in user's own list row for this manga, or null.
+  /// The signed-in user's own list row for this manga, and what kind of
+  /// answer that is.
   ///
-  /// Null is the answer for signed out, not on their list, and AniList being
-  /// unreachable alike — all three render nothing, so they need not be told
-  /// apart here. Never cached: progress changes whenever the user reads a
-  /// chapter on another device, and a stale number claiming they are on
-  /// chapter 12 after they read 20 is worse than no number.
-  final anilistEntry = Rxn<AniListListEntry>();
+  /// Tri-state rather than a nullable row, because "not on your list" is an
+  /// invitation to add it while "signed out" and "AniList unreachable" are
+  /// not. Never cached: progress changes whenever the user reads a chapter on
+  /// another device, and a stale number claiming they are on chapter 12 after
+  /// they read 20 is worse than no number.
+  final anilistList = const AniListListResult.signedOut().obs;
+
+  /// True while a list edit is in flight, so the sheet can refuse a second
+  /// tap rather than race itself.
+  final isSavingAniList = false.obs;
 
   /// What the browse grid already knew, shown immediately so the page is not a
   /// spinner over nothing while the detail request runs.
@@ -268,12 +292,57 @@ class MangaDetailsController extends GetxController {
 
   Future<void> _loadAniListEntry(int generation, int? mediaId) async {
     if (mediaId == null) {
-      anilistEntry.value = null;
+      anilistList.value = const AniListListResult.signedOut();
       return;
     }
-    final entry = await _anilistList.entryFor(mediaId);
+    final result = await _anilistList.lookUp(mediaId);
     if (generation != _generation) return;
-    anilistEntry.value = entry;
+    anilistList.value = result;
+  }
+
+  /// Writes the user's list row.
+  ///
+  /// Only what the caller passes is sent — see `AniListListService.save`. The
+  /// row is replaced with what AniList returns rather than with what was
+  /// asked for, because the server may normalise it.
+  ///
+  /// [AniListSaveResult.busy] is **not** a refusal, and the distinction is the
+  /// whole reason this is not a bool: a write dropped because another was
+  /// already in flight was never offered to AniList, so reporting it as
+  /// "AniList did not save that" states something untrue about a server that
+  /// was never asked.
+  Future<AniListSaveResult> saveAniList({
+    AniListListStatus? status,
+    int? progress,
+  }) async {
+    final mediaId = anilist.value?.id;
+    if (mediaId == null) return AniListSaveResult.refused;
+    if (isSavingAniList.value) return AniListSaveResult.busy;
+    isSavingAniList.value = true;
+    try {
+      final saved = await _anilistList.save(
+        mediaId: mediaId,
+        status: status,
+        progress: progress,
+      );
+      if (saved == null) return AniListSaveResult.refused;
+      // Publish only if this page is still about the media the write went to.
+      // Unlinking or re-linking while it was in flight leaves the response
+      // describing a series the page no longer claims to be, and restoring a
+      // row the user just removed is worse than dropping a display update.
+      //
+      // Deliberately *not* the `_generation` check the load path uses:
+      // `unlinkAniList` does not bump it, so a generation compare alone would
+      // miss the very case that matters. The media id is what actually
+      // identifies what was written.
+      if (anilist.value?.id == mediaId) {
+        anilistList.value = AniListListResult(AniListListLookup.onList, saved);
+      }
+      // Still `ok`: AniList did take the write. Only the display was dropped.
+      return AniListSaveResult.ok;
+    } finally {
+      isSavingAniList.value = false;
+    }
   }
 
   /// Candidates for the manual picker, best first.
@@ -299,7 +368,7 @@ class MangaDetailsController extends GetxController {
     // The list row belongs to the media that was just unlinked. Leaving it
     // would show the user's progress on a series this page no longer claims
     // to be.
-    anilistEntry.value = null;
+    anilistList.value = const AniListListResult.signedOut();
   }
 
   Future<void> toggleFavorite() async {

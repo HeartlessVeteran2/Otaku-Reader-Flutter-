@@ -10,6 +10,7 @@ import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/data/anilist/anilist_list_service.dart';
 import 'package:otaku_reader/data/anilist/anilist_metadata_service.dart';
 import 'package:otaku_reader/features/details/controllers/manga_details_controller.dart';
+import 'package:otaku_reader/features/details/widgets/anilist_edit_sheet.dart';
 import 'package:otaku_reader/features/details/widgets/anilist_sections.dart';
 import 'package:otaku_reader/features/reader/screens/reader_screen.dart';
 import 'package:otaku_reader/source/http/m_client.dart';
@@ -169,6 +170,44 @@ class _MangaDetailsScreenState extends State<MangaDetailsScreen> {
 
 /// Everything AniList contributes, or nothing at all.
 ///
+/// Opens the list sheet and writes whatever came back.
+///
+/// The snackbar is not optional. A write that fails silently leaves the row
+/// showing the old values with no hint that AniList refused, and the user's
+/// next move would be to change it again and wonder why nothing sticks.
+Future<void> _editAniList(
+  BuildContext context,
+  MangaDetailsController controller,
+  int? totalChapters,
+) async {
+  final edit = await showAniListEditSheet(
+    context,
+    result: controller.anilistList.value,
+    totalChapters: totalChapters,
+  );
+  if (edit == null || edit.isEmpty || !context.mounted) return;
+
+  final messenger = ScaffoldMessenger.of(context)..clearSnackBars();
+  final result = await controller.saveAniList(
+    status: edit.status,
+    progress: edit.progress,
+  );
+  // `busy` says nothing, deliberately. The write already in flight will
+  // report its own outcome, and this one was never offered to AniList — so
+  // there is nothing true to say about it that the other snackbar will not
+  // say a moment later.
+  if (result == AniListSaveResult.busy) return;
+  messenger.showSnackBar(
+    SnackBar(
+      content: Text(
+        result == AniListSaveResult.ok
+            ? 'Saved to AniList'
+            : 'AniList did not save that. Your list is unchanged.',
+      ),
+    ),
+  );
+}
+
 /// Rendering nothing is the correct outcome for an unmatched title, not a
 /// failure state: below the confidence threshold no match is stored, because a
 /// wrong synopsis and wrong tags look exactly as authoritative as right ones.
@@ -188,8 +227,16 @@ class _AniList extends StatelessWidget {
         // rather than about the series. Renders nothing when there is no row,
         // so the spacing below is unchanged for everyone signed out.
         AniListListRow(
-          entry: controller.anilistEntry.value,
+          result: controller.anilistList.value,
           totalChapters: media.chapters,
+          isSaving: controller.isSavingAniList.value,
+          // Null while a write is in flight, so the row cannot open a second
+          // sheet over the first. The controller refuses the concurrent write
+          // anyway — this stops the user reaching a refusal they would have
+          // no way to understand.
+          onEdit: controller.isSavingAniList.value
+              ? null
+              : () => _editAniList(context, controller, media.chapters),
         ),
         const SizedBox(height: 20),
         AniListStats(media: media),

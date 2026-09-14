@@ -29,6 +29,10 @@ import 'package:otaku_reader/data/anilist/anilist_list_service.dart';
 
 import 'helpers/anilist_fakes.dart';
 
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
+
 /// AniList is supplementary, so these tests run without it: every lookup says
 /// "no match", which is the same path an obscure title takes in production.
 class _NoAniList implements AniListRepository {
@@ -139,6 +143,52 @@ MChapter _ch(String url, String name) => MChapter(url: url, name: name);
 AniListListService _signedOutList() =>
     AniListListService(AniListAuth(storage: FakeVault(), clientId: ''));
 
+/// Answers the sign-in query at once and then **holds** every later response
+/// until released, so two writes can be genuinely in flight at once.
+///
+/// The split matters: sign-in has to complete for there to be a viewer to
+/// write as, and holding it too would make `save` refuse for want of an
+/// account rather than for being busy — which is the very distinction under
+/// test, and is exactly how the first version of this test lied to itself.
+class _HeldClient extends http.BaseClient {
+  _HeldClient({required this.signIn, required this.write});
+
+  final String signIn;
+  final String write;
+  final _gate = Completer<void>();
+  int calls = 0;
+
+  void release() => _gate.complete();
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    calls++;
+    if (calls == 1) return _respond(signIn);
+    await _gate.future;
+    return _respond(write);
+  }
+
+  http.StreamedResponse _respond(String body) => http.StreamedResponse(
+    Stream.value(utf8.encode(body)),
+    200,
+    headers: const {'content-type': 'application/json'},
+  );
+}
+
+String _savedRow() => jsonEncode({
+  'data': {
+    'SaveMediaListEntry': {
+      'id': 9,
+      'status': 'CURRENT',
+      'progress': 5,
+      'score': 0,
+      'repeat': 0,
+      'private': false,
+      'media': {'id': 7},
+    },
+  },
+});
+
 void main() {
   // Nullable, not `late`: when open() throws -- a missing native library is
   // the realistic case -- a `late` field makes tearDownAll throw
@@ -174,6 +224,104 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     return (c, methods);
   }
+
+  test('a concurrent list write is busy, not a refusal by AniList', () async {
+    // CodeAnt's finding on #37, and the defect underneath it. The in-flight
+    // guard dropped the second write and returned the same `false` as a real
+    // refusal, so the screen said "AniList did not save that" about a server
+    // that was never asked — a sentence that is simply untrue.
+    final held = _HeldClient(signIn: viewerBody(), write: _savedRow());
+    final auth = AniListAuth(
+      storage: FakeVault(),
+      clientId: 'abc',
+      client: held,
+    );
+    expect(await auth.signIn('t'), SignInResult.ok);
+
+    final controller = MangaDetailsController(
+      sources: _Sources(_Methods(_row(), MManga(name: 'Example')), _row()),
+      library: library,
+      anilist: _anilistService(),
+      anilistList: AniListListService(auth),
+      downloads: FakeDownloads(),
+      sourceId: _sourceId,
+      url: _url,
+    );
+    controller.anilist.value = const AniListMedia(
+      id: 7,
+      titles: AniListTitles(userPreferred: 'Example'),
+    );
+
+    final first = controller.saveAniList(progress: 5);
+    await Future<void>.delayed(Duration.zero);
+    expect(
+      controller.isSavingAniList.value,
+      isTrue,
+      reason: 'the first write is genuinely in flight, or this proves nothing',
+    );
+
+    final second = await controller.saveAniList(progress: 6);
+    expect(
+      second,
+      AniListSaveResult.busy,
+      reason: 'never offered to AniList, so never refused by it',
+    );
+
+    held.release();
+    expect(await first, AniListSaveResult.ok);
+    expect(controller.anilistList.value.entry?.progress, 5);
+  });
+
+  test('a save landing after an unlink does not restore the row', () async {
+    // CodeAnt's second race on #37. The write is in flight, the user unlinks
+    // AniList, and the response then puts back a row for a series the page no
+    // longer claims to be — restoring something they just removed.
+    //
+    // A `_generation` compare, which the load path uses, would miss this
+    // exactly: `unlinkAniList` does not bump it. The media id is what
+    // identifies what was written.
+    final held = _HeldClient(signIn: viewerBody(), write: _savedRow());
+    final auth = AniListAuth(
+      storage: FakeVault(),
+      clientId: 'abc',
+      client: held,
+    );
+    await auth.signIn('t');
+
+    final controller = MangaDetailsController(
+      sources: _Sources(_Methods(_row(), MManga(name: 'Example')), _row()),
+      library: library,
+      anilist: _anilistService(),
+      anilistList: AniListListService(auth),
+      downloads: FakeDownloads(),
+      sourceId: _sourceId,
+      url: _url,
+    );
+    controller.anilist.value = const AniListMedia(
+      id: 7,
+      titles: AniListTitles(userPreferred: 'Example'),
+    );
+
+    final pending = controller.saveAniList(progress: 5);
+    await Future<void>.delayed(Duration.zero);
+
+    // The page moves on while the write is in flight.
+    controller.anilist.value = null;
+    controller.anilistList.value = const AniListListResult.signedOut();
+
+    held.release();
+    expect(
+      await pending,
+      AniListSaveResult.ok,
+      reason: 'AniList did take the write; only the display is dropped',
+    );
+    expect(
+      controller.anilistList.value.entry,
+      isNull,
+      reason: 'the row the user removed stays removed',
+    );
+    expect(controller.anilistList.value.lookup, AniListListLookup.signedOut);
+  });
 
   test(
     'loads the detail and stores it without adding to the library',
