@@ -190,6 +190,56 @@ void main() {
     expect(edit?.status, AniListListStatus.current);
   });
 
+  testWidgets('an unrecognised status preselects nothing', (tester) async {
+    // AniList adding a status must not make the sheet preselect "Reading" and
+    // enable Save the instant it opens — that overwrites a status the user
+    // never chose and this build has never heard of. The model already
+    // refuses that fallback; this is the same rule in the sheet.
+    await open(
+      tester,
+      const AniListListResult(
+        AniListListLookup.onList,
+        AniListListEntry(
+          id: 1,
+          mediaId: 7,
+          statusRaw: 'ARCHIVED',
+          progress: 12,
+        ),
+      ),
+    );
+
+    for (final chip in tester.widgetList<ChoiceChip>(find.byType(ChoiceChip))) {
+      expect(chip.selected, isFalse, reason: 'nothing the user did not choose');
+    }
+    final save = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Save'),
+    );
+    expect(save.onPressed, isNull, reason: 'opening a sheet is not an edit');
+    expect(find.textContaining('does not know'), findsOneWidget);
+  });
+
+  testWidgets('an unrecognised status can still be changed deliberately', (
+    tester,
+  ) async {
+    // Refusing the silent overwrite must not make the status uneditable —
+    // picking one explicitly is exactly how a user gets out of a state this
+    // build cannot name.
+    final pending = await open(
+      tester,
+      const AniListListResult(
+        AniListListLookup.onList,
+        AniListListEntry(id: 1, mediaId: 7, statusRaw: 'ARCHIVED'),
+      ),
+    );
+
+    await tester.tap(find.text('Completed'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect((await pending)?.status, AniListListStatus.completed);
+  });
+
   testWidgets('dismissing the sheet writes nothing', (tester) async {
     final pending = await open(tester, _onList);
 

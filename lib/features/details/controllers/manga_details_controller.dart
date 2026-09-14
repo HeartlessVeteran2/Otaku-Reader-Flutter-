@@ -326,7 +326,19 @@ class MangaDetailsController extends GetxController {
         progress: progress,
       );
       if (saved == null) return AniListSaveResult.refused;
-      anilistList.value = AniListListResult(AniListListLookup.onList, saved);
+      // Publish only if this page is still about the media the write went to.
+      // Unlinking or re-linking while it was in flight leaves the response
+      // describing a series the page no longer claims to be, and restoring a
+      // row the user just removed is worse than dropping a display update.
+      //
+      // Deliberately *not* the `_generation` check the load path uses:
+      // `unlinkAniList` does not bump it, so a generation compare alone would
+      // miss the very case that matters. The media id is what actually
+      // identifies what was written.
+      if (anilist.value?.id == mediaId) {
+        anilistList.value = AniListListResult(AniListListLookup.onList, saved);
+      }
+      // Still `ok`: AniList did take the write. Only the display was dropped.
       return AniListSaveResult.ok;
     } finally {
       isSavingAniList.value = false;

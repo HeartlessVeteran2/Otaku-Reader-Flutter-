@@ -272,6 +272,57 @@ void main() {
     expect(controller.anilistList.value.entry?.progress, 5);
   });
 
+  test('a save landing after an unlink does not restore the row', () async {
+    // CodeAnt's second race on #37. The write is in flight, the user unlinks
+    // AniList, and the response then puts back a row for a series the page no
+    // longer claims to be — restoring something they just removed.
+    //
+    // A `_generation` compare, which the load path uses, would miss this
+    // exactly: `unlinkAniList` does not bump it. The media id is what
+    // identifies what was written.
+    final held = _HeldClient(signIn: viewerBody(), write: _savedRow());
+    final auth = AniListAuth(
+      storage: FakeVault(),
+      clientId: 'abc',
+      client: held,
+    );
+    await auth.signIn('t');
+
+    final controller = MangaDetailsController(
+      sources: _Sources(_Methods(_row(), MManga(name: 'Example')), _row()),
+      library: library,
+      anilist: _anilistService(),
+      anilistList: AniListListService(auth),
+      downloads: FakeDownloads(),
+      sourceId: _sourceId,
+      url: _url,
+    );
+    controller.anilist.value = const AniListMedia(
+      id: 7,
+      titles: AniListTitles(userPreferred: 'Example'),
+    );
+
+    final pending = controller.saveAniList(progress: 5);
+    await Future<void>.delayed(Duration.zero);
+
+    // The page moves on while the write is in flight.
+    controller.anilist.value = null;
+    controller.anilistList.value = const AniListListResult.signedOut();
+
+    held.release();
+    expect(
+      await pending,
+      AniListSaveResult.ok,
+      reason: 'AniList did take the write; only the display is dropped',
+    );
+    expect(
+      controller.anilistList.value.entry,
+      isNull,
+      reason: 'the row the user removed stays removed',
+    );
+    expect(controller.anilistList.value.lookup, AniListListLookup.signedOut);
+  });
+
   test(
     'loads the detail and stores it without adding to the library',
     () async {

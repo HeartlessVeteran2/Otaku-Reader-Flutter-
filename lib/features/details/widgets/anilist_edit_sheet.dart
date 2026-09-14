@@ -53,13 +53,21 @@ class _EditSheetState extends State<_EditSheet> {
   /// Seeded from the existing row, or from a sensible default for a manga
   /// being added: somebody opening this on an untracked series is almost
   /// always starting it.
-  late AniListListStatus _status =
-      _original?.status ?? AniListListStatus.current;
+  ///
+  /// **Null when the row carries a status this build does not recognise.**
+  /// Falling back to "Reading" there would preselect a value the user never
+  /// chose, enable Save the instant the sheet opened, and overwrite a status
+  /// AniList added after this build shipped. The model already refuses that
+  /// fallback for exactly this reason — this is the same rule, one file over,
+  /// where it was missed the first time.
+  late AniListListStatus? _status = _original == null
+      ? AniListListStatus.current
+      : _original.status;
   late int _progress = _original?.progress ?? 0;
 
   /// What actually changed, which is what gets sent.
   AniListEdit get _edit => AniListEdit(
-    status: _status == _original?.status ? null : _status,
+    status: _status == null || _status == _original?.status ? null : _status,
     progress: _progress == _original?.progress ? null : _progress,
   );
 
@@ -85,6 +93,17 @@ class _EditSheetState extends State<_EditSheet> {
           ),
           const SizedBox(height: OneUi.sectionGap),
           Text('Status', style: theme.textTheme.labelLarge),
+          if (_status == null && _original != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              'AniList calls this "${_original.statusLabel}", which this '
+              'version does not know. Pick one to change it, or leave it '
+              'alone.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
