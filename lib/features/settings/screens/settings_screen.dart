@@ -7,6 +7,8 @@ import 'package:otaku_reader/core/database/kv_helper.dart';
 import 'package:otaku_reader/core/preferences/nsfw_preference.dart';
 import 'package:otaku_reader/core/theme/one_ui.dart';
 import 'package:otaku_reader/core/theme/theme_controller.dart';
+import 'package:otaku_reader/data/anilist/anilist_auth.dart';
+import 'package:otaku_reader/features/settings/screens/accounts_screen.dart';
 import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
 
 /// Appearance, reader defaults and source behaviour.
@@ -171,6 +173,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
               subtitle: const Text('Manage these from the Browse tab'),
               enabled: false,
             ),
+          ],
+        ),
+        SliverOneUiGroup(
+          label: 'Accounts',
+          children: [
+            Obx(() {
+              final auth = Get.find<AniListAuth>();
+              final viewer = auth.viewer.value;
+              return ListTile(
+                leading: const Icon(Iconsax.user_octagon),
+                title: const Text('AniList'),
+                // Four states, not two, and `isReady` is the one that is
+                // easy to miss. `AppBindings` launches `restore()` unawaited,
+                // so at startup there is a real interval where the token has
+                // not been read yet — and rendering "Not signed in" there
+                // tells a signed-in user the opposite of the truth for as
+                // long as the keystore takes. Telling those two apart is the
+                // entire reason `isReady` exists; the Accounts screen this
+                // row opens honours it, and this row did not.
+                //
+                // `isConfigured` is checked first because it is known without
+                // reading anything: a build with no client id has nothing to
+                // be ready for.
+                subtitle: Text(
+                  !auth.isConfigured
+                      ? 'Not set up in this build'
+                      : !auth.isReady.value
+                      ? 'Checking…'
+                      : viewer == null
+                      ? 'Not signed in'
+                      : 'Signed in as ${viewer.name}',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const AccountsScreen(),
+                  ),
+                ),
+              );
+            }),
           ],
         ),
       ],

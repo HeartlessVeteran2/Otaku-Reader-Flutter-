@@ -24,6 +24,11 @@ import 'package:otaku_reader/domain/repository/anilist_repository.dart';
 import 'helpers/fake_download_repository.dart';
 import 'helpers/isar_test_env.dart';
 
+import 'package:otaku_reader/data/anilist/anilist_auth.dart';
+import 'package:otaku_reader/data/anilist/anilist_list_service.dart';
+
+import 'helpers/anilist_fakes.dart';
+
 /// AniList is supplementary, so these tests run without it: every lookup says
 /// "no match", which is the same path an obscure title takes in production.
 class _NoAniList implements AniListRepository {
@@ -129,6 +134,11 @@ Source _row() => Source()
 
 MChapter _ch(String url, String name) => MChapter(url: url, name: name);
 
+/// An `AniListListService` whose auth is signed out, so `entryFor` answers null
+/// without a request — the state every one of these tests is in.
+AniListListService _signedOutList() =>
+    AniListListService(AniListAuth(storage: FakeVault(), clientId: ''));
+
 void main() {
   // Nullable, not `late`: when open() throws -- a missing native library is
   // the realistic case -- a `late` field makes tearDownAll throw
@@ -154,6 +164,7 @@ void main() {
       sources: _Sources(methods, _row()),
       library: library,
       anilist: _anilistService(),
+      anilistList: _signedOutList(),
       downloads: FakeDownloads(),
       sourceId: _sourceId,
       url: _url,
@@ -351,6 +362,7 @@ void main() {
         sources: _Sources(methods, _row()),
         library: library,
         anilist: _anilistService(),
+        anilistList: _signedOutList(),
         downloads: FakeDownloads(),
         sourceId: _sourceId,
         url: _url,
@@ -370,6 +382,7 @@ void main() {
       sources: _Sources(methods, _row()),
       library: library,
       anilist: _anilistService(),
+      anilistList: _signedOutList(),
       downloads: FakeDownloads(),
       sourceId: _sourceId,
       url: _url,
@@ -387,6 +400,7 @@ void main() {
       sources: _Sources(methods, _row()),
       library: library,
       anilist: _anilistService(),
+      anilistList: _signedOutList(),
       downloads: FakeDownloads(),
       sourceId: _sourceId,
       url: _url,

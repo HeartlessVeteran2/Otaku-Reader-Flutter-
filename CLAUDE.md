@@ -246,6 +246,85 @@ identical from the outside.
   interleaving — two quick taps — meant the second write was built from a list
   read before the first landed, and the repository the user deleted came back.
 
+### The AniList account
+
+- **The token lives in `flutter_secure_storage`, never in the KV tier.** That
+  table is a plain Isar collection: a backup or anything that can read the
+  database file carries the token off in clear text, and an AniList token can
+  rewrite the user's whole list. AnymeX keeps its auth tokens in its KV table,
+  and this is one of the things this app deliberately does not copy.
+- **Sign-in is the PIN flow** (`response_type=token`, redirecting to
+  `…/oauth/pin`), so the user pastes a token back. A real redirect URI needs a
+  WebView to intercept it or an intent filter plus deep-link plumbing — two more
+  Android plugins and a manifest entry, for a flow run approximately once. It
+  also keeps the token out of a WebView this app would then own.
+- **"No client id" is a first-class state, not a failure.** `ANILIST_CLIENT_ID`
+  is a `String.fromEnvironment`, the developer registers it, and a fresh clone
+  has none. Every surface renders a *setup instruction* there, never a sign-in
+  button that fails on tap — the same shape as the Kotlin repo's gitignored
+  `dev-repos.txt`. The Settings row has three states for the same reason:
+  saying "Not signed in" on an unconfigured build contradicts the screen it
+  opens.
+- **`isReady` means "there is an answer to render", not "startup ran".** Every
+  screen gates its spinner on it, so it is set by `restore()` whatever that
+  finds **and** by `signIn()` whatever it answers — a rejection is an answer
+  too. It is set in a `finally` rather than per path, because the invariant
+  otherwise survives only thanks to a gate in a *different file* (the sign-in
+  button renders only once `isReady` is true), and this same flag has already
+  been wrong once for leaning on something invisible like that.
+- **The score format is read from the user's own AniList settings.** AniList
+  stores every score as 0-100 regardless; the format only says how to show it,
+  and `POINT_10_DECIMAL` is AniList's own default. So hardcoding it looks
+  correct for most users and shows a five-star user "8.0" for what their
+  profile calls four stars — the wrong number, not merely the wrong unit. An
+  unrecognised value falls back rather than throwing, because AniList adding an
+  enum member must not stop a sign-in.
+- **A 200 from GraphQL is not success.** AniList answers 200 with an `errors`
+  array, and GraphQL's partial-failure shape carries `data` *and* `errors` in
+  the same body. `query()` refuses that, because it is the one authenticated
+  call everything else goes through and a half-failed mutation would otherwise
+  report that a score saved when it did not.
+- **Only a *refusal* deletes the stored token — never a failure to ask.** A
+  check that comes back "no" means a dead token, a device with no signal,
+  AniList being down, or a malformed query of our own, and those are not the
+  same event. Dropping the token on any of them signs out a user whose token
+  is fine, with the whole pin flow as the only way back; one wasted request
+  per launch is far cheaper. So only HTTP 401, and a 400 whose body says
+  "invalid token"/"unauthorized", count as a refusal. The match is narrow and
+  errs toward *keeping* the token on purpose, because 400 is equally AniList's
+  answer to a query this app got wrong.
+- **Nothing in `AniListAuth` throws.** Every entry point returns its failure,
+  because `restore()` is launched unawaited from `AppBindings` — an exception
+  there has nobody to catch it and becomes an unhandled async error at
+  startup. That covers the keystore (read, write *and* delete can each fail
+  independently) and the payload, whose fields are checked rather than cast.
+- **The user's own list row is never cached; the public record is.**
+  `AniListMetadataService` serves the series and caches it per entry on a
+  7-day TTL. `AniListListService` serves the reader's own row — status,
+  progress, score — and fetches it live every time, because progress changes
+  whenever they read a chapter on another device. A cached number claiming
+  they are on chapter 12 after they read 20 elsewhere is worse than no number.
+- **A score of 0 is *unscored*, not a score of zero.** AniList stores no
+  "unset" — every format bottoms out at 0 — so taking the number at face value
+  stamps a rating of zero on every entry the user never rated, which is most
+  of them. Both the model and the rendered row drop it.
+- **`score` is requested with an explicit `format:`.** The schema is
+  `score(format: ScoreFormat)`, verified by introspecting the live endpoint.
+  Leaving it to AniList's default is what shows a five-star user a ten-point
+  number their own profile never displays.
+- **`CURRENT` is "Reading", not "Current".** `MediaListStatus` is shared with
+  anime, where the same value means "Watching"; `REPEATING` likewise. An
+  unrecognised status renders the raw value prettified rather than falling
+  back to a known one — AniList adding a status must leave the row unlabelled,
+  never claim the user is reading something they are not.
+- **`signIn` has three outcomes and `signOut` has two**, because the keystore
+  failing is not the same event as AniList refusing. "Accepted but not saved"
+  is a live session that will not survive a restart; reporting it as a
+  rejection sends the user to re-paste a token that works, and reporting it as
+  success promises persistence that is not there. Likewise a sign-out whose
+  delete failed ends the session but leaves the token to resurrect the account
+  next launch, so it says so.
+
 ---
 
 ### The visual language: One UI over AnymeX's layout
@@ -379,6 +458,17 @@ Kept because they repeat.
 | Reader tests pumped a fixed three microtasks | Adding a disk read and a row write to the load path made three too few, so `open()` returned a controller with no pages and three new tests failed on an empty list rather than on what they asserted. Wait on the condition (`while (c.isLoading.value)`), never on a turn count. |
 | A controller built in `setUp` never fires its timers | `setUp` runs outside `testWidgets`' fake-async zone, so a `Timer` the controller starts there is not on the test clock and `tester.pump(anyDuration)` will not fire it. `LibraryController`'s 300ms change debounce never ran, and the grid looked broken when the reload simply never happened. Build a controller whose timers matter *inside* the test body. |
 | Every controller in a suite had its own `LibraryRepositoryImpl` | They share the database but **not** the `changes` stream — `_changes` is a per-instance broadcast controller — so a write through one instance can never notify a listener on another. The harness was structurally unable to fail when the notification path broke, which is the path that exists because `didChangeDependencies` cannot fire on an `IndexedStack` reselection. One instance, shared. Found by `codeant-ai`, not by the suite. |
+| `isReady` was set by `restore()` alone | Its own doc said "once the stored token has been read", and every screen gated its spinner on it meaning "do I have an answer". Signing in produced an answer and left the flag false, so the Accounts screen spun forever on a successful sign-in. Invisible in the app, where `AppBindings` always restores first — four widget tests failed at once and the flag, not the screen, was wrong. |
+| A test named "a GraphQL error is a failure even though the status is 200" passed with the check deleted | Its body was `{"errors": […]}` with no `data`, which already fails on the absent `data`. The check only changes the answer for GraphQL's *partial* shape — a 200 carrying **both** — which is exactly the case a mutation half-failing produces. Deleting the guard is the only thing that showed it. |
+| A sign-out test tapped Cancel and claimed to cover the barrier dismiss | Cancel pops an explicit `false`; the barrier pops **null**, and `ok ?? false` exists only for the null. Rewriting it as `ok != false` — signing the user out for tapping next to a dialog — left the Cancel test green. Whenever a guard turns on `?? `, the test has to produce the absent value, not the falsy one. |
+| The AniList avatar was a bare `NetworkImage` | Every other remote image in this app is a `CachedNetworkImage` with an `errorWidget`. A bare one has no error branch, so a 404 or an offline device throws out of the image resolver, and it refetches on every build. Match the app's existing idiom before inventing a second one. |
+| `flutter analyze` reported "No issues found" on a screen that could not lay out | Demonstrated rather than asserted this time: swapping one `SliverOneUiGroup` for its box-widget twin left analyze clean and failed two widget tests. The sixth instance, and the reason a rendered test per branch is not optional. |
+| Four methods documented to *return* a failure could throw it instead | `signIn`, `signOut`, `restore` and `loadViewer` each let a keystore or payload failure escape as an exception. `restore` is unawaited from `AppBindings`, so its throw had nobody to catch it at all. Found by `codeant-ai`. The general check: when a method's doc says what it returns on failure, find every `await` inside it that can throw and decide what each one returns. |
+| The obvious fix for "a dead token is retried forever" would have signed users out for being offline | `loadViewer` answered "no" for a rejection *and* for no network, AniList down, and our own bad query. Deleting the token on any failure — which is what the finding implied — costs a user with a perfectly good token their account, recoverable only through the whole pin flow. A review finding can be right about the defect and wrong about the remedy; verify the remedy separately, and prove it by applying the naive one and watching the right tests fail. |
+| Disposing a sheet's `TextEditingController` after `await showModalBottomSheet` | That future completes when the sheet is **popped**, while its exit animation is still running and the `TextField` is still mounted — so the dispose throws "A TextEditingController was used after being disposed" part-way through the close. It is the fix that suggests itself, it reads as obviously correct, and a test that asserts only the end state never sees it because the throw happens mid-animation. Let the sheet's own `State` own the controller; the framework disposes it once the route is gone, and that covers the dismissal path too. |
+| A row read `viewer` and ignored `isReady` | Written in the same commit as the rule saying those are different answers, and two files from the screen that honours it — so Settings said "Not signed in" during startup while the Accounts screen it opened said otherwise. Writing a rule down is not applying it; grep for the other readers of a flag whenever you add one. |
+| A "signed out asks nothing" test passed with the guard deleted | `AniListAuth.query` already refuses when there is no token, so the service's own `viewer == null` check was covered by somebody else's guard. It earns its keep in a *different* state the obvious test never reaches: an offline launch keeps the stored token deliberately, so `isSignedIn` is true while `viewer` is still null and there is no user id to query by. Found by mutating the guard and watching nothing fail. When a check looks redundant, find the state where it is not — or delete it. |
+| A review filed a High for the authorize URL "missing" `redirect_uri` | AniList documents that parameter for the **authorization code** grant, warning it must exactly match the registered one, and omits it from the **implicit** grant, which takes `client_id` alone and redirects to the value in application settings. Applying the suggestion would have turned a working request into a hard OAuth rejection for any build registered with a different redirect. Two findings running where the bot was right about the *shape* and wrong about the *facts*: when a finding rests on an external contract — an API, an index format, a published spec — go and read that contract before touching the code. Declining is the fix; pinning the decision in a test so the next reader does not re-raise it is the rest of the fix. |
 
 The general lesson, and the one that keeps recurring across both codebases:
 **a comment describing the goal is not evidence the code achieves it.** After

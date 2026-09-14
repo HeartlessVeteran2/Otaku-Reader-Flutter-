@@ -9,6 +9,8 @@ import 'package:otaku_reader/core/database/database.dart' as db;
 import 'package:otaku_reader/core/preferences/nsfw_preference.dart';
 import 'package:otaku_reader/core/theme/one_ui.dart';
 import 'package:otaku_reader/core/theme/theme_controller.dart';
+import 'package:otaku_reader/data/anilist/anilist_auth.dart';
+import 'package:otaku_reader/data/anilist/anilist_list_service.dart';
 import 'package:otaku_reader/data/anilist/anilist_metadata_service.dart';
 import 'package:otaku_reader/data/anilist/title_matcher.dart';
 import 'package:otaku_reader/data/isar/manga_entry.dart';
@@ -42,6 +44,7 @@ import 'package:otaku_reader/source/model/source.dart';
 import 'package:otaku_reader/source/model/source_preference.dart';
 import 'package:otaku_reader/source/source_methods.dart';
 
+import 'helpers/anilist_fakes.dart';
 import 'helpers/fake_source_repository.dart';
 import 'helpers/isar_test_env.dart';
 
@@ -72,7 +75,7 @@ void main() {
   late LibraryRepositoryImpl library;
   late NsfwPreference nsfw;
 
-  setUp(() {
+  setUp(() async {
     env!.clear();
     Get.reset();
     Get.put<ThemeController>(ThemeController());
@@ -123,6 +126,25 @@ void main() {
     Get.put<AniListMetadataService>(
       AniListMetadataService(anilist: _NoAniList()),
     );
+    // Settings reads this for its Accounts row. Unconfigured, which is a
+    // fresh clone — the state every other suite here would silently fail to
+    // notice, because a screen that calls `Get.find` for something nobody
+    // registered throws at *build*.
+    //
+    // **Restored, because `AppBindings` always restores.** A harness holding
+    // an auth that never did is a state the app cannot reach, and it would
+    // leave every screen here rendering the "still reading the keystore"
+    // branch — so the branches these tests are about would go unrendered
+    // while the suite stayed green. Same defect CodeAnt found in this file's
+    // `NsfwPreference` setup on #35: a harness that does not match the app
+    // cannot fail when the app breaks.
+    final auth = AniListAuth(storage: FakeVault(), clientId: '');
+    await auth.restore();
+    Get.put<AniListAuth>(auth);
+    // The details screen resolves this to look up the user's own list row.
+    // Signed out here, so it answers null without a request — which is what a
+    // fresh clone does.
+    Get.put<AniListListService>(AniListListService(auth));
   });
 
   tearDown(() {
@@ -522,6 +544,39 @@ void main() {
       reason: 'and comes back, from the retained payload',
     );
     c.onClose();
+  });
+
+  testWidgets('the Accounts row does not claim signed-out before it knows', (
+    tester,
+  ) async {
+    // `isReady` exists because "not signed in" and "not looked yet" are
+    // different answers, and startup spends real time in the second:
+    // `AppBindings` launches `restore()` unawaited. A row reading only
+    // `viewer` tells a signed-in user the opposite of the truth for as long
+    // as the keystore read takes — and the Accounts screen this row opens
+    // gets it right, so the two would disagree on the same screen tap.
+    //
+    // Deliberately *not* restored, which is the one state the shared harness
+    // cannot provide because the app never sits in it for long.
+    await Get.delete<AniListAuth>();
+    Get.put<AniListAuth>(
+      AniListAuth(
+        storage: FakeVault()..store['anilist_access_token'] = 'stored',
+        clientId: 'abc',
+        client: FakeClient(viewerBody()),
+      ),
+    );
+
+    await tester.pumpWidget(wrap(const SettingsScreen()));
+    await tester.pump();
+    await tester.scrollUntilVisible(find.text('AniList'), 200);
+
+    expect(find.text('Checking…'), findsOneWidget);
+    expect(
+      find.text('Not signed in'),
+      findsNothing,
+      reason: 'the token has not been read, so that is not yet an answer',
+    );
   });
 
   testWidgets('the Settings switch writes the shared preference', (

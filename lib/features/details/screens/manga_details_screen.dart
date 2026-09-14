@@ -7,6 +7,7 @@ import 'package:otaku_reader/core/theme/one_ui.dart';
 import 'package:otaku_reader/data/isar/manga_entry.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
+import 'package:otaku_reader/data/anilist/anilist_list_service.dart';
 import 'package:otaku_reader/data/anilist/anilist_metadata_service.dart';
 import 'package:otaku_reader/features/details/controllers/manga_details_controller.dart';
 import 'package:otaku_reader/features/details/widgets/anilist_sections.dart';
@@ -40,6 +41,7 @@ class _MangaDetailsScreenState extends State<MangaDetailsScreen> {
       sources: Get.find<SourceRepository>(),
       library: Get.find<LibraryRepository>(),
       anilist: Get.find<AniListMetadataService>(),
+      anilistList: Get.find<AniListListService>(),
       downloads: Get.find<DownloadRepository>(),
       sourceId: widget.sourceId,
       url: widget.url,
@@ -182,6 +184,13 @@ class _AniList extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // First, because it is the only line on this page about *this reader*
+        // rather than about the series. Renders nothing when there is no row,
+        // so the spacing below is unchanged for everyone signed out.
+        AniListListRow(
+          entry: controller.anilistEntry.value,
+          totalChapters: media.chapters,
+        ),
         const SizedBox(height: 20),
         AniListStats(media: media),
         const SizedBox(height: 16),
