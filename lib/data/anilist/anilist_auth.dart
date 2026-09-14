@@ -44,6 +44,47 @@ class AniListViewer {
   final ScoreFormat scoreFormat;
 }
 
+/// What came of offering AniList a token.
+///
+/// Three outcomes rather than a bool, because "AniList refused this" and "this
+/// device could not keep it" need different words in front of the user: one is
+/// a re-paste, the other is a session that works now and is gone after a
+/// restart. Collapsing them meant a keystore write failure threw out of
+/// [AniListAuth.signIn] *after* the viewer was published — signed in, surfaced
+/// as an unhandled error, and unexplained.
+enum SignInResult {
+  /// Accepted and stored.
+  ok,
+
+  /// Accepted, but this device could not store it.
+  notPersisted,
+
+  /// AniList refused it.
+  rejected,
+}
+
+/// How one authenticated call ended.
+///
+/// The distinction between [rejected] and [unreachable] is the whole point:
+/// only a refusal may delete the user's stored token. A failure to *ask* —
+/// offline, AniList down, a proxy's error page — must keep it, because
+/// signing someone out for being on a train is the worse failure and the next
+/// launch will simply ask again.
+enum _Auth { ok, rejected, unreachable }
+
+/// One authenticated call's result.
+class _Response {
+  const _Response({this.data, this.rejected = false});
+
+  final Map<String, dynamic>? data;
+  final bool rejected;
+}
+
+Map<String, dynamic>? _mapOf(Object? value) =>
+    value is Map ? value.cast<String, dynamic>() : null;
+
+String? _stringOf(Object? value) => value is String ? value : null;
+
 /// Signs in to AniList and holds the token.
 ///
 /// **The token lives in `flutter_secure_storage`, never in the KV tier.** That
@@ -62,6 +103,14 @@ class AniListViewer {
 /// entry for a flow the user runs approximately once. Pasting a token is
 /// slightly clumsier and very much simpler, and it keeps the token out of a
 /// WebView this app would then own.
+///
+/// ## Nothing here throws
+///
+/// Every entry point returns its failure. The keystore can fail on a device
+/// with a broken secure element, AniList can answer anything at all, and
+/// [restore] in particular is launched unawaited from `AppBindings` — so an
+/// exception escaping it has nobody to catch it and becomes an unhandled
+/// async error at startup.
 class AniListAuth {
   AniListAuth({
     FlutterSecureStorage? storage,
@@ -98,7 +147,7 @@ class AniListAuth {
   /// button that fails on tap is worse than one that is not offered.
   bool get isConfigured => clientId.isNotEmpty;
 
-  /// The signed-in account, or null. Null while it is still being read.
+  /// The signed-in account, or null.
   final viewer = Rxn<AniListViewer>();
 
   /// True once there is an answer to render, whatever that answer is.
@@ -117,7 +166,8 @@ class AniListAuth {
   String? _token;
 
   /// Whether a token is held. Says nothing about whether AniList still accepts
-  /// it — [loadViewer] is what establishes that.
+  /// it — only a call that comes back does that, which is why [restore] makes
+  /// one before this is trusted.
   bool get isSignedIn => _token != null;
 
   /// The URL that grants a token, for the user to open.
@@ -139,52 +189,89 @@ class AniListAuth {
       // sign in again, and nothing else in the app depends on this.
       _token = null;
     }
-    if (_token != null) await loadViewer();
+    if (_token != null && await _loadViewer() == _Auth.rejected) {
+      // Forget a token AniList has **refused**, so a dead one is not carried
+      // and retried at every launch for the life of the install.
+      //
+      // Only a refusal. `loadViewer` also answers "no" for a device with no
+      // network and for a malformed reply, and deleting the token there would
+      // sign out a user whose token is fine — a far worse outcome than one
+      // wasted request, and unrecoverable without the pin flow again.
+      await signOut();
+    }
     isReady.value = true;
   }
 
-  /// Stores [token] and confirms it by fetching the account it belongs to.
+  /// Offers [token] to AniList and, if it is accepted, stores it.
   ///
-  /// Returns false and stores nothing when AniList rejects it, so a mistyped
-  /// paste cannot leave the app believing it is signed in.
-  Future<bool> signIn(String token) async {
+  /// Nothing is stored until AniList confirms the token, so a mistyped or
+  /// truncated paste cannot leave the app believing it is signed in.
+  Future<SignInResult> signIn(String token) async {
     final trimmed = token.trim();
-    if (trimmed.isEmpty) return false;
+    if (trimmed.isEmpty) return SignInResult.rejected;
     _token = trimmed;
-    final ok = await loadViewer();
-    if (!ok) {
+    if (await _loadViewer() != _Auth.ok) {
       _token = null;
-      return false;
+      viewer.value = null;
+      return SignInResult.rejected;
     }
-    await _storage.write(key: _tokenKey, value: trimmed);
     isReady.value = true;
-    return true;
+    try {
+      await _storage.write(key: _tokenKey, value: trimmed);
+    } catch (_) {
+      // The token is good and the session is live — only persistence failed.
+      // Rolling back would report a rejection that did not happen and send
+      // the user off to re-paste a token that works.
+      return SignInResult.notPersisted;
+    }
+    return SignInResult.ok;
   }
 
   /// Forgets the token and the account.
-  Future<void> signOut() async {
+  ///
+  /// Returns whether the *stored* token was actually erased. The session ends
+  /// either way, but a failed delete means the token outlives it and signs the
+  /// user back in at the next launch — so the caller has something to say. A
+  /// "signed out" that silently reverses itself is exactly the kind of quiet
+  /// lie this project's notes keep recording.
+  Future<bool> signOut() async {
     _token = null;
     viewer.value = null;
-    await _storage.delete(key: _tokenKey);
-  }
-
-  /// Fetches the signed-in account. False if AniList refused the token.
-  Future<bool> loadViewer() async {
-    final data = await query(_viewerQuery);
-    final me = (data?['Viewer'] as Map?)?.cast<String, dynamic>();
-    if (me == null) {
-      viewer.value = null;
+    try {
+      await _storage.delete(key: _tokenKey);
+      return true;
+    } catch (_) {
       return false;
     }
+  }
+
+  /// Fetches the signed-in account and publishes it.
+  Future<_Auth> _loadViewer() async {
+    final response = await _send(_viewerQuery, const {});
+    if (response.rejected) {
+      viewer.value = null;
+      return _Auth.rejected;
+    }
+    final me = _mapOf(response.data?['Viewer']);
+    final id = me?['id'];
+    // Every field is *checked*, not cast. A malformed 200 — a captive portal's
+    // login page, a proxy error, a shape change — would otherwise throw, and
+    // `restore` is unawaited at startup, so that becomes an unhandled async
+    // error with no screen to report it on.
+    if (me == null || id is! int) {
+      viewer.value = null;
+      return _Auth.unreachable;
+    }
+    final name = _stringOf(me['name']);
     viewer.value = AniListViewer(
-      id: me['id'] as int,
-      name: (me['name'] as String?) ?? 'AniList',
-      avatarUrl: (me['avatar'] as Map?)?['large'] as String?,
+      id: id,
+      name: name == null || name.isEmpty ? 'AniList' : name,
+      avatarUrl: _stringOf(_mapOf(me['avatar'])?['large']),
       scoreFormat: ScoreFormat.parse(
-        (me['mediaListOptions'] as Map?)?['scoreFormat'] as String?,
+        _stringOf(_mapOf(me['mediaListOptions'])?['scoreFormat']),
       ),
     );
-    return true;
+    return _Auth.ok;
   }
 
   /// Runs an **authenticated** GraphQL call. Null on any failure.
@@ -195,27 +282,72 @@ class AniListAuth {
   Future<Map<String, dynamic>?> query(
     String document, {
     Map<String, dynamic> variables = const {},
-  }) async {
-    if (_token == null) return null;
+  }) async => (await _send(document, variables)).data;
+
+  Future<_Response> _send(
+    String document,
+    Map<String, dynamic> variables,
+  ) async {
+    final token = _token;
+    // Refused before it is sent. An anonymous request would be a confusing
+    // failure rather than an obvious one, and on a mutation a dangerous one.
+    if (token == null) return const _Response();
+
+    final http.Response response;
     try {
-      final response = await _client.post(
+      response = await _client.post(
         Uri.parse(_endpoint),
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
-          'Authorization': 'Bearer $_token',
+          'Authorization': 'Bearer $token',
         },
         body: jsonEncode({'query': document, 'variables': variables}),
       );
-      if (response.statusCode != 200) return null;
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-      // GraphQL answers 200 with an `errors` array, so the status code alone
-      // is not success — an expired token arrives this way.
-      if (body['errors'] != null) return null;
-      return (body['data'] as Map?)?.cast<String, dynamic>();
     } catch (_) {
-      return null;
+      return const _Response();
     }
+
+    Map<String, dynamic>? body;
+    try {
+      body = _mapOf(jsonDecode(response.body));
+    } catch (_) {
+      body = null;
+    }
+
+    if (_isRefusal(response.statusCode, body)) {
+      return const _Response(rejected: true);
+    }
+    if (response.statusCode != 200 || body == null) return const _Response();
+    // GraphQL answers 200 with an `errors` array, so the status code alone is
+    // not success. It can carry `data` *and* `errors` together — a partially
+    // failed mutation — and reporting that as success would tell the user a
+    // score saved when it did not.
+    if (body['errors'] != null) return const _Response();
+    return _Response(data: _mapOf(body['data']));
+  }
+
+  /// Whether AniList refused the *credentials*, as opposed to failing for any
+  /// other reason.
+  ///
+  /// Deliberately narrow, and it errs toward "no": the only thing that turns
+  /// on it is deleting the user's stored token, so a false positive signs
+  /// someone out over a bad query of ours or a gateway's error page. 401 is
+  /// unambiguous. AniList also answers **400** for an expired token — but 400
+  /// is equally its answer to a malformed query, which is this app's bug and
+  /// not the user's problem, so the status alone cannot decide and the message
+  /// has to be read.
+  static bool _isRefusal(int status, Map<String, dynamic>? body) {
+    if (status == 401) return true;
+    if (status != 400) return false;
+    final errors = body?['errors'];
+    if (errors is! List) return false;
+    return errors.any((error) {
+      final message = _stringOf(_mapOf(error)?['message'])?.toLowerCase();
+      return message != null &&
+          (message.contains('invalid token') ||
+              message.contains('unauthorized'));
+    });
   }
 
   static const _viewerQuery = '''

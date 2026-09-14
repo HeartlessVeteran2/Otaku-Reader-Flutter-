@@ -160,6 +160,36 @@ void main() {
     expect(find.text('Reader'), findsOneWidget);
   });
 
+  testWidgets('a sign-out that could not erase the token says so', (
+    tester,
+  ) async {
+    // The screen must not report "signed out" and then have the app sign the
+    // user back in at the next launch. `signOut()` returns whether the stored
+    // token was actually erased precisely so this sentence can exist.
+    final vault = FakeVault();
+    final auth = AniListAuth(
+      storage: vault,
+      clientId: 'abc',
+      client: FakeClient(viewerBody()),
+    );
+    await auth.signIn('t');
+    await show(tester, auth);
+    vault.failDeletes = Exception('keystore locked');
+
+    await tester.tap(find.text('Sign out'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Sign out'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Sign in to AniList'), findsOneWidget);
+    expect(
+      find.textContaining('could not be removed'),
+      findsOneWidget,
+      reason: 'silently reverting at the next launch is the worse outcome',
+    );
+  });
+
   testWidgets('dismissing the sign-out dialog keeps the account', (
     tester,
   ) async {

@@ -34,7 +34,7 @@ void main() {
       client: FakeClient(viewerBody()),
     );
 
-    expect(await auth.signIn('  good-token  '), isTrue);
+    expect(await auth.signIn('  good-token  '), SignInResult.ok);
     expect(
       vault.store['anilist_access_token'],
       'good-token',
@@ -53,7 +53,7 @@ void main() {
       client: FakeClient(jsonEncode({'errors': <Object>[]})),
     );
 
-    expect(await auth.signIn('bad-token'), isFalse);
+    expect(await auth.signIn('bad-token'), SignInResult.rejected);
     expect(vault.store, isEmpty);
     expect(auth.isSignedIn, isFalse);
     expect(auth.viewer.value, isNull);
@@ -90,7 +90,7 @@ void main() {
       ),
     );
 
-    expect(await auth.signIn('partial'), isFalse);
+    expect(await auth.signIn('partial'), SignInResult.rejected);
     expect(
       auth.viewer.value,
       isNull,
@@ -121,7 +121,7 @@ void main() {
       clientId: 'abc',
       client: FakeClient('<html>502</html>', status: 502),
     );
-    expect(await auth.signIn('t'), isFalse);
+    expect(await auth.signIn('t'), SignInResult.rejected);
   });
 
   test('the score format comes from the account, not a default', () async {
@@ -231,5 +231,159 @@ void main() {
 
     expect(await auth.query('query { Viewer { id } }'), isNull);
     expect(sent, isEmpty);
+  });
+
+  group('the keystore can fail without lying about it', () {
+    // CodeAnt's four Major findings on #36, all one shape: a storage or
+    // payload failure escaped as an exception, from methods whose documented
+    // contract is a returned value — and `restore()` is launched unawaited
+    // from `AppBindings`, so a throw there has nobody at all to catch it.
+
+    test('a token that works but cannot be saved says exactly that', () async {
+      // Rolling back to "rejected" would be a lie that costs the user the
+      // session they just earned, and send them to re-paste a token that
+      // works. Reporting plain success would promise a persistence that is
+      // not there.
+      final vault = FakeVault()..failWrites = Exception('keystore is full');
+      final auth = AniListAuth(
+        storage: vault,
+        clientId: 'abc',
+        client: FakeClient(viewerBody()),
+      );
+
+      expect(await auth.signIn('good'), SignInResult.notPersisted);
+      expect(auth.viewer.value?.name, 'Reader', reason: 'the session is live');
+      expect(auth.isSignedIn, isTrue);
+      expect(vault.store, isEmpty);
+    });
+
+    test('signing out reports a token it could not erase', () async {
+      // The session ends either way, but a token left on disk signs the user
+      // back in at the next launch — so "signed out" would be a promise the
+      // app goes on to break by itself.
+      final vault = FakeVault()..failDeletes = Exception('keystore locked');
+      final auth = AniListAuth(
+        storage: vault,
+        clientId: 'abc',
+        client: FakeClient(viewerBody()),
+      );
+      await auth.signIn('t');
+      vault.store['anilist_access_token'] = 't';
+
+      expect(await auth.signOut(), isFalse);
+      expect(auth.isSignedIn, isFalse, reason: 'the session still ends');
+      expect(auth.viewer.value, isNull);
+    });
+
+    test('a malformed 200 is handled, not thrown', () async {
+      // A captive portal's login page, a gateway error, a shape change. The
+      // casts this replaced would throw straight out of an unawaited
+      // `restore`.
+      final auth = AniListAuth(
+        storage: FakeVault()..store['anilist_access_token'] = 'stored',
+        clientId: 'abc',
+        client: FakeClient(
+          jsonEncode({
+            'data': {
+              'Viewer': {'id': 'seven', 'avatar': 'not-a-map'},
+            },
+          }),
+        ),
+      );
+
+      await auth.restore();
+
+      expect(auth.viewer.value, isNull);
+      expect(auth.isReady.value, isTrue);
+    });
+
+    test('a viewer with no name still renders as an account', () async {
+      final auth = AniListAuth(
+        storage: FakeVault(),
+        clientId: 'abc',
+        client: FakeClient(viewerBody(name: '')),
+      );
+      await auth.signIn('t');
+      expect(auth.viewer.value?.name, 'AniList');
+    });
+  });
+
+  group('only a refusal forgets the token', () {
+    // The correction CodeAnt's finding did not make. "Drop the token when the
+    // check fails" is wrong, because the check also fails for a device with
+    // no signal — and signing someone out for being on a train is far worse
+    // than one wasted request, with the pin flow as the only way back.
+
+    test('a token AniList refuses is dropped, not retried forever', () async {
+      final vault = FakeVault()..store['anilist_access_token'] = 'expired';
+      final auth = AniListAuth(
+        storage: vault,
+        clientId: 'abc',
+        client: FakeClient(invalidTokenBody(), status: 400),
+      );
+
+      await auth.restore();
+
+      expect(auth.isSignedIn, isFalse);
+      expect(vault.store, isEmpty, reason: 'and gone from disk, not just RAM');
+      expect(auth.isReady.value, isTrue);
+    });
+
+    test('an offline launch keeps the token', () async {
+      final vault = FakeVault()..store['anilist_access_token'] = 'good';
+      final auth = AniListAuth(
+        storage: vault,
+        clientId: 'abc',
+        client: FakeClient.offline(),
+      );
+
+      await auth.restore();
+
+      expect(
+        vault.store['anilist_access_token'],
+        'good',
+        reason: 'no signal is not a rejection',
+      );
+      expect(auth.isReady.value, isTrue);
+    });
+
+    test('AniList being down keeps the token', () async {
+      final vault = FakeVault()..store['anilist_access_token'] = 'good';
+      final auth = AniListAuth(
+        storage: vault,
+        clientId: 'abc',
+        client: FakeClient('<html>502 Bad Gateway</html>', status: 502),
+      );
+
+      await auth.restore();
+
+      expect(vault.store['anilist_access_token'], 'good');
+    });
+
+    test(
+      'our own malformed query does not cost the user their token',
+      () async {
+        // AniList answers 400 for a bad *query* as well as a bad token, so the
+        // status alone cannot decide. Deciding on it would delete a working
+        // token because of a bug in this app.
+        final vault = FakeVault()..store['anilist_access_token'] = 'good';
+        final auth = AniListAuth(
+          storage: vault,
+          clientId: 'abc',
+          client: FakeClient(
+            jsonEncode({
+              'errors': [
+                {'message': 'Cannot query field "nope" on type "Query".'},
+              ],
+            }),
+            status: 400,
+          ),
+        );
+
+        await auth.restore();
+
+        expect(vault.store['anilist_access_token'], 'good');
+      },
+    );
   });
 }

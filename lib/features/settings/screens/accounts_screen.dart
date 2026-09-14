@@ -193,17 +193,27 @@ Future<void> _askForToken(BuildContext context, AniListAuth auth) async {
   if (token == null || !context.mounted) return;
 
   final messenger = ScaffoldMessenger.of(context)..clearSnackBars();
-  final ok = await auth.signIn(token);
+  final result = await auth.signIn(token);
   messenger.showSnackBar(
     SnackBar(
-      content: Text(
-        ok
-            ? 'Signed in to AniList'
-            // Named as a rejection rather than "something went wrong": the
-            // likeliest cause is a truncated paste, and saying so is the fix.
-            : 'AniList did not accept that token. Check the whole code was '
-                  'copied.',
-      ),
+      content: Text(switch (result) {
+        SignInResult.ok => 'Signed in to AniList',
+        // Not an error, and not a success either. The token works and the
+        // session is live; it is the *saving* that failed, so the honest
+        // thing is to say what will happen next rather than pick whichever
+        // of the other two messages is less wrong.
+        SignInResult.notPersisted =>
+          'Signed in, but this device could not save the token. You will have '
+              'to sign in again next time the app starts.',
+        // Named as a rejection rather than "something went wrong": the
+        // likeliest cause is a truncated paste, and saying so is the fix.
+        SignInResult.rejected =>
+          'AniList did not accept that token. Check the whole code was '
+              'copied.',
+      }),
+      duration: result == SignInResult.ok
+          ? const Duration(seconds: 4)
+          : const Duration(seconds: 8),
     ),
   );
 }
@@ -291,7 +301,25 @@ class _SignedIn extends StatelessWidget {
         ],
       ),
     );
-    if (ok ?? false) await auth.signOut();
+    // `?? false`, because `showDialog` pops null for a barrier dismiss as well
+    // as for Cancel and gives no way to tell them apart. Reading null as yes
+    // would sign the user out for tapping next to the dialog.
+    if (!(ok ?? false)) return;
+
+    final forgotten = await auth.signOut();
+    if (forgotten || !context.mounted) return;
+    // The session ended, but the stored token did not, so it will sign them
+    // back in at the next launch. Reporting "signed out" and then doing the
+    // opposite is worse than an awkward sentence.
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Signed out, but the saved token could not be removed. It may sign '
+          'you back in when the app restarts.',
+        ),
+        duration: Duration(seconds: 8),
+      ),
+    );
   }
 }
 

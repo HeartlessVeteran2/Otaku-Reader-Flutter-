@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
@@ -13,6 +14,15 @@ class FakeVault implements FlutterSecureStorage {
 
   /// When set, every [read] throws it — an unavailable secure element.
   Object? failWith;
+
+  /// When set, every [write] throws it: the keystore is readable but will not
+  /// accept new entries. Separate from [failWith] because it produces a
+  /// different outcome — a live session that cannot be persisted.
+  Object? failWrites;
+
+  /// When set, every [delete] throws it, so a sign-out clears memory and
+  /// leaves the stored token behind to resurrect the account.
+  Object? failDeletes;
 
   @override
   Future<String?> read({
@@ -39,6 +49,7 @@ class FakeVault implements FlutterSecureStorage {
     MacOsOptions? mOptions,
     WindowsOptions? wOptions,
   }) async {
+    if (failWrites != null) throw failWrites!;
     if (value == null) {
       store.remove(key);
     } else {
@@ -55,7 +66,10 @@ class FakeVault implements FlutterSecureStorage {
     WebOptions? webOptions,
     MacOsOptions? mOptions,
     WindowsOptions? wOptions,
-  }) async => store.remove(key);
+  }) async {
+    if (failDeletes != null) throw failDeletes!;
+    store.remove(key);
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) =>
@@ -68,6 +82,12 @@ class FakeVault implements FlutterSecureStorage {
 /// take a dependency for one callback.
 class FakeClient extends http.BaseClient {
   FakeClient(this.body, {this.status = 200, this.sent});
+
+  /// Fails every request the way an offline device does — before any status
+  /// code exists. Distinct from a 5xx, and the two must not be conflated:
+  /// neither is a reason to delete the user's token.
+  factory FakeClient.offline({List<http.Request>? sent}) =>
+      _OfflineClient(sent: sent);
 
   final String body;
   final int status;
@@ -105,4 +125,22 @@ String viewerBody({
       'mediaListOptions': {'scoreFormat': format},
     },
   },
+});
+
+class _OfflineClient extends FakeClient {
+  _OfflineClient({super.sent}) : super('');
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    sent?.add(http.Request(request.method, request.url));
+    throw const SocketException('Network is unreachable');
+  }
+}
+
+/// AniList's own shape for a refused token: HTTP 400, message in the body.
+String invalidTokenBody() => jsonEncode({
+  'data': null,
+  'errors': [
+    {'message': 'Invalid token', 'status': 400},
+  ],
 });
