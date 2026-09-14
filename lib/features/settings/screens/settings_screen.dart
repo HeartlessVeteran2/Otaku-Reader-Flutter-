@@ -4,6 +4,7 @@ import 'package:iconsax/iconsax.dart';
 
 import 'package:otaku_reader/core/database/data_keys/keys.dart';
 import 'package:otaku_reader/core/database/kv_helper.dart';
+import 'package:otaku_reader/core/preferences/nsfw_preference.dart';
 import 'package:otaku_reader/core/theme/one_ui.dart';
 import 'package:otaku_reader/core/theme/theme_controller.dart';
 import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
@@ -149,17 +150,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
         SliverOneUiGroup(
           label: 'Sources',
           children: [
-            SwitchListTile(
-              secondary: const Icon(Iconsax.eye_slash),
-              title: const Text('Show 18+ sources'),
-              subtitle: const Text(
-                'Also hides adult titles from the home page',
+            Obx(
+              () => SwitchListTile(
+                secondary: const Icon(Iconsax.eye_slash),
+                title: const Text('Show 18+ sources'),
+                subtitle: const Text(
+                  'Also hides adult titles from the home page',
+                ),
+                // Reads and writes the shared holder, not the key directly.
+                // Writing the key alone flipped the stored value while the live
+                // Home and Browse controllers carried on with their own copies,
+                // so the setting appeared to do nothing until a restart.
+                value: Get.find<NsfwPreference>().shown.value,
+                onChanged: Get.find<NsfwPreference>().setShown,
               ),
-              value: SourceKeys.showNsfwSources.get<bool>(false),
-              onChanged: (v) {
-                SourceKeys.showNsfwSources.set<bool>(v);
-                setState(() {});
-              },
             ),
             ListTile(
               leading: const Icon(Iconsax.info_circle),

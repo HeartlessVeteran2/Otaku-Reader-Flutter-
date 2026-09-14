@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
 
+import 'package:otaku_reader/core/preferences/nsfw_preference.dart';
 import 'package:otaku_reader/core/database/database.dart' as db;
 import 'package:otaku_reader/domain/repository/extension_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
@@ -94,7 +95,11 @@ void main() {
   Future<_StubExtensions> pump(WidgetTester tester, List<Source> rows) async {
     final extensions = _StubExtensions(rows);
     Get.put<ExtensionsController>(
-      ExtensionsController(extensions: extensions, sources: _StubSources()),
+      ExtensionsController(
+        extensions: extensions,
+        sources: _StubSources(),
+        nsfw: NsfwPreference(),
+      ),
     );
     await tester.pumpWidget(const GetMaterialApp(home: ExtensionsScreen()));
     await tester.pumpAndSettle();
