@@ -45,7 +45,12 @@ abstract final class OneUi {
 /// A screen with One UI's collapsing header.
 ///
 /// The title starts oversized in the top half and shrinks into the app bar as
-/// the content scrolls.
+/// the content scrolls — **when there is content to scroll**. A screen whose
+/// rows fit the viewport keeps its large title: `maxScrollExtent` is content
+/// minus viewport, so on a four-row screen it is 0 and nothing moves. That is
+/// One UI's own behaviour rather than a shortfall, and `test/one_ui_test.dart`
+/// pins both halves — a long screen collapses, a short one does not. Asserting
+/// only that a drag throws nothing passes on a screen that cannot move at all.
 ///
 /// [slivers] is a sliver slot, so **every entry must produce a `RenderSliver`**
 /// — use [SliverOneUiGroup] for grouped rows, `SliverList`/`SliverGrid` for
@@ -82,8 +87,18 @@ class OneUiScaffold extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final view = CustomScrollView(
-      // Always scrollable so pull-to-refresh works on a short list; without it
-      // a screen with three rows cannot be pulled at all.
+      // The documented pairing for `RefreshIndicator`: its child has to accept
+      // the drag, and a list that fits the screen otherwise need not.
+      //
+      // Stated precisely, because the obvious experiment does not settle it:
+      // `pull-to-refresh fires on a Downloads list that fits` passes with this
+      // line deleted, so the widget tester accepts the fling either way. That
+      // is not evidence the line is dead — it is evidence this environment
+      // cannot tell, and device physics (iOS bouncing in particular) differ.
+      // Kept as the idiom, scoped to the refresh path because off it there is
+      // nothing it could do: with clamping physics a short screen's `pixels`
+      // stays pinned at 0 through a drag regardless, and it does **not** make
+      // a short header collapse.
       physics: onRefresh == null ? null : const AlwaysScrollableScrollPhysics(),
       slivers: [
         SliverAppBar.large(
