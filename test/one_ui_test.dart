@@ -54,38 +54,49 @@ void main() {
   tearDownAll(() async => env?.close());
 
   late Directory root;
+  late LibraryRepositoryImpl library;
 
   setUp(() {
     env!.clear();
     Get.reset();
     Get.put<ThemeController>(ThemeController());
     root = Directory.systemTemp.createTempSync('otaku-oneui');
+
+    // **One repository instance, shared by everything here.**
+    //
+    // `LibraryRepositoryImpl._changes` is a per-instance broadcast controller,
+    // so two instances over the same database share their rows but not their
+    // notifications: a write through one never reaches a listener on the
+    // other. A harness that hands each controller its own instance therefore
+    // cannot fail when the change-notification path breaks — and that path is
+    // load-bearing, because `didChangeDependencies` cannot fire on an
+    // `IndexedStack` reselection, which is the whole reason `changes` exists.
+    library = LibraryRepositoryImpl();
+
     Get.put<DownloadRepository>(
       DownloadRepositoryImpl(
         sources: const NoSources(),
-        library: LibraryRepositoryImpl(),
+        library: library,
         root: root,
       ),
     );
     // History builds its own controller from these; Library and Updates
     // resolve theirs with `Get.find`, so those have to be registered too.
-    Get.put<LibraryRepository>(LibraryRepositoryImpl());
+    Get.put<LibraryRepository>(library);
     Get.put<SourceRepository>(const NoSources());
     Get.put<LibraryController>(
-      LibraryController(
-        library: LibraryRepositoryImpl(),
-        sources: const NoSources(),
-      ),
+      LibraryController(library: library, sources: const NoSources()),
     );
     Get.put<UpdatesController>(
-      UpdatesController(
-        library: LibraryRepositoryImpl(),
-        sources: const NoSources(),
-      ),
+      UpdatesController(library: library, sources: const NoSources()),
     );
   });
 
   tearDown(() {
+    // Disposes the controllers, which cancels `LibraryController`'s 300ms
+    // change debounce. Left running it outlives the widget tree and the test
+    // fails with "a Timer is still pending" rather than on anything real.
+    Get.reset();
     if (root.existsSync()) root.deleteSync(recursive: true);
   });
 
@@ -240,7 +251,6 @@ void main() {
     // The populated branch. `SliverGrid` replaced a `GridView` that carried
     // its own scroll view, so getting this wrong nests two scrollables rather
     // than failing loudly.
-    final library = LibraryRepositoryImpl();
     for (var i = 1; i <= 4; i++) {
       await library.upsertFromSource(
         sourceId: 7,
@@ -253,8 +263,15 @@ void main() {
       await library.toggleFavorite(7, '/m-$i');
     }
 
-    // Re-registered after seeding: the controller from `setUp` loaded an empty
-    // library, and nothing tells it the rows arrived.
+    // Rebuilt here, after seeding, and deliberately not driven through the
+    // change stream. The controller from `setUp` is created outside
+    // `testWidgets`' fake-async zone, so its 300ms debounce timer never fires
+    // under the test clock however far the clock is advanced — a reload that
+    // never happens would look exactly like a grid that fails to render.
+    //
+    // The notification path itself is covered where it belongs, by
+    // `library_controller_test.dart`'s "a favourite added elsewhere reaches
+    // the grid without a reselect". What this test is for is the sliver grid.
     await Get.delete<LibraryController>();
     Get.put<LibraryController>(
       LibraryController(library: library, sources: const NoSources()),
