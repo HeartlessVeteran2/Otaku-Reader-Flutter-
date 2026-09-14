@@ -404,10 +404,10 @@ packages:
     dependency: "direct main"
     description:
       name: http_interceptor
-      sha256: "288c6ded4a2c66de2730a16b30cbd29d05d042a5e61304d9b4be0e16378f4082"
+      sha256: bf7044578984ee9a0a90bc7c03fc08252912bff56b34cb9437e1a5696ca1271b
       url: "https://pub.dev"
     source: hosted
-    version: "2.0.0"
+    version: "3.0.0"
   http_multi_server:
     dependency: transitive
     description:
