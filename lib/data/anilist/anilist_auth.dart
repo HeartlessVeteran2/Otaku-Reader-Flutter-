@@ -156,11 +156,12 @@ class AniListAuth {
   /// different screens, and conflating them flashes a signed-out state at a
   /// user who is signed in.
   ///
-  /// Set by [restore] whatever it finds, **and** by a successful [signIn].
-  /// Both establish an answer, and tying it to [restore] alone would make the
-  /// flag mean "startup ran" rather than what every screen actually gates on —
-  /// a difference invisible in the app, where [restore] always runs first, and
-  /// a spinner that never ends anywhere it does not.
+  /// Set by [restore] whatever it finds, **and** by [signIn] whatever it
+  /// answers — a rejection establishes an answer just as much as a success.
+  /// Tying it to [restore] alone would make the flag mean "startup ran"
+  /// rather than what every screen actually gates on: a difference invisible
+  /// in the app, where [restore] always runs first, and a spinner that never
+  /// ends anywhere it does not.
   final isReady = false.obs;
 
   String? _token;
@@ -218,24 +219,38 @@ class AniListAuth {
   /// Nothing is stored until AniList confirms the token, so a mistyped or
   /// truncated paste cannot leave the app believing it is signed in.
   Future<SignInResult> signIn(String token) async {
-    final trimmed = token.trim();
-    if (trimmed.isEmpty) return SignInResult.rejected;
-    _token = trimmed;
-    if (await _loadViewer() != _Auth.ok) {
-      _token = null;
-      viewer.value = null;
-      return SignInResult.rejected;
-    }
-    isReady.value = true;
+    // `finally`, so [isReady] is set on **every** exit — a rejection is an
+    // answer too, and a screen gating its spinner on this flag must not be
+    // left spinning by one.
+    //
+    // Today no caller can reach that: the sign-in button lives in a branch
+    // that only renders once [isReady] is true, and nothing sets it false
+    // again. That is exactly why it is worth pinning structurally rather than
+    // per-path — the invariant currently holds because of a gate in a
+    // *different file*, and the last time this flag depended on something
+    // invisible like that it was wrong. A `finally` also covers the next
+    // early return somebody adds.
     try {
-      await _storage.write(key: _tokenKey, value: trimmed);
-    } catch (_) {
-      // The token is good and the session is live — only persistence failed.
-      // Rolling back would report a rejection that did not happen and send
-      // the user off to re-paste a token that works.
-      return SignInResult.notPersisted;
+      final trimmed = token.trim();
+      if (trimmed.isEmpty) return SignInResult.rejected;
+      _token = trimmed;
+      if (await _loadViewer() != _Auth.ok) {
+        _token = null;
+        viewer.value = null;
+        return SignInResult.rejected;
+      }
+      try {
+        await _storage.write(key: _tokenKey, value: trimmed);
+      } catch (_) {
+        // The token is good and the session is live — only persistence
+        // failed. Rolling back would report a rejection that did not happen
+        // and send the user off to re-paste a token that works.
+        return SignInResult.notPersisted;
+      }
+      return SignInResult.ok;
+    } finally {
+      isReady.value = true;
     }
-    return SignInResult.ok;
   }
 
   /// Forgets the token and the account.

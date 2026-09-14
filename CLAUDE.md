@@ -267,9 +267,11 @@ identical from the outside.
   opens.
 - **`isReady` means "there is an answer to render", not "startup ran".** Every
   screen gates its spinner on it, so it is set by `restore()` whatever that
-  finds **and** by a successful `signIn()`. Tying it to `restore` alone is
-  invisible in the app — `AppBindings` always restores first — and an endless
-  spinner anywhere else.
+  finds **and** by `signIn()` whatever it answers — a rejection is an answer
+  too. It is set in a `finally` rather than per path, because the invariant
+  otherwise survives only thanks to a gate in a *different file* (the sign-in
+  button renders only once `isReady` is true), and this same flag has already
+  been wrong once for leaning on something invisible like that.
 - **The score format is read from the user's own AniList settings.** AniList
   stores every score as 0-100 regardless; the format only says how to show it,
   and `POINT_10_DECIMAL` is AniList's own default. So hardcoding it looks

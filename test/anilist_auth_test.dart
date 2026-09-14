@@ -133,6 +133,43 @@ void main() {
     expect(auth.isReady.value, isTrue);
   });
 
+  test('even a rejected sign-in leaves the screens with an answer', () async {
+    // A rejection is an answer, so anything gating a spinner on `isReady` must
+    // not be left spinning by one.
+    //
+    // Not reachable through today's UI — the sign-in button only renders once
+    // `isReady` is true, and nothing sets it back — so this asserts the
+    // invariant directly rather than through a screen. It is worth holding on
+    // its own: it currently survives only because of a gate in a different
+    // file, and the last time this flag leaned on something invisible like
+    // that it was wrong.
+    final auth = AniListAuth(
+      storage: FakeVault(),
+      clientId: 'abc',
+      client: FakeClient(jsonEncode({'errors': <Object>[]})),
+    );
+    expect(auth.isReady.value, isFalse);
+
+    expect(await auth.signIn('bad'), SignInResult.rejected);
+
+    expect(auth.isReady.value, isTrue);
+  });
+
+  test('an empty paste is refused without asking AniList', () async {
+    // The other early return, and the one a per-path fix forgets.
+    final sent = <http.Request>[];
+    final auth = AniListAuth(
+      storage: FakeVault(),
+      clientId: 'abc',
+      client: FakeClient(viewerBody(), sent: sent),
+    );
+
+    expect(await auth.signIn('   '), SignInResult.rejected);
+
+    expect(sent, isEmpty);
+    expect(auth.isReady.value, isTrue);
+  });
+
   test('a transport failure is a refusal, not a crash', () async {
     // AniList being down must not throw out of a sign-in tap.
     final auth = AniListAuth(
