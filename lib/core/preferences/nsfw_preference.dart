@@ -30,9 +30,17 @@ class NsfwPreference {
   ///
   /// A no-op when nothing changes, so a screen rebuilding its switch cannot
   /// trigger a shelf rebuild by writing the value it already had.
+  ///
+  /// **Storage first, then the observers.** The other order looks equivalent
+  /// and is not: if the write throws, the app would be left showing one thing
+  /// while the database remembered another, and the no-op guard above would
+  /// make toggling back to the same value a silent nothing — so the user could
+  /// never retry, and the setting would revert on the next launch with no
+  /// indication why. Writing first means a failure leaves the value untouched
+  /// and the retry still available.
   void setShown(bool value) {
     if (shown.value == value) return;
-    shown.value = value;
     SourceKeys.showNsfwSources.set<bool>(value);
+    shown.value = value;
   }
 }
