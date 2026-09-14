@@ -282,6 +282,27 @@ identical from the outside.
   the same body. `query()` refuses that, because it is the one authenticated
   call everything else goes through and a half-failed mutation would otherwise
   report that a score saved when it did not.
+- **Only a *refusal* deletes the stored token — never a failure to ask.** A
+  check that comes back "no" means a dead token, a device with no signal,
+  AniList being down, or a malformed query of our own, and those are not the
+  same event. Dropping the token on any of them signs out a user whose token
+  is fine, with the whole pin flow as the only way back; one wasted request
+  per launch is far cheaper. So only HTTP 401, and a 400 whose body says
+  "invalid token"/"unauthorized", count as a refusal. The match is narrow and
+  errs toward *keeping* the token on purpose, because 400 is equally AniList's
+  answer to a query this app got wrong.
+- **Nothing in `AniListAuth` throws.** Every entry point returns its failure,
+  because `restore()` is launched unawaited from `AppBindings` — an exception
+  there has nobody to catch it and becomes an unhandled async error at
+  startup. That covers the keystore (read, write *and* delete can each fail
+  independently) and the payload, whose fields are checked rather than cast.
+- **`signIn` has three outcomes and `signOut` has two**, because the keystore
+  failing is not the same event as AniList refusing. "Accepted but not saved"
+  is a live session that will not survive a restart; reporting it as a
+  rejection sends the user to re-paste a token that works, and reporting it as
+  success promises persistence that is not there. Likewise a sign-out whose
+  delete failed ends the session but leaves the token to resurrect the account
+  next launch, so it says so.
 
 ---
 
@@ -421,6 +442,8 @@ Kept because they repeat.
 | A sign-out test tapped Cancel and claimed to cover the barrier dismiss | Cancel pops an explicit `false`; the barrier pops **null**, and `ok ?? false` exists only for the null. Rewriting it as `ok != false` — signing the user out for tapping next to a dialog — left the Cancel test green. Whenever a guard turns on `?? `, the test has to produce the absent value, not the falsy one. |
 | The AniList avatar was a bare `NetworkImage` | Every other remote image in this app is a `CachedNetworkImage` with an `errorWidget`. A bare one has no error branch, so a 404 or an offline device throws out of the image resolver, and it refetches on every build. Match the app's existing idiom before inventing a second one. |
 | `flutter analyze` reported "No issues found" on a screen that could not lay out | Demonstrated rather than asserted this time: swapping one `SliverOneUiGroup` for its box-widget twin left analyze clean and failed two widget tests. The sixth instance, and the reason a rendered test per branch is not optional. |
+| Four methods documented to *return* a failure could throw it instead | `signIn`, `signOut`, `restore` and `loadViewer` each let a keystore or payload failure escape as an exception. `restore` is unawaited from `AppBindings`, so its throw had nobody to catch it at all. Found by `codeant-ai`. The general check: when a method's doc says what it returns on failure, find every `await` inside it that can throw and decide what each one returns. |
+| The obvious fix for "a dead token is retried forever" would have signed users out for being offline | `loadViewer` answered "no" for a rejection *and* for no network, AniList down, and our own bad query. Deleting the token on any failure — which is what the finding implied — costs a user with a perfectly good token their account, recoverable only through the whole pin flow. A review finding can be right about the defect and wrong about the remedy; verify the remedy separately, and prove it by applying the naive one and watching the right tests fail. |
 
 The general lesson, and the one that keeps recurring across both codebases:
 **a comment describing the goal is not evidence the code achieves it.** After
