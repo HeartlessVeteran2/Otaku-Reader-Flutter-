@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:get/get.dart';
 
+import 'package:otaku_reader/core/preferences/nsfw_preference.dart';
 import 'package:otaku_reader/core/theme/theme_controller.dart';
 import 'package:otaku_reader/data/repository/extension_repository_impl.dart';
 import 'package:otaku_reader/data/anilist/anilist_metadata_service.dart';
@@ -36,6 +37,10 @@ class AppBindings extends Bindings {
   @override
   void dependencies() {
     Get.put<ThemeController>(ThemeController(), permanent: true);
+    // One holder for the 18+ preference, observed by Home, Browse and
+    // Settings. Each used to keep its own copy, so a write from one reached
+    // none of the others.
+    Get.put<NsfwPreference>(NsfwPreference(), permanent: true);
 
     // Repositories are registered against their *interfaces*, so nothing in the
     // feature layer can reach an implementation detail such as Isar or the
@@ -66,6 +71,7 @@ class AppBindings extends Bindings {
     // opened. The shell builds its tabs lazily for the same reason.
     Get.lazyPut<ExtensionsController>(
       () => ExtensionsController(
+        nsfw: Get.find<NsfwPreference>(),
         extensions: Get.find<ExtensionRepository>(),
         sources: Get.find<SourceRepository>(),
       ),
@@ -73,6 +79,7 @@ class AppBindings extends Bindings {
     );
     Get.lazyPut<HomeController>(
       () => HomeController(
+        nsfw: Get.find<NsfwPreference>(),
         anilist: Get.find<AniListRepository>(),
         library: Get.find<LibraryRepository>(),
       ),

@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 
 import 'package:otaku_reader/core/database/data_keys/keys.dart';
 import 'package:otaku_reader/core/database/database.dart' as db;
+import 'package:otaku_reader/core/preferences/nsfw_preference.dart';
 import 'package:otaku_reader/core/database/kv_helper.dart';
 import 'package:otaku_reader/core/navigation/app_shell.dart';
 import 'package:otaku_reader/core/theme/theme_controller.dart';
@@ -64,7 +65,11 @@ void main() {
     );
     // So is the Home tab, which is the shell's default landing tab.
     Get.put<HomeController>(
-      HomeController(anilist: _NoAniList(), library: LibraryRepositoryImpl()),
+      HomeController(
+        anilist: _NoAniList(),
+        library: LibraryRepositoryImpl(),
+        nsfw: NsfwPreference(),
+      ),
     );
   });
 

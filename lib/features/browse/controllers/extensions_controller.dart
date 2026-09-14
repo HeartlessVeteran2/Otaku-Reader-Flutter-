@@ -6,6 +6,7 @@
 
 import 'package:get/get.dart';
 
+import 'package:otaku_reader/core/preferences/nsfw_preference.dart';
 import 'package:otaku_reader/core/database/data_keys/keys.dart';
 import 'package:otaku_reader/core/database/kv_helper.dart';
 import 'package:otaku_reader/domain/repository/extension_repository.dart';
@@ -24,16 +25,22 @@ class ExtensionsController extends GetxController {
   ExtensionsController({
     required ExtensionRepository extensions,
     required SourceRepository sources,
+    required NsfwPreference nsfw,
   }) : _extensions = extensions,
-       _sources = sources;
+       _sources = sources,
+       _nsfw = nsfw;
 
   final ExtensionRepository _extensions;
   final SourceRepository _sources;
+  final NsfwPreference _nsfw;
 
   final all = <Source>[].obs;
   final query = ''.obs;
   final enabledLangs = <String>{}.obs;
-  final showNsfw = false.obs;
+
+  /// Whether adult sources are listed. The shared preference, not a copy —
+  /// Settings writes the same one, so its toggle reaches this screen too.
+  RxBool get showNsfw => _nsfw.shown;
 
   final isLoading = false.obs;
   final isRefreshing = false.obs;
@@ -51,7 +58,6 @@ class ExtensionsController extends GetxController {
   @override
   void onInit() {
     super.onInit();
-    showNsfw.value = SourceKeys.showNsfwSources.get<bool>(false);
     final stored = SourceKeys.enabledLanguages.get<List<String>?>();
     // No stored preference means "don't filter yet" rather than "no languages":
     // an empty set here would show the user an empty catalogue on first run and
@@ -165,10 +171,7 @@ class ExtensionsController extends GetxController {
 
   void setQuery(String value) => query.value = value;
 
-  void toggleNsfw(bool value) {
-    showNsfw.value = value;
-    SourceKeys.showNsfwSources.set<bool>(value);
-  }
+  void toggleNsfw(bool value) => _nsfw.setShown(value);
 
   void toggleLang(String lang) {
     if (enabledLangs.contains(lang)) {

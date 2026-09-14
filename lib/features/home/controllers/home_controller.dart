@@ -6,8 +6,7 @@ import 'dart:async';
 
 import 'package:get/get.dart';
 
-import 'package:otaku_reader/core/database/data_keys/keys.dart';
-import 'package:otaku_reader/core/database/kv_helper.dart';
+import 'package:otaku_reader/core/preferences/nsfw_preference.dart';
 import 'package:otaku_reader/data/isar/manga_entry.dart';
 import 'package:otaku_reader/domain/model/anilist_media.dart';
 import 'package:otaku_reader/domain/repository/anilist_repository.dart';
@@ -30,17 +29,33 @@ class HomeController extends GetxController {
   HomeController({
     required AniListRepository anilist,
     required LibraryRepository library,
+    required NsfwPreference nsfw,
   }) : _anilist = anilist,
-       _library = library;
+       _library = library,
+       _nsfw = nsfw;
 
   final AniListRepository _anilist;
   final LibraryRepository _library;
+  final NsfwPreference _nsfw;
 
   final continueReading = <MangaEntry>[].obs;
   final shelves = <HomeShelf>[].obs;
   final isLoading = false.obs;
   final error = RxnString();
-  final showNsfw = false.obs;
+
+  /// The last AniList payload, kept so the 18+ filter can be re-applied
+  /// without another network call.
+  ///
+  /// Filtering happens when a shelf is *built*, so flipping the preference
+  /// cannot change shelves that already exist — it can only rebuild them, and
+  /// rebuilding needs the unfiltered data. Reloading instead would make a
+  /// settings toggle hit AniList, which is a lot to charge for a switch.
+  Map<String, List<AniListMedia>> _raw = const {};
+
+  /// Whether adult titles are shown. Reads the shared preference rather than a
+  /// copy — a copy is what made the Settings toggle unable to reach this
+  /// screen at all.
+  RxBool get showNsfw => _nsfw.shown;
 
   static const shelfTitles = {
     'trending': 'Trending now',
@@ -52,15 +67,21 @@ class HomeController extends GetxController {
   @override
   void onInit() {
     super.onInit();
-    showNsfw.value = SourceKeys.showNsfwSources.get<bool>(false);
     load();
     _startWatching();
+    // Rebuild rather than reload: the preference changing is not new data.
+    _nsfwWatch = ever(_nsfw.shown, (_) => _rebuildShelves());
   }
+
+  Worker? _nsfwWatch;
 
   @override
   void onClose() {
     _watchDebounce?.cancel();
     unawaited(_watch?.cancel());
+    // The preference outlives this controller — it is a permanent singleton —
+    // so a worker left running would rebuild shelves on a disposed Rx.
+    _nsfwWatch?.dispose();
     super.onClose();
   }
 
@@ -139,17 +160,28 @@ class HomeController extends GetxController {
       // leave a titled row with nothing under it whenever every entry on a
       // shelf was filtered out -- which is the whole shelf for a user who
       // hides adult titles and a chart that happens to be full of them.
-      shelves.value = [
-        for (final entry in shelfTitles.entries)
-          if (_filtered(data[entry.key] ?? const []) case final items
-              when items.isNotEmpty)
-            HomeShelf(title: entry.value, items: items),
-      ];
+      _raw = data;
+      _rebuildShelves();
     } catch (_) {
       if (load != null && load != _load) return;
       error.value =
           'Could not reach AniList. Your library is still available below.';
     }
+  }
+
+  /// Rebuilds the shelves from the last payload under the current filter.
+  ///
+  /// Filter first, then drop the empty ones. Testing the raw list would leave
+  /// a titled row with nothing under it whenever every entry on a shelf was
+  /// filtered out — which is the whole shelf for a user who hides adult titles
+  /// and a chart that happens to be full of them.
+  void _rebuildShelves() {
+    shelves.value = [
+      for (final entry in shelfTitles.entries)
+        if (_filtered(_raw[entry.key] ?? const []) case final items
+            when items.isNotEmpty)
+          HomeShelf(title: entry.value, items: items),
+    ];
   }
 
   /// Honours the same NSFW preference as the extensions screen, so a user who

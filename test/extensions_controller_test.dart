@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:otaku_reader/core/preferences/nsfw_preference.dart';
 import 'package:otaku_reader/core/database/database.dart' as db;
 import 'package:otaku_reader/domain/repository/extension_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
@@ -133,6 +134,7 @@ void main() {
     final controller = ExtensionsController(
       extensions: extensions,
       sources: sources,
+      nsfw: NsfwPreference(),
     )..onInit();
     // onInit kicks off load() without awaiting; let it settle.
     await Future<void>.delayed(Duration.zero);

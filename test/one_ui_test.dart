@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
 
 import 'package:otaku_reader/core/database/database.dart' as db;
+import 'package:otaku_reader/core/preferences/nsfw_preference.dart';
 import 'package:otaku_reader/core/theme/one_ui.dart';
 import 'package:otaku_reader/core/theme/theme_controller.dart';
 import 'package:otaku_reader/data/anilist/anilist_metadata_service.dart';
@@ -74,6 +75,9 @@ void main() {
     env!.clear();
     Get.reset();
     Get.put<ThemeController>(ThemeController());
+    // Settings, Home and Browse all resolve the one holder rather than each
+    // keeping a copy — registering it is what makes them agree.
+    Get.put<NsfwPreference>(NsfwPreference());
     root = Directory.systemTemp.createTempSync('otaku-oneui');
 
     // **One repository instance, shared by everything here.**
@@ -107,7 +111,11 @@ void main() {
     // Every AniList lookup answers "nothing", which is also the path a first
     // launch with no network takes — and the one that renders the empty state.
     Get.put<HomeController>(
-      HomeController(anilist: _NoAniList(), library: library),
+      HomeController(
+        anilist: _NoAniList(),
+        library: library,
+        nsfw: NsfwPreference(),
+      ),
     );
     // The details screen builds its own controller from these four.
     Get.put<AniListMetadataService>(
@@ -341,7 +349,11 @@ void main() {
     // controller constructed in `setUp` lives outside the fake-async zone.
     await Get.delete<HomeController>();
     Get.put<HomeController>(
-      HomeController(anilist: _NoAniList(), library: library),
+      HomeController(
+        anilist: _NoAniList(),
+        library: library,
+        nsfw: NsfwPreference(),
+      ),
     );
 
     await tester.pumpWidget(wrap(const HomeScreen()));
@@ -361,7 +373,11 @@ void main() {
     // clean — the shelves are exactly the content Home exists to show.
     await Get.delete<HomeController>();
     Get.put<HomeController>(
-      HomeController(anilist: _OneShelf(), library: library),
+      HomeController(
+        anilist: _OneShelf(),
+        library: library,
+        nsfw: NsfwPreference(),
+      ),
     );
 
     await tester.pumpWidget(wrap(const HomeScreen()));
@@ -385,7 +401,11 @@ void main() {
     // every branch, that one included.
     final anilist = _GatedShelves();
     await Get.delete<HomeController>();
-    final c = HomeController(anilist: anilist, library: library);
+    final c = HomeController(
+      anilist: anilist,
+      library: library,
+      nsfw: NsfwPreference(),
+    );
 
     // Load 0 will answer 'Trending now', slowly.
     anilist.answer(0, 'trending', delay: true);
@@ -471,6 +491,47 @@ void main() {
       contains(OneUi.radiusSmall),
       reason: 'the portraits draw from the token, not from a literal 8',
     );
+  });
+
+  // A plain `test`, not `testWidgets`: this drives the controller, and
+  // `onInit`'s real Isar reads never complete inside the fake-async zone a
+  // widget test installs — the first version of this hung for ten minutes
+  // rather than failing on anything real.
+  test('flipping the 18+ preference re-filters the home shelves', () async {
+    // Issue #31. The shelves are filtered when they are *built*, so flipping
+    // the preference could not change shelves that already existed — the home
+    // page went on showing adult titles until the app restarted.
+    //
+    // Asserting only that `showNsfw` changed would pass with the re-filter
+    // missing, which is the whole reason the bug survived: the flag was always
+    // correct, the shelves were not. This asserts the shelves.
+    final nsfw = NsfwPreference()..shown.value = true;
+    await Get.delete<HomeController>();
+    final c = HomeController(
+      anilist: _AdultShelf(),
+      library: library,
+      nsfw: nsfw,
+    )..onInit();
+    for (var i = 0; i < 50 && c.shelves.isEmpty; i++) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    expect(c.shelves.single.items, hasLength(2));
+
+    nsfw.setShown(false);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(c.shelves.single.items.map((m) => m.titles.userPreferred), [
+      'Safe',
+    ], reason: 'the adult entry left the shelf without another AniList call');
+
+    nsfw.setShown(true);
+    await Future<void>.delayed(Duration.zero);
+    expect(
+      c.shelves.single.items,
+      hasLength(2),
+      reason: 'and comes back, from the retained payload',
+    );
+    c.onClose();
   });
 
   testWidgets('a group renders its label above the rows, not inside them', (
@@ -876,4 +937,19 @@ class _OneMethods implements SourceMethods {
   List<SourcePreference> getSourcePreferences() => const [];
   @override
   void dispose() {}
+}
+
+/// One shelf holding one adult title and one safe one.
+class _AdultShelf extends _NoAniList {
+  @override
+  Future<Map<String, List<AniListMedia>>> home({int perPage = 20}) async => {
+    'trending': [
+      const AniListMedia(id: 1, titles: AniListTitles(userPreferred: 'Safe')),
+      const AniListMedia(
+        id: 2,
+        titles: AniListTitles(userPreferred: 'Adult'),
+        isAdult: true,
+      ),
+    ],
+  };
 }
