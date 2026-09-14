@@ -10,6 +10,7 @@ import 'package:otaku_reader/core/preferences/nsfw_preference.dart';
 import 'package:otaku_reader/core/theme/one_ui.dart';
 import 'package:otaku_reader/core/theme/theme_controller.dart';
 import 'package:otaku_reader/data/anilist/anilist_auth.dart';
+import 'package:otaku_reader/data/anilist/anilist_list_service.dart';
 import 'package:otaku_reader/data/anilist/anilist_metadata_service.dart';
 import 'package:otaku_reader/data/anilist/title_matcher.dart';
 import 'package:otaku_reader/data/isar/manga_entry.dart';
@@ -140,6 +141,10 @@ void main() {
     final auth = AniListAuth(storage: FakeVault(), clientId: '');
     await auth.restore();
     Get.put<AniListAuth>(auth);
+    // The details screen resolves this to look up the user's own list row.
+    // Signed out here, so it answers null without a request — which is what a
+    // fresh clone does.
+    Get.put<AniListListService>(AniListListService(auth));
   });
 
   tearDown(() {

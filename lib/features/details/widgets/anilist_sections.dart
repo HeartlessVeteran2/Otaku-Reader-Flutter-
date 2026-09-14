@@ -5,6 +5,7 @@ import 'package:otaku_reader/core/theme/one_ui.dart';
 import 'package:iconsax/iconsax.dart';
 
 import 'package:otaku_reader/domain/model/anilist_media.dart';
+import 'package:otaku_reader/domain/model/anilist_list_entry.dart';
 
 /// The AniList stats strip: score, popularity, favourites.
 class AniListStats extends StatelessWidget {
@@ -385,5 +386,107 @@ class _Portrait extends StatelessWidget {
       placeholder: (_, _) => fallback,
       errorWidget: (_, _, _) => fallback,
     );
+  }
+}
+
+/// The signed-in user's own list row for this manga.
+///
+/// Sits above the public stats because it is the one line on the page about
+/// *this reader* rather than about the series — One UI puts the personal thing
+/// first, and it is what the user came to check.
+///
+/// Renders nothing when [entry] is null, which covers signed out, not on the
+/// user's list, and AniList unreachable. None of those is an error worth a
+/// row: the page works without it.
+class AniListListRow extends StatelessWidget {
+  const AniListListRow({super.key, required this.entry, this.totalChapters});
+
+  final AniListListEntry? entry;
+
+  /// The series' chapter count from AniList, for "12 / 24". Null while the
+  /// series is still running or AniList does not know, and then the total is
+  /// simply left off rather than guessed at.
+  final int? totalChapters;
+
+  @override
+  Widget build(BuildContext context) {
+    final row = entry;
+    if (row == null) return const SizedBox.shrink();
+
+    final theme = Theme.of(context);
+    final progress = totalChapters == null
+        ? 'Ch. ${row.progress}'
+        : 'Ch. ${row.progress} / $totalChapters';
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 20),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(OneUi.radius),
+        child: Material(
+          color: theme.colorScheme.secondaryContainer,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                Icon(
+                  Iconsax.profile_tick,
+                  size: 20,
+                  color: theme.colorScheme.onSecondaryContainer,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'On your AniList',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.onSecondaryContainer
+                              .withValues(alpha: 0.7),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        [
+                          row.statusLabel,
+                          progress,
+                          // Omitted entirely when unscored. AniList stores no
+                          // "unset", so a 0 would otherwise render as a
+                          // rating of zero on every entry never rated.
+                          if (row.score != null) _score(row.score!),
+                          if (row.repeat > 0) 'Reread ×${row.repeat}',
+                        ].join('  ·  '),
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSecondaryContainer,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (row.private)
+                  Icon(
+                    Iconsax.eye_slash,
+                    size: 18,
+                    color: theme.colorScheme.onSecondaryContainer.withValues(
+                      alpha: 0.7,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// AniList already returned this in the viewer's own format, so the only job
+  /// left is to drop a pointless trailing `.0` — a ten-point user who scored
+  /// something 8 should see "8", not "8.0", and an 8.5 keeps its half.
+  static String _score(double score) {
+    final text = score == score.roundToDouble()
+        ? score.toStringAsFixed(0)
+        : score.toStringAsFixed(1);
+    return '★ $text';
   }
 }

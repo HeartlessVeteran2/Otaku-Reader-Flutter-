@@ -6,6 +6,7 @@ import 'package:get/get.dart';
 import 'package:otaku_reader/core/preferences/nsfw_preference.dart';
 import 'package:otaku_reader/core/theme/theme_controller.dart';
 import 'package:otaku_reader/data/anilist/anilist_auth.dart';
+import 'package:otaku_reader/data/anilist/anilist_list_service.dart';
 import 'package:otaku_reader/data/repository/extension_repository_impl.dart';
 import 'package:otaku_reader/data/anilist/anilist_metadata_service.dart';
 import 'package:otaku_reader/data/repository/anilist_repository_impl.dart';
@@ -50,6 +51,12 @@ class AppBindings extends Bindings {
     // `isReady` is what every screen gates on — "not signed in" and "not
     // looked yet" are different states and are kept apart deliberately.
     unawaited(anilistAuth.restore());
+    // Reads the user's own list rows. Stateless and never caches, so it is
+    // safe to share one instance.
+    Get.put<AniListListService>(
+      AniListListService(anilistAuth),
+      permanent: true,
+    );
 
     // Repositories are registered against their *interfaces*, so nothing in the
     // feature layer can reach an implementation detail such as Isar or the

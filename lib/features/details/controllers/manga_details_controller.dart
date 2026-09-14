@@ -8,9 +8,11 @@ import 'dart:async';
 
 import 'package:get/get.dart';
 
+import 'package:otaku_reader/data/anilist/anilist_list_service.dart';
 import 'package:otaku_reader/data/anilist/anilist_metadata_service.dart';
 import 'package:otaku_reader/data/anilist/title_matcher.dart';
 import 'package:otaku_reader/data/isar/manga_entry.dart';
+import 'package:otaku_reader/domain/model/anilist_list_entry.dart';
 import 'package:otaku_reader/domain/model/anilist_media.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
@@ -26,6 +28,7 @@ class MangaDetailsController extends GetxController {
     required SourceRepository sources,
     required LibraryRepository library,
     required AniListMetadataService anilist,
+    required AniListListService anilistList,
     required DownloadRepository downloads,
     required this.sourceId,
     required this.url,
@@ -33,12 +36,14 @@ class MangaDetailsController extends GetxController {
   }) : _sources = sources,
        _library = library,
        _anilist = anilist,
+       _anilistList = anilistList,
        _downloads = downloads,
        _initial = initial;
 
   final SourceRepository _sources;
   final LibraryRepository _library;
   final AniListMetadataService _anilist;
+  final AniListListService _anilistList;
   final DownloadRepository _downloads;
   final int sourceId;
   final String url;
@@ -65,6 +70,15 @@ class MangaDetailsController extends GetxController {
   /// right ones. The recourse is [linkTo], not a lower threshold.
   final anilist = Rxn<AniListMedia>();
   final isLoadingAniList = false.obs;
+
+  /// The signed-in user's own list row for this manga, or null.
+  ///
+  /// Null is the answer for signed out, not on their list, and AniList being
+  /// unreachable alike — all three render nothing, so they need not be told
+  /// apart here. Never cached: progress changes whenever the user reads a
+  /// chapter on another device, and a stale number claiming they are on
+  /// chapter 12 after they read 20 is worse than no number.
+  final anilistEntry = Rxn<AniListListEntry>();
 
   /// What the browse grid already knew, shown immediately so the page is not a
   /// spinner over nothing while the detail request runs.
@@ -240,6 +254,9 @@ class MangaDetailsController extends GetxController {
       );
       if (generation != _generation) return;
       anilist.value = media;
+      // Sequential, not parallel: the list row is keyed by the AniList media
+      // id, which only exists once the match above resolved.
+      await _loadAniListEntry(generation, media?.id);
     } catch (_) {
       // Swallowed on purpose. A page that works without AniList must not show
       // an error because AniList was unreachable — the chapter list, the cover
@@ -247,6 +264,16 @@ class MangaDetailsController extends GetxController {
     } finally {
       if (generation == _generation) isLoadingAniList.value = false;
     }
+  }
+
+  Future<void> _loadAniListEntry(int generation, int? mediaId) async {
+    if (mediaId == null) {
+      anilistEntry.value = null;
+      return;
+    }
+    final entry = await _anilistList.entryFor(mediaId);
+    if (generation != _generation) return;
+    anilistEntry.value = entry;
   }
 
   /// Candidates for the manual picker, best first.
@@ -269,6 +296,10 @@ class MangaDetailsController extends GetxController {
     if (id == null) return;
     _anilist.clearLink(id);
     anilist.value = null;
+    // The list row belongs to the media that was just unlinked. Leaving it
+    // would show the user's progress on a series this page no longer claims
+    // to be.
+    anilistEntry.value = null;
   }
 
   Future<void> toggleFavorite() async {

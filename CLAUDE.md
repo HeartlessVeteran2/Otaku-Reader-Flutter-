@@ -298,6 +298,25 @@ identical from the outside.
   there has nobody to catch it and becomes an unhandled async error at
   startup. That covers the keystore (read, write *and* delete can each fail
   independently) and the payload, whose fields are checked rather than cast.
+- **The user's own list row is never cached; the public record is.**
+  `AniListMetadataService` serves the series and caches it per entry on a
+  7-day TTL. `AniListListService` serves the reader's own row — status,
+  progress, score — and fetches it live every time, because progress changes
+  whenever they read a chapter on another device. A cached number claiming
+  they are on chapter 12 after they read 20 elsewhere is worse than no number.
+- **A score of 0 is *unscored*, not a score of zero.** AniList stores no
+  "unset" — every format bottoms out at 0 — so taking the number at face value
+  stamps a rating of zero on every entry the user never rated, which is most
+  of them. Both the model and the rendered row drop it.
+- **`score` is requested with an explicit `format:`.** The schema is
+  `score(format: ScoreFormat)`, verified by introspecting the live endpoint.
+  Leaving it to AniList's default is what shows a five-star user a ten-point
+  number their own profile never displays.
+- **`CURRENT` is "Reading", not "Current".** `MediaListStatus` is shared with
+  anime, where the same value means "Watching"; `REPEATING` likewise. An
+  unrecognised status renders the raw value prettified rather than falling
+  back to a known one — AniList adding a status must leave the row unlabelled,
+  never claim the user is reading something they are not.
 - **`signIn` has three outcomes and `signOut` has two**, because the keystore
   failing is not the same event as AniList refusing. "Accepted but not saved"
   is a live session that will not survive a restart; reporting it as a
@@ -448,6 +467,7 @@ Kept because they repeat.
 | The obvious fix for "a dead token is retried forever" would have signed users out for being offline | `loadViewer` answered "no" for a rejection *and* for no network, AniList down, and our own bad query. Deleting the token on any failure — which is what the finding implied — costs a user with a perfectly good token their account, recoverable only through the whole pin flow. A review finding can be right about the defect and wrong about the remedy; verify the remedy separately, and prove it by applying the naive one and watching the right tests fail. |
 | Disposing a sheet's `TextEditingController` after `await showModalBottomSheet` | That future completes when the sheet is **popped**, while its exit animation is still running and the `TextField` is still mounted — so the dispose throws "A TextEditingController was used after being disposed" part-way through the close. It is the fix that suggests itself, it reads as obviously correct, and a test that asserts only the end state never sees it because the throw happens mid-animation. Let the sheet's own `State` own the controller; the framework disposes it once the route is gone, and that covers the dismissal path too. |
 | A row read `viewer` and ignored `isReady` | Written in the same commit as the rule saying those are different answers, and two files from the screen that honours it — so Settings said "Not signed in" during startup while the Accounts screen it opened said otherwise. Writing a rule down is not applying it; grep for the other readers of a flag whenever you add one. |
+| A "signed out asks nothing" test passed with the guard deleted | `AniListAuth.query` already refuses when there is no token, so the service's own `viewer == null` check was covered by somebody else's guard. It earns its keep in a *different* state the obvious test never reaches: an offline launch keeps the stored token deliberately, so `isSignedIn` is true while `viewer` is still null and there is no user id to query by. Found by mutating the guard and watching nothing fail. When a check looks redundant, find the state where it is not — or delete it. |
 | A review filed a High for the authorize URL "missing" `redirect_uri` | AniList documents that parameter for the **authorization code** grant, warning it must exactly match the registered one, and omits it from the **implicit** grant, which takes `client_id` alone and redirects to the value in application settings. Applying the suggestion would have turned a working request into a hard OAuth rejection for any build registered with a different redirect. Two findings running where the bot was right about the *shape* and wrong about the *facts*: when a finding rests on an external contract — an API, an index format, a published spec — go and read that contract before touching the code. Declining is the fix; pinning the decision in a test so the next reader does not re-raise it is the rest of the fix. |
 
 The general lesson, and the one that keeps recurring across both codebases:
