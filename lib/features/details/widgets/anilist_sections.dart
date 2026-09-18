@@ -6,6 +6,7 @@ import 'package:iconsax/iconsax.dart';
 
 import 'package:otaku_reader/domain/model/anilist_media.dart';
 import 'package:otaku_reader/domain/model/anilist_list_entry.dart';
+import 'package:otaku_reader/data/anilist/anilist_list_service.dart';
 
 /// The AniList stats strip: score, popularity, favourites.
 class AniListStats extends StatelessWidget {
@@ -389,34 +390,44 @@ class _Portrait extends StatelessWidget {
   }
 }
 
-/// The signed-in user's own list row for this manga.
+/// The signed-in user's own list row for this manga, and the way in to edit it.
 ///
-/// Sits above the public stats because it is the one line on the page about
-/// *this reader* rather than about the series — One UI puts the personal thing
-/// first, and it is what the user came to check.
+/// Four states, because they need four different answers:
 ///
-/// Renders nothing when [entry] is null, which covers signed out, not on the
-/// user's list, and AniList unreachable. None of those is an error worth a
-/// row: the page works without it.
+/// - **signed out** and **unavailable** render nothing. There is nothing the
+///   user can usefully do, and offering an "add" that is about to fail is
+///   worse than offering none.
+/// - **not on your list** offers to add it. `SaveMediaListEntry` creates the
+///   row, so adding and editing are the same call and the same sheet.
+/// - **on your list** shows status, progress and score, and opens the sheet.
 class AniListListRow extends StatelessWidget {
-  const AniListListRow({super.key, required this.entry, this.totalChapters});
+  const AniListListRow({
+    super.key,
+    required this.result,
+    this.totalChapters,
+    this.onEdit,
+    this.isSaving = false,
+  });
 
-  final AniListListEntry? entry;
+  final AniListListResult result;
 
   /// The series' chapter count from AniList, for "12 / 24". Null while the
   /// series is still running or AniList does not know, and then the total is
   /// simply left off rather than guessed at.
   final int? totalChapters;
 
+  final VoidCallback? onEdit;
+
+  /// Shows a spinner in place of the edit affordance. Without it the row just
+  /// stops responding while a write is in flight, which reads as broken
+  /// rather than as busy.
+  final bool isSaving;
+
   @override
   Widget build(BuildContext context) {
-    final row = entry;
-    if (row == null) return const SizedBox.shrink();
-
+    if (!result.isActionable) return const SizedBox.shrink();
     final theme = Theme.of(context);
-    final progress = totalChapters == null
-        ? 'Ch. ${row.progress}'
-        : 'Ch. ${row.progress} / $totalChapters';
+    final row = result.entry;
 
     return Padding(
       padding: const EdgeInsets.only(top: 20),
@@ -424,59 +435,104 @@ class AniListListRow extends StatelessWidget {
         borderRadius: BorderRadius.circular(OneUi.radius),
         child: Material(
           color: theme.colorScheme.secondaryContainer,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            child: Row(
-              children: [
-                Icon(
-                  Iconsax.profile_tick,
-                  size: 20,
-                  color: theme.colorScheme.onSecondaryContainer,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'On your AniList',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: theme.colorScheme.onSecondaryContainer
-                              .withValues(alpha: 0.7),
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        [
-                          row.statusLabel,
-                          progress,
-                          // Omitted entirely when unscored. AniList stores no
-                          // "unset", so a 0 would otherwise render as a
-                          // rating of zero on every entry never rated.
-                          if (row.score != null) _score(row.score!),
-                          if (row.repeat > 0) 'Reread ×${row.repeat}',
-                        ].join('  ·  '),
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onSecondaryContainer,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (row.private)
+          child: InkWell(
+            onTap: onEdit,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(
+                children: [
                   Icon(
-                    Iconsax.eye_slash,
-                    size: 18,
-                    color: theme.colorScheme.onSecondaryContainer.withValues(
-                      alpha: 0.7,
-                    ),
+                    row == null ? Iconsax.add_circle : Iconsax.profile_tick,
+                    size: 20,
+                    color: theme.colorScheme.onSecondaryContainer,
                   ),
-              ],
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: row == null
+                        ? Text(
+                            'Add to your AniList',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.onSecondaryContainer,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          )
+                        : _Summary(row: row, totalChapters: totalChapters),
+                  ),
+                  if (row?.private ?? false)
+                    Icon(
+                      Iconsax.eye_slash,
+                      size: 18,
+                      color: theme.colorScheme.onSecondaryContainer.withValues(
+                        alpha: 0.7,
+                      ),
+                    ),
+                  if (isSaving)
+                    SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: theme.colorScheme.onSecondaryContainer,
+                      ),
+                    )
+                  else if (onEdit != null)
+                    Icon(
+                      Iconsax.edit_2,
+                      size: 18,
+                      color: theme.colorScheme.onSecondaryContainer.withValues(
+                        alpha: 0.7,
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+class _Summary extends StatelessWidget {
+  const _Summary({required this.row, this.totalChapters});
+
+  final AniListListEntry row;
+  final int? totalChapters;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final progress = totalChapters == null
+        ? 'Ch. ${row.progress}'
+        : 'Ch. ${row.progress} / $totalChapters';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'On your AniList',
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: theme.colorScheme.onSecondaryContainer.withValues(
+              alpha: 0.7,
+            ),
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          [
+            row.statusLabel,
+            progress,
+            // Omitted entirely when unscored. AniList stores no "unset", so a
+            // 0 would otherwise render as a rating of zero on every entry
+            // never rated.
+            if (row.score != null) _score(row.score!),
+            if (row.repeat > 0) 'Reread ×${row.repeat}',
+          ].join('  ·  '),
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSecondaryContainer,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
     );
   }
 

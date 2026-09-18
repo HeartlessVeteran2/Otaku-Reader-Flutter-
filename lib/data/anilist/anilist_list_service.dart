@@ -1,7 +1,56 @@
 import 'package:otaku_reader/data/anilist/anilist_auth.dart';
 import 'package:otaku_reader/domain/model/anilist_list_entry.dart';
 
-/// Reads the signed-in user's own AniList list.
+/// What looking up the viewer's row found — which is not the same thing as the
+/// row itself.
+///
+/// While the row was read-only these were deliberately collapsed into one
+/// nullable entry, because every one of them rendered the same: nothing. That
+/// stopped being true the moment editing arrived. "Not on your list" is now an
+/// invitation to add it, and the other two are not — so they have to be told
+/// apart, and the comment claiming they need not be is gone with them.
+enum AniListListLookup {
+  /// No account. The list is not the user's to add to.
+  signedOut,
+
+  /// Asked, and could not get an answer — offline, AniList down, a garbled
+  /// reply. Offering "add to list" here would offer an action about to fail.
+  unavailable,
+
+  /// Asked, and this manga is not on their list. The one state where adding
+  /// is offered.
+  notOnList,
+
+  /// On the list.
+  onList,
+}
+
+/// A lookup's outcome and, when there is one, the row.
+class AniListListResult {
+  const AniListListResult(this.lookup, [this.entry]);
+
+  const AniListListResult.signedOut()
+    : lookup = AniListListLookup.signedOut,
+      entry = null;
+
+  const AniListListResult.unavailable()
+    : lookup = AniListListLookup.unavailable,
+      entry = null;
+
+  const AniListListResult.notOnList()
+    : lookup = AniListListLookup.notOnList,
+      entry = null;
+
+  final AniListListLookup lookup;
+  final AniListListEntry? entry;
+
+  /// Whether the user could act on this row at all.
+  bool get isActionable =>
+      lookup == AniListListLookup.onList ||
+      lookup == AniListListLookup.notOnList;
+}
+
+/// Reads and writes the signed-in user's own AniList list.
 ///
 /// Distinct from `AniListMetadataService`, which serves the *public* record of
 /// a series and caches it per entry against a 7-day TTL. This is per-user,
@@ -14,16 +63,12 @@ class AniListListService {
 
   final AniListAuth _auth;
 
-  /// The viewer's entry for [mediaId], or null.
-  ///
-  /// Null covers three different things on purpose, because every one of them
-  /// renders the same — nothing: signed out, not on the user's list, and
-  /// AniList unreachable. A tracking row is an enhancement on a page that has
-  /// to work without it, so there is no error state to show and nothing for
-  /// the user to act on.
-  Future<AniListListEntry?> entryFor(int mediaId) async {
+  /// The viewer's entry for [mediaId], and what kind of answer that is.
+  Future<AniListListResult> lookUp(int mediaId) async {
     final viewer = _auth.viewer.value;
-    if (viewer == null) return null;
+    // Covers signed out *and* a token restored offline, where `isSignedIn` is
+    // true but there is no user id to query by.
+    if (viewer == null) return const AniListListResult.signedOut();
 
     final data = await _auth.query(
       _query,
@@ -38,7 +83,54 @@ class AniListListService {
       },
     );
 
-    final raw = data?['MediaList'];
+    // A null `data` is a failed call; a null `MediaList` *inside* a successful
+    // one is AniList saying "not on their list". Those are different answers
+    // and only the second one may offer to add it.
+    if (data == null) return const AniListListResult.unavailable();
+    final raw = data['MediaList'];
+    if (raw == null) return const AniListListResult.notOnList();
+
+    final entry = AniListListEntry.fromJson(
+      raw is Map ? raw.cast<String, dynamic>() : null,
+    );
+    return entry == null
+        ? const AniListListResult.unavailable()
+        : AniListListResult(AniListListLookup.onList, entry);
+  }
+
+  /// Writes [status] and/or [progress] to the viewer's list.
+  ///
+  /// `SaveMediaListEntry` **creates** the row when there is none, so adding an
+  /// untracked manga and editing a tracked one are the same call — which is
+  /// why the sheet behind this needs no separate "add" path.
+  ///
+  /// **Only the named arguments are sent.** AniList sets exactly what it is
+  /// given, so passing a field the user did not touch would write back a value
+  /// read some time ago — resetting progress they advanced on another device
+  /// in between. Null here means "leave it alone", not "clear it".
+  ///
+  /// Returns the row AniList now holds, or null if the write failed. The
+  /// answer is taken from the response rather than assumed, because the server
+  /// may normalise what it was sent.
+  Future<AniListListEntry?> save({
+    required int mediaId,
+    AniListListStatus? status,
+    int? progress,
+  }) async {
+    if (_auth.viewer.value == null) return null;
+    if (status == null && progress == null) return null;
+
+    final data = await _auth.query(
+      _mutation,
+      variables: {
+        'mediaId': mediaId,
+        if (status != null) 'status': status.wire,
+        if (progress != null) 'progress': progress,
+        'format': _auth.viewer.value!.scoreFormat.wire,
+      },
+    );
+
+    final raw = data?['SaveMediaListEntry'];
     return AniListListEntry.fromJson(
       raw is Map ? raw.cast<String, dynamic>() : null,
     );
@@ -49,6 +141,24 @@ class AniListListService {
   static const _query = r'''
 query ($userId: Int, $mediaId: Int, $format: ScoreFormat) {
   MediaList(userId: $userId, mediaId: $mediaId, type: MANGA) {
+    id
+    status
+    progress
+    progressVolumes
+    score(format: $format)
+    repeat
+    private
+    media { id }
+  }
+}
+''';
+
+  /// `status` and `progress` are nullable in the schema, and a variable that
+  /// is simply absent is not sent — which is what makes "leave it alone"
+  /// expressible at all.
+  static const _mutation = r'''
+mutation ($mediaId: Int, $status: MediaListStatus, $progress: Int, $format: ScoreFormat) {
+  SaveMediaListEntry(mediaId: $mediaId, status: $status, progress: $progress) {
     id
     status
     progress
