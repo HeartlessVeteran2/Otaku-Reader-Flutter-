@@ -27,22 +27,34 @@ enum AniListListLookup {
 
 /// A lookup's outcome and, when there is one, the row.
 class AniListListResult {
-  const AniListListResult(this.lookup, [this.entry]);
+  const AniListListResult(this.lookup, [this.entry, this.scoreFormat]);
 
   const AniListListResult.signedOut()
     : lookup = AniListListLookup.signedOut,
-      entry = null;
+      entry = null,
+      scoreFormat = null;
 
   const AniListListResult.unavailable()
     : lookup = AniListListLookup.unavailable,
-      entry = null;
+      entry = null,
+      scoreFormat = null;
 
-  const AniListListResult.notOnList()
+  const AniListListResult.notOnList([this.scoreFormat])
     : lookup = AniListListLookup.notOnList,
       entry = null;
 
   final AniListListLookup lookup;
   final AniListListEntry? entry;
+
+  /// The units [entry]'s score is in, as AniList reported them **in the same
+  /// response**.
+  ///
+  /// Carried with the row rather than read from the cached viewer, because
+  /// the two can disagree: the cache is written at sign-in and the format is
+  /// a setting the user can change from another device. Reading in one scale
+  /// and writing in another turns an 85/100 into a five-star 85, so the scale
+  /// travels with the number it describes.
+  final ScoreFormat? scoreFormat;
 
   /// Whether the user could act on this row at all.
   bool get isActionable =>
@@ -96,15 +108,30 @@ class AniListListService {
     // one is AniList saying "not on their list". Those are different answers
     // and only the second one may offer to add it.
     if (data == null) return const AniListListResult.unavailable();
+
+    // The format AniList holds *now*, asked for in the same request as the
+    // row so the two cannot disagree. Absent only if the shape changed, in
+    // which case the format we asked with is still the one it answered in.
+    final live = data['Viewer'] is Map
+        ? ScoreFormat.parse(
+            (((data['Viewer'] as Map)['mediaListOptions']
+                    as Map?)?['scoreFormat'])
+                as String?,
+          )
+        : viewer.scoreFormat;
+    // Adopted so the write path, which renders its response with the cached
+    // viewer's format, agrees with what was just read.
+    _auth.adoptScoreFormat(live);
+
     final raw = data['MediaList'];
-    if (raw == null) return const AniListListResult.notOnList();
+    if (raw == null) return AniListListResult.notOnList(live);
 
     final entry = AniListListEntry.fromJson(
       raw is Map ? raw.cast<String, dynamic>() : null,
     );
     return entry == null
         ? const AniListListResult.unavailable()
-        : AniListListResult(AniListListLookup.onList, entry);
+        : AniListListResult(AniListListLookup.onList, entry, live);
   }
 
   /// Writes any of [status], [progress] and [score] to the viewer's list.
@@ -162,8 +189,13 @@ class AniListListService {
 
   /// `MediaList` is a root query field, and `type: MANGA` keeps a media id
   /// that exists in both halves of AniList from resolving to the anime row.
+  ///
+  /// `Viewer` rides along for its score format. It is one more field on a
+  /// request already being made, and it is what stops the row and its scale
+  /// from coming from two different moments.
   static const _query = r'''
 query ($userId: Int, $mediaId: Int, $format: ScoreFormat) {
+  Viewer { mediaListOptions { scoreFormat } }
   MediaList(userId: $userId, mediaId: $mediaId, type: MANGA) {
     id
     status

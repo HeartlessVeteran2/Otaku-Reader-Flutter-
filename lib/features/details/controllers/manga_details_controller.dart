@@ -348,13 +348,15 @@ class MangaDetailsController extends GetxController {
     }
   }
 
-  /// The format the viewer's AniList profile shows scores in, or null when
-  /// there is no viewer.
+  /// The units this page's AniList row is in.
   ///
-  /// Read live rather than captured, because it is a setting on a server the
-  /// user can change from another device, and the editor has to open in
-  /// whatever it says at the moment it opens.
-  ScoreFormat? get anilistScoreFormat => _anilistList.scoreFormat;
+  /// **The row's own format first**, which came back in the same response as
+  /// the row, and only then the cached viewer's. The cache is written at
+  /// sign-in and the format is a setting the user can change from another
+  /// device, so preferring it would let the editor open on a scale the number
+  /// in front of it is not on.
+  ScoreFormat? get anilistScoreFormat =>
+      anilistList.value.scoreFormat ?? _anilistList.scoreFormat;
 
   /// Candidates for the manual picker, best first.
   Future<List<TitleMatch>> anilistCandidates() async {

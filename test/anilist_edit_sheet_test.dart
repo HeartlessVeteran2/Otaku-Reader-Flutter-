@@ -389,4 +389,25 @@ void main() {
       expect(find.byTooltip('Good'), findsOneWidget);
     });
   });
+
+  group('the rating control fits the phone it is on', () {
+    // `flutter analyze` cannot see a layout overflow, and this repo already
+    // has a row in its mistake list for a screen that analysed clean and could
+    // not lay out. The star row did overflow — by 89 pixels at 320px, because
+    // five 48px targets plus the clear button need about 330 and a narrow
+    // phone does not have it between the sheet's gutters.
+    //
+    // Reproduced before it was fixed; this is the test that failed.
+    for (final format in ScoreFormat.values) {
+      testWidgets('${format.wire} lays out at 320px', (tester) async {
+        tester.view.physicalSize = const Size(320, 640);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
+
+        await open(tester, _scored, scoreFormat: format);
+
+        expect(tester.takeException(), isNull);
+      });
+    }
+  });
 }

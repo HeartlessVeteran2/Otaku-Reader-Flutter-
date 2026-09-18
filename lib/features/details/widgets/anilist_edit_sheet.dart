@@ -89,11 +89,14 @@ class _EditSheetState extends State<_EditSheet> {
 
   /// The working rating, always on the format's own grid.
   ///
-  /// Clamped on the way in because the seed and the editor can disagree about
-  /// the scale: the row was fetched with `score(format:)` as the profile read
-  /// *then*, and this opens with the format as it reads *now*. Change the
-  /// setting from POINT_100 to POINT_5 in between and the seed is an 85 on a
-  /// five-star input, which has no position to render it at.
+  /// The clamp is **defence against a malformed row, not a scale converter**,
+  /// and the difference matters: clamping an 85/100 to 5 stars does not
+  /// preserve that rating, it destroys it. The scale mismatch it used to
+  /// paper over is fixed where it starts — the lookup asks AniList for the
+  /// live score format in the same response as the row, so the number and
+  /// its units always come from the same moment. What is left here is a
+  /// value AniList should never send, kept in range so the input can still
+  /// render rather than throwing inside a build.
   late double _score =
       widget.scoreFormat?.clampScore(_original?.score ?? 0) ?? 0;
 
@@ -104,6 +107,10 @@ class _EditSheetState extends State<_EditSheet> {
   /// that as an edit — arming Save with a number the user never chose, which
   /// is the same defect the unknown-status rule exists to prevent one field
   /// up. Only a touch counts as a touch.
+  ///
+  /// It guards a path that should now be unreachable, which is the point: if
+  /// a malformed row ever does get clamped, the failure is a disabled Save
+  /// rather than a silent overwrite.
   bool _scoreTouched = false;
 
   /// What actually changed, which is what gets sent.
@@ -326,21 +333,32 @@ class _Symbols extends StatelessWidget {
     // Stars fill cumulatively; faces do not. Five symbols means stars.
     final cumulative = count == 5;
 
-    return Row(
+    // A `Wrap`, not a `Row` with a `Spacer`. Five 48px targets and the clear
+    // button need about 330px, which a 320px phone does not have between the
+    // sheet's gutters — a Row overflows there by 89px and renders the rating
+    // control unusable at exactly the width where space is tightest. A Wrap
+    // cannot overflow; it moves the clear button to its own line instead.
+    return Wrap(
+      alignment: WrapAlignment.spaceBetween,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        for (var value = 1; value <= count; value++)
-          IconButton(
-            tooltip: labelFor(value),
-            onPressed: () => onChanged(value.toDouble()),
-            color: theme.colorScheme.primary,
-            icon: Icon(
-              iconFor(
-                value,
-                cumulative ? value <= selected : value == selected,
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var value = 1; value <= count; value++)
+              IconButton(
+                tooltip: labelFor(value),
+                onPressed: () => onChanged(value.toDouble()),
+                color: theme.colorScheme.primary,
+                icon: Icon(
+                  iconFor(
+                    value,
+                    cumulative ? value <= selected : value == selected,
+                  ),
+                ),
               ),
-            ),
-          ),
-        const Spacer(),
+          ],
+        ),
         TextButton(
           // Zero is a real request — "remove my score" — not an empty one, so
           // it needs somewhere to be pressed. On the numeric formats the

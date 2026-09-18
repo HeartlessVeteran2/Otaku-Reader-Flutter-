@@ -346,6 +346,30 @@ class AniListAuth {
     return _Auth.ok;
   }
 
+  /// Adopts a score format AniList reported more recently than sign-in.
+  ///
+  /// The cached viewer is written once, at [restore] or [signIn], and the
+  /// score format inside it is a **server-side setting the user can change
+  /// from any other device**. Left alone it goes stale for the whole life of
+  /// the process, and a stale one is not a cosmetic problem: rows are read
+  /// with `score(format:)` in the old units while `SaveMediaListEntry`
+  /// interprets `score` in the user's *current* ones, so the app reads 85/100
+  /// and writes it as a five-star rating of 85.
+  ///
+  /// Callers that learn the live format — a list lookup asks for it in the
+  /// same response as the row — hand it here, so everything downstream of
+  /// them agrees about the units.
+  void adoptScoreFormat(ScoreFormat format) {
+    final current = viewer.value;
+    if (current == null || current.scoreFormat == format) return;
+    viewer.value = AniListViewer(
+      id: current.id,
+      name: current.name,
+      avatarUrl: current.avatarUrl,
+      scoreFormat: format,
+    );
+  }
+
   /// Runs an **authenticated** GraphQL call. Null on any failure.
   ///
   /// Deliberately swallows the error rather than throwing: every caller here
