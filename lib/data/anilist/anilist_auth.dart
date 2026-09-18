@@ -12,16 +12,62 @@ import 'package:http/http.dart' as http;
 /// stars, which reads as the app having the wrong number rather than the wrong
 /// unit.
 enum ScoreFormat {
-  point100('POINT_100'),
-  point10Decimal('POINT_10_DECIMAL'),
-  point10('POINT_10'),
-  point5('POINT_5'),
-  point3('POINT_3');
+  point100('POINT_100', max: 100),
+  point10Decimal('POINT_10_DECIMAL', max: 10, decimals: 1),
+  point10('POINT_10', max: 10),
+  point5('POINT_5', max: 5),
+  point3('POINT_3', max: 3);
 
-  const ScoreFormat(this.wire);
+  const ScoreFormat(this.wire, {required this.max, this.decimals = 0});
 
   /// The value AniList's API uses.
   final String wire;
+
+  /// The top of this format's range.
+  ///
+  /// Read from AniList's own schema descriptions rather than recalled:
+  /// `POINT_100` is "An integer from 0-100", `POINT_10_DECIMAL` "A float from
+  /// 0-10 with 1 decimal place", `POINT_10` "An integer from 0-10", `POINT_5`
+  /// "An integer from 0-5. Should be represented in Stars", and `POINT_3` "An
+  /// integer from 0-3. Should be represented in Smileys. 0 => No Score, 1 =>
+  /// :(, 2 => :|, 3 => :)".
+  ///
+  /// That last one is also the authority for a rule this app already had, and
+  /// is worth having in writing: **zero is "no score", not a score of zero.**
+  final double max;
+
+  /// Decimal places this format carries — one, and only for
+  /// `POINT_10_DECIMAL`.
+  final int decimals;
+
+  /// The smallest change this format can express.
+  double get step => decimals == 0 ? 1 : 0.1;
+
+  /// Distinct positions on the scale, which is what a slider's divisions have
+  /// to be for every stop it can land on to be a score AniList accepts.
+  int get divisions => (max / step).round();
+
+  /// Snaps [value] onto this format's grid.
+  ///
+  /// Not defensive padding. A row is fetched with `score(format:)` in whatever
+  /// the viewer's profile said *at that moment*, and the editor opens in
+  /// whatever it says when it opens. Change the setting from POINT_100 to
+  /// POINT_5 in between and the seed is an 85 on a five-star scale — a value
+  /// the input has no position for, so without this the editor cannot render
+  /// the row it was opened on.
+  double clampScore(double value) {
+    final bounded = value.clamp(0.0, max);
+    if (decimals == 0) return bounded.roundToDouble();
+    return (bounded * 10).roundToDouble() / 10;
+  }
+
+  /// [score] as the viewer's profile writes it.
+  ///
+  /// The trailing `.0` goes: a ten-point user who scored something 8 should
+  /// see "8", and an 8.5 keeps its half.
+  String format(double score) => score == score.roundToDouble()
+      ? score.toStringAsFixed(0)
+      : score.toStringAsFixed(1);
 
   static ScoreFormat parse(String? value) => ScoreFormat.values.firstWhere(
     (f) => f.wire == value,

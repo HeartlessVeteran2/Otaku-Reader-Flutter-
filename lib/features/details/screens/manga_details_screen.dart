@@ -183,6 +183,7 @@ Future<void> _editAniList(
   final edit = await showAniListEditSheet(
     context,
     result: controller.anilistList.value,
+    scoreFormat: controller.anilistScoreFormat,
     totalChapters: totalChapters,
   );
   if (edit == null || edit.isEmpty || !context.mounted) return;
@@ -191,6 +192,7 @@ Future<void> _editAniList(
   final result = await controller.saveAniList(
     status: edit.status,
     progress: edit.progress,
+    score: edit.score,
   );
   // `busy` says nothing, deliberately. The write already in flight will
   // report its own outcome, and this one was never offered to AniList — so

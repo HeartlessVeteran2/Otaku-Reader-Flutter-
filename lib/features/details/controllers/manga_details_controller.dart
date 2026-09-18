@@ -8,6 +8,7 @@ import 'dart:async';
 
 import 'package:get/get.dart';
 
+import 'package:otaku_reader/data/anilist/anilist_auth.dart';
 import 'package:otaku_reader/data/anilist/anilist_list_service.dart';
 import 'package:otaku_reader/data/anilist/anilist_metadata_service.dart';
 import 'package:otaku_reader/data/anilist/title_matcher.dart';
@@ -314,6 +315,7 @@ class MangaDetailsController extends GetxController {
   Future<AniListSaveResult> saveAniList({
     AniListListStatus? status,
     int? progress,
+    double? score,
   }) async {
     final mediaId = anilist.value?.id;
     if (mediaId == null) return AniListSaveResult.refused;
@@ -324,6 +326,7 @@ class MangaDetailsController extends GetxController {
         mediaId: mediaId,
         status: status,
         progress: progress,
+        score: score,
       );
       if (saved == null) return AniListSaveResult.refused;
       // Publish only if this page is still about the media the write went to.
@@ -344,6 +347,14 @@ class MangaDetailsController extends GetxController {
       isSavingAniList.value = false;
     }
   }
+
+  /// The format the viewer's AniList profile shows scores in, or null when
+  /// there is no viewer.
+  ///
+  /// Read live rather than captured, because it is a setting on a server the
+  /// user can change from another device, and the editor has to open in
+  /// whatever it says at the moment it opens.
+  ScoreFormat? get anilistScoreFormat => _anilistList.scoreFormat;
 
   /// Candidates for the manual picker, best first.
   Future<List<TitleMatch>> anilistCandidates() async {

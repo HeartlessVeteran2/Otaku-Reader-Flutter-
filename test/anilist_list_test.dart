@@ -292,6 +292,49 @@ void main() {
       expect(vars['progress'], 0);
     });
 
+    test('a score is sent in the viewer\'s own format, never as scoreRaw', () async {
+      // `SaveMediaListEntry` takes both `score` (the viewer's format) and
+      // `scoreRaw` (always 0-100). This app sends `score`, and the choice is
+      // load-bearing rather than arbitrary: converting a POINT_3 smiley to a
+      // 0-100 number means inventing a mapping AniList does not publish, and
+      // handing back the units the row was read in needs no arithmetic at all.
+      //
+      // Pinned so the "simplification" to scoreRaw is a failing test rather
+      // than a silently wrong rating.
+      final sent = <http.Request>[];
+      final auth = await signedIn([_savedBody()], sent);
+
+      await AniListListService(auth).save(mediaId: 7, score: 8.5);
+
+      final vars =
+          (jsonDecode(sent.single.body) as Map<String, dynamic>)['variables']
+              as Map<String, dynamic>;
+      expect(vars['score'], 8.5);
+      expect(vars.containsKey('scoreRaw'), isFalse);
+      expect(
+        vars.containsKey('status'),
+        isFalse,
+        reason: 'rating something says nothing about its status',
+      );
+      expect(vars.containsKey('progress'), isFalse);
+    });
+
+    test('a zero score is still sent, because zero means unscored', () async {
+      // The same trap as progress 0, and AniList's own schema is explicit
+      // about it: POINT_3 is documented as "0 => No Score". So clearing a
+      // rating and never having set one are the same value, and treating
+      // falsy as absent would make "remove my score" silently do nothing.
+      final sent = <http.Request>[];
+      final auth = await signedIn([_savedBody()], sent);
+
+      await AniListListService(auth).save(mediaId: 7, score: 0);
+
+      final vars =
+          (jsonDecode(sent.single.body) as Map<String, dynamic>)['variables']
+              as Map<String, dynamic>;
+      expect(vars['score'], 0);
+    });
+
     test('an empty edit is not sent at all', () async {
       final sent = <http.Request>[];
       final auth = await signedIn([_savedBody()], sent);
