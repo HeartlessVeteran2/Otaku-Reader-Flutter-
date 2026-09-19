@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
 
@@ -54,11 +55,46 @@ class _StubExtensions implements ExtensionRepository {
   @override
   Future<RefreshResult> refresh(String url) async =>
       RefreshResult(repoUrl: url);
+
+  /// Every URL `addRepo` was asked for, in order.
+  final adds = <String>[];
+
+  /// URLs this stub refuses, so a paste can be part success and part failure.
+  Set<String> failingAdds = const {};
+
   @override
-  Future<RefreshResult> addRepo(ExtensionRepo r) async =>
-      RefreshResult(repoUrl: r.url);
+  Future<RefreshResult> addRepo(ExtensionRepo r) async {
+    adds.add(r.url);
+    if (failingAdds.contains(r.url)) {
+      return RefreshResult(repoUrl: r.url, error: 'nope');
+    }
+    // Replaces rather than appends, which is the contract `addRepo` documents:
+    // "adding an already-present URL refreshes it rather than duplicating it".
+    // A fake that appends would let a duplicate in a pasted list look like two
+    // repositories and nothing would notice. Flagged by `codeant-ai`.
+    repos = [...repos.where((e) => e.url != r.url), r];
+    return RefreshResult(repoUrl: r.url);
+  }
+
+  final removals = <String>[];
+
+  /// Holds a removal open, so the row's in-flight state can be observed.
+  Future<void>? gateRemove;
+
+  /// Thrown by the next removal, for the path where the database gives out.
+  Object? removeThrows;
+
   @override
-  Future<void> removeRepo(String url) async {}
+  Future<void> removeRepo(String url) async {
+    removals.add(url);
+    final gate = gateRemove;
+    if (gate != null) await gate;
+    final boom = removeThrows;
+    if (boom != null) throw boom;
+    repos = repos.where((r) => r.url != url).toList();
+    rows = rows.where((s) => s.repoUrl != url || s.isInstalled).toList();
+  }
+
   @override
   Future<List<ExtensionRepo>> getRepos() async {
     // Snapshotted **before** the gate, not after. Returning the field's
@@ -256,10 +292,10 @@ void main() {
     },
   );
 
-  group('the repo sheet says how each repository is behaving', () {
+  group('the repositories screen says how each one is behaving', () {
     const url = 'https://example.test/index.json';
 
-    /// Opens the Repositories sheet over a catalogue and a health map.
+    /// Opens the Repositories screen over a catalogue and a health map.
     Future<void> openSheet(
       WidgetTester tester, {
       required List<Source> rows,
@@ -356,27 +392,39 @@ void main() {
         ..health = const {}
         ..gateFirstRepoRead = held.future;
 
-      // Opening the sheet starts reload #1, which hangs on that gate.
-      // `pumpAndSettle` finishes the sheet's entrance animation without
-      // completing the gate — it waits on frames, not futures — and the button
-      // is not hit-testable until that animation is done.
+      // Frames, not `pumpAndSettle`. The screen spins while its first read is
+      // held open, and `pumpAndSettle` waits for every animation to stop — so
+      // it cannot return until the gate opens, which is the one thing this
+      // test needs to control.
+      Future<void> advance() async {
+        for (var i = 0; i < 6; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+      }
+
+      // Opening the screen starts reload #1, which hangs on that gate.
       await tester.tap(find.byTooltip('Repositories'));
-      await tester.pumpAndSettle();
+      await advance();
       expect(find.text('Stale repo'), findsNothing);
 
       // Reload #2, started later and ungated, sees the renamed repository.
+      // Adding is a dialog behind the FAB now rather than a field in a sheet,
+      // so the confirm is found by its button type: 'Add' labels both.
       extensions.repos = const [ExtensionRepo(url: url, name: 'Fresh repo')];
+      await tester.tap(find.byType(FloatingActionButton));
+      await advance();
       await tester.enterText(
         find.byType(TextField).last,
         'https://added.test/index.json',
       );
-      await tester.tap(find.text('Add'));
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Add'));
+      await advance();
       expect(find.text('Fresh repo'), findsOneWidget);
 
       // Now let the stale one land. It must be dropped, not painted.
       held.complete();
-      await tester.pumpAndSettle();
+      await advance();
 
       expect(find.text('Fresh repo'), findsOneWidget);
       expect(find.text('Stale repo'), findsNothing);
@@ -503,6 +551,293 @@ void main() {
     });
   });
 
+  group('the repositories screen, as a screen', () {
+    const alpha = 'https://alpha.test/repos/index.json';
+    const beta = 'https://beta.test/index.json';
+
+    Future<_StubExtensions> open(
+      WidgetTester tester, {
+      List<Source> rows = const [],
+      List<ExtensionRepo> repos = const [
+        ExtensionRepo(url: alpha, name: 'Alpha'),
+      ],
+      Size? surface,
+    }) async {
+      if (surface != null) {
+        await tester.binding.setSurfaceSize(surface);
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+      }
+      final extensions = await pump(tester, rows, repos: repos);
+      await tester.tap(find.byTooltip('Repositories'));
+      await tester.pumpAndSettle();
+      return extensions;
+    }
+
+    testWidgets('splits the URL into a path over its host', (tester) async {
+      // A single ellipsised URL hides exactly the end that tells two indexes
+      // on one host apart. AnymeX splits it; this takes that.
+      await open(tester);
+
+      expect(find.text('/repos/index.json'), findsOneWidget);
+      expect(find.text('Alpha'), findsOneWidget);
+      expect(find.text(alpha), findsNothing);
+    });
+
+    testWidgets('copies the URL', (tester) async {
+      final copied = <String>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            copied.add((call.arguments as Map)['text'] as String);
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+
+      await open(tester);
+      await tester.tap(find.byTooltip('Copy URL'));
+      await tester.pumpAndSettle();
+
+      // The whole URL, not the path the row shows: what is on screen is split
+      // for reading, and what is copied has to be pasteable.
+      expect(copied, [alpha]);
+    });
+
+    group('removing asks only when it has something to say', () {
+      testWidgets('nothing installed removes straight away', (tester) async {
+        // Confirming "its extensions will no longer be listed" is confirming
+        // exactly what was just asked for, and it trains people to dismiss
+        // the dialog that does matter.
+        final extensions = await open(
+          tester,
+          rows: [_source(id: 1, name: 'Not installed', repoUrl: alpha)],
+        );
+
+        await tester.tap(find.byTooltip('Remove this repository'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Remove this repository?'), findsNothing);
+        expect(extensions.removals, [alpha]);
+      });
+
+      testWidgets('an installed extension is warned about first', (
+        tester,
+      ) async {
+        final extensions = await open(
+          tester,
+          rows: [_source(id: 1, name: 'Installed', code: 'X', repoUrl: alpha)],
+        );
+
+        await tester.tap(find.byTooltip('Remove this repository'));
+        await tester.pumpAndSettle();
+
+        // Named, because "stays and keeps working but stops updating" is the
+        // surprise, and it is not reversible by re-adding the repository.
+        expect(find.textContaining('stops receiving updates'), findsOneWidget);
+        expect(extensions.removals, isEmpty);
+
+        await tester.tap(find.text('Remove'));
+        await tester.pumpAndSettle();
+        expect(extensions.removals, [alpha]);
+      });
+
+      testWidgets('cancelling that warning removes nothing', (tester) async {
+        final extensions = await open(
+          tester,
+          rows: [_source(id: 1, name: 'Installed', code: 'X', repoUrl: alpha)],
+        );
+
+        await tester.tap(find.byTooltip('Remove this repository'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Cancel'));
+        await tester.pumpAndSettle();
+
+        expect(extensions.removals, isEmpty);
+      });
+    });
+
+    testWidgets('a row being removed dims, spins and stops filtering', (
+      tester,
+    ) async {
+      // AnymeX's per-row state, and it replaces a blocking dialog rather than
+      // the warning above: the list stays readable while one row works.
+      final held = Completer<void>();
+      final extensions = await open(
+        tester,
+        rows: [_source(id: 1, name: 'Not installed', repoUrl: alpha)],
+      );
+      extensions.gateRemove = held.future;
+
+      await tester.tap(find.byTooltip('Remove this repository'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
+
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      final opacity = tester.widget<AnimatedOpacity>(
+        find.byType(AnimatedOpacity),
+      );
+      expect(opacity.opacity, 0.4);
+      // The delete button is gone while its own removal is in flight, so the
+      // second tap has no target rather than a second removal.
+      expect(find.byTooltip('Remove this repository'), findsNothing);
+
+      held.complete();
+      await tester.pumpAndSettle();
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+    });
+
+    group('adding takes several URLs at once', () {
+      testWidgets('split on newlines and commas', (tester) async {
+        final extensions = await open(tester, repos: const []);
+
+        await tester.tap(find.byType(FloatingActionButton));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byType(TextField).last,
+          ' https://one.test/index.json\n'
+          'https://two.test/index.json , https://three.test/index.json ',
+        );
+        await tester.tap(find.widgetWithText(FilledButton, 'Add'));
+        await tester.pumpAndSettle();
+
+        expect(extensions.adds, [
+          'https://one.test/index.json',
+          'https://two.test/index.json',
+          'https://three.test/index.json',
+        ]);
+        // Closed, because nothing failed.
+        expect(find.byType(TextField), findsNothing);
+      });
+
+      testWidgets('a bad one in the paste does not discard the good ones', (
+        tester,
+      ) async {
+        final extensions = await open(tester, repos: const []);
+        extensions.failingAdds = {'https://bad.test/index.json'};
+
+        await tester.tap(find.byType(FloatingActionButton));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byType(TextField).last,
+          'https://good.test/index.json\nhttps://bad.test/index.json',
+        );
+        await tester.tap(find.widgetWithText(FilledButton, 'Add'));
+        await tester.pumpAndSettle();
+
+        // Held open, saying what landed and what did not, with only the
+        // failures left to retry. Closing would report the successes and
+        // silently drop the rest.
+        expect(find.textContaining('1 repository added'), findsOneWidget);
+        expect(find.textContaining('https://bad.test'), findsWidgets);
+        expect(
+          tester
+              .widget<TextField>(find.byType(TextField).last)
+              .controller!
+              .text,
+          'https://bad.test/index.json',
+        );
+      });
+    });
+
+    testWidgets('a removal that fails says so', (tester) async {
+      // The row un-dims either way, so without this the user sees a spinner
+      // stop, the repository still there, and nothing said — which reads as
+      // the app being broken rather than as the removal having failed. The
+      // same rule `open_link.dart` exists for.
+      final extensions = await open(
+        tester,
+        rows: [_source(id: 1, name: 'Not installed', repoUrl: alpha)],
+      );
+      extensions.removeThrows = StateError('disk gave out');
+
+      await tester.tap(find.byTooltip('Remove this repository'));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.textContaining('Could not remove'), findsOneWidget);
+      // Still listed, because it still exists.
+      expect(find.text('/repos/index.json'), findsOneWidget);
+      // And still removable: the row is back to its ordinary state.
+      expect(find.byTooltip('Remove this repository'), findsOneWidget);
+    });
+
+    testWidgets('the same URL twice in a paste is one repository', (
+      tester,
+    ) async {
+      await open(tester, repos: const []);
+
+      await tester.tap(find.byType(FloatingActionButton));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byType(TextField).last,
+        'https://one.test/index.json\nhttps://one.test/index.json',
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Add'));
+      await tester.pumpAndSettle();
+
+      // Both are offered, because refusing the second would mean this screen
+      // deciding what the repository layer already decides — and it refreshes
+      // rather than duplicating.
+      expect(find.text('/index.json'), findsOneWidget);
+    });
+
+    testWidgets('a check dated in the future does not claim to be recent', (
+      tester,
+    ) async {
+      // `checkedAt` is persisted, so a clock correction can leave a record
+      // ahead of `now`. The difference is then negative, and a bare
+      // "under a minute" test renders it as "just now" — a claim about when
+      // the check happened, made from a number that cannot say.
+      final extensions = await pump(
+        tester,
+        const [],
+        repos: const [ExtensionRepo(url: alpha, name: 'Alpha')],
+      );
+      extensions.health = {
+        alpha: RepoHealth(
+          checkedAt: DateTime.now().add(const Duration(days: 1)),
+        ),
+      };
+      await tester.tap(find.byTooltip('Repositories'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('just now'), findsNothing);
+      expect(find.textContaining('checked'), findsOneWidget);
+    });
+
+    for (final width in <double>[320, 360, 384]) {
+      testWidgets('a repository row lays out at ${width.toInt()}px', (
+        tester,
+      ) async {
+        await open(
+          tester,
+          surface: Size(width, 720),
+          rows: [
+            _source(id: 1, name: 'Installed', code: 'X', repoUrl: alpha),
+            _source(id: 2, name: 'Other', code: 'X', repoUrl: beta),
+          ],
+          repos: const [
+            ExtensionRepo(url: alpha, name: 'Alpha'),
+            ExtensionRepo(url: beta),
+          ],
+        );
+
+        expect(tester.takeException(), isNull);
+        // Below the floating pills, not behind them.
+        final header = tester.getRect(find.byType(PillHeader));
+        final first = tester.getRect(find.text('/repos/index.json'));
+        expect(first.top, greaterThanOrEqualTo(header.bottom));
+      });
+    }
+  });
+
   group('the repository filter', () {
     const alpha = 'https://alpha.test/index.json';
     const beta = 'https://beta.test/index.json';
@@ -540,10 +875,12 @@ void main() {
       await pumpBoth(tester);
       await tester.tap(find.byTooltip('Repositories'));
       await tester.pumpAndSettle();
-      // The URL, not the name: the name now appears on every row that
-      // repository owns, so `find.text('Alpha')` matches the sheet row *and*
-      // the provenance labels behind it.
-      await tester.tap(find.text(alpha));
+      // The name, which is unambiguous again: the repositories are a pushed
+      // route now, so the extension rows carrying the same provenance label
+      // are offstage behind it. The card splits the URL into a monospace path
+      // over that label, and two repositories on different hosts share the
+      // path `/index.json`.
+      await tester.tap(find.text('Alpha'));
       await tester.pumpAndSettle();
 
       // The sheet closed, so without the banner the user would be left with a
@@ -583,7 +920,7 @@ void main() {
       await pumpBoth(tester);
       await tester.tap(find.byTooltip('Repositories'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text(alpha));
+      await tester.tap(find.text('Alpha'));
       await tester.pumpAndSettle();
 
       await tester.tap(find.byTooltip('Show every repository'));
@@ -604,7 +941,7 @@ void main() {
       await pumpBoth(tester);
       await tester.tap(find.byTooltip('Repositories'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text(alpha));
+      await tester.tap(find.text('Alpha'));
       await tester.pumpAndSettle();
 
       // Alpha has nothing on the Updates tab, so that tab is filtered-empty.
@@ -626,7 +963,7 @@ void main() {
 
         await tester.tap(find.byTooltip('Repositories'));
         await tester.pumpAndSettle();
-        await tester.tap(find.text(alpha));
+        await tester.tap(find.text('Alpha'));
         await tester.pumpAndSettle();
 
         expect(find.byTooltip('Show every repository'), findsOneWidget);
