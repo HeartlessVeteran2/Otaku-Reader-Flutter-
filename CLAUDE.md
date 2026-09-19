@@ -534,6 +534,37 @@ the launcher icon so the icon and the UI cannot drift apart:
 
 ---
 
+### AnymeX is checked out — read the equivalent screen before designing one
+
+**`/home/user/AnymeX-HV`.** It is on disk in every session, and this file says
+AnymeX decides *information architecture* while One UI decides how it looks. The
+first half has been skipped at least once, with a measurable cost.
+
+The repository sheet was designed from scratch. AnymeX's equivalent
+(`lib/screens/settings/sub_settings/settings_extensions.dart`, 911 lines) is a
+**screen**, not a sheet, and carries four things worth taking: the URL split
+into a monospace *path* over a muted *host*, a **copy** button, a per-row
+deleting state (spinner plus `AnimatedOpacity` 0.4) rather than a blocking
+dialog, and an add dialog that accepts **several URLs at once**. Per-repo health
+and source counts are the one direction this app leads in — AnymeX shows
+neither — so the feature was right and the shell was not.
+
+Worse, the `TabBar` overflow recorded below was **already solved there**.
+AnymeX does not use Material's `TabBar`: `AnymeXTabBar`
+(`lib/widgets/anymex_widgets/anymex_tabbar.dart`) is a segmented control built
+from a `Stack`, an `AnimatedAlign` and `FractionallySizedBox(widthFactor:
+1 / total)`, with each tab an `Expanded` holding a `Flexible` ellipsised label.
+Every tab is a fraction of the available width *by construction*, so the
+intrinsic-width negotiation that overflowed at 320, 360 and 384 cannot happen.
+Hours went into measuring and patching a bug the blueprint had designed out.
+
+**So: before building a screen, open AnymeX's version of it.** Not to copy the
+look — the One UI rules above still decide that — but because the structural
+decisions are already made there, and the ones that differ are worth being
+deliberate about rather than accidental.
+
+---
+
 ### Deliberate departures from AnymeX
 
 AnymeX is the reference, not the gospel. Do not carry these over:
@@ -638,6 +669,7 @@ Kept because they repeat.
 | Two comments asserting properties the code did not have, written the same hour as the rule about it | The repo-health wrapper's doc said "**every** exit is recorded" while the reconcile transaction sat outside `_refresh`'s try, so a database failure propagated past the record *and* out of `refreshAll`'s untried loop, losing every other repo's result. `RepoHealth.fromJson` said it "returns null rather than throwing" while an out-of-range `checkedAt` reached `DateTime.fromMillisecondsSinceEpoch`, which throws. Both found by `codeant-ai`, in the same PR whose own commit message quoted this table's closing lesson. Writing the lesson down is not applying it: after writing a comment with "every" or "never" in it, go and find the path where it does not hold. |
 | A reproduction whose trigger did not exist | The database-failure finding was "reproduced" with two repos listing one `sourceId`, on the assumption the unique index would reject it. `Source.sourceId` is `@Index(unique: true, replace: true)`, so it **replaces** — the refresh succeeded and the test failed on its own premise, not on the bug. The finding was still correct (the block is outside the try); only the trigger was invented. When a reproduction fails, check whether it disproves the finding or merely your guess about how to provoke it, and read the annotation rather than assuming the index behaves the obvious way. |
 | A stale-answer test that could not tell stale from fresh | The repo sheet's generation guard was "proven" by a gated stub whose `getRepos` returned the field's **current** value. So the held-open reload, on resuming, produced the *newer* data too — both reloads yielded the same thing, and dropping the stale answer was indistinguishable from publishing it. Removing the guard failed nothing. The fix is one line in the fake: snapshot before awaiting the gate. Whenever a test is about *which of two answers wins*, the two answers have to actually differ at the moment each is produced, and a fake that reads mutable state at completion time silently guarantees they do not. |
+| Building a screen without opening AnymeX's version of it | The repository sheet was designed from scratch while `/home/user/AnymeX-HV` sat on disk with a 911-line equivalent that is a screen rather than a sheet, splits the URL into monospace path over host, offers copy, dims and spins a row being deleted, and adds several URLs at once. Worse, the `TabBar` overflow two rows up was already designed out there: `AnymeXTabBar` gives each tab `1 / total` of the width with an ellipsised label, so it *cannot* overflow, while this app reached for Material's `TabBar` and then spent a long stretch measuring and patching it. The feature (per-repo health and counts) was genuinely net-new and AnymeX has nothing like it — but the shell around it was reinvented worse. Read the blueprint's version of a screen *before* designing one, not after a review finds the bug it had already avoided. |
 
 The general lesson, and the one that keeps recurring across both codebases:
 **a comment describing the goal is not evidence the code achieves it.** After

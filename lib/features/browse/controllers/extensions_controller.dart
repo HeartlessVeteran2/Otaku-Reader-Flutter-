@@ -16,6 +16,59 @@ import 'package:otaku_reader/source/model/source.dart';
 /// Which slice of the extension list the UI is showing.
 enum ExtensionTab { installed, available, updates }
 
+/// Which repository the extension list is restricted to.
+///
+/// Three cases, and the third is **not** the absence of the second. A source
+/// whose `repoUrl` is null is *detached*: its repository was removed and it was
+/// kept because library rows point at it, so it still works and will never
+/// receive another update. That is the one group a user with several
+/// repositories most needs to be able to find, and folding it into "all" would
+/// make it unfindable — there is no other signal that those sources are frozen.
+sealed class RepoFilter {
+  const RepoFilter();
+
+  /// Every extension, whatever it came from.
+  static const RepoFilter all = _AllRepos();
+
+  /// Only extensions that belong to no repository any more.
+  static const RepoFilter detached = _Detached();
+
+  /// Only extensions listed by [url].
+  const factory RepoFilter.of(String url) = _OneRepo;
+
+  bool matches(Source source);
+
+  /// Whether this restricts anything. The UI renders its "filtering by…"
+  /// banner on exactly this, rather than on a type test: `all` is the one case
+  /// that must not show one, and asking the value is clearer than asking which
+  /// private subclass it is.
+  bool get isAll => this is _AllRepos;
+}
+
+final class _AllRepos extends RepoFilter {
+  const _AllRepos();
+  @override
+  bool matches(Source source) => true;
+}
+
+final class _Detached extends RepoFilter {
+  const _Detached();
+  @override
+  bool matches(Source source) => source.repoUrl == null;
+}
+
+final class _OneRepo extends RepoFilter {
+  const _OneRepo(this.url);
+  final String url;
+  @override
+  bool matches(Source source) => source.repoUrl == url;
+
+  @override
+  bool operator ==(Object other) => other is _OneRepo && other.url == url;
+  @override
+  int get hashCode => url.hashCode;
+}
+
 /// Drives the extensions screen: the catalogue, its filters, and install state.
 ///
 /// Holds no widgets and no `BuildContext`, so the whole thing is testable
@@ -41,6 +94,11 @@ class ExtensionsController extends GetxController {
   /// Whether adult sources are listed. The shared preference, not a copy —
   /// Settings writes the same one, so its toggle reaches this screen too.
   RxBool get showNsfw => _nsfw.shown;
+
+  /// Which repository the list is restricted to. Not persisted: a filter is a
+  /// thing you do for a minute, and one silently still applied on the next
+  /// launch reads as an empty catalogue.
+  final repoFilter = Rx<RepoFilter>(RepoFilter.all);
 
   final isLoading = false.obs;
   final isRefreshing = false.obs;
@@ -82,6 +140,7 @@ class ExtensionsController extends GetxController {
           case ExtensionTab.updates:
             if (!s.hasUpdate) return false;
         }
+        if (!repoFilter.value.matches(s)) return false;
         if (!showNsfw.value && s.isNsfw) return false;
         if (enabledLangs.isNotEmpty &&
             !enabledLangs.contains(s.lang) &&
@@ -108,6 +167,10 @@ class ExtensionsController extends GetxController {
     isLoading.value = true;
     try {
       all.value = await _extensions.listAll();
+      repoLabels.value = {
+        for (final repo in await _extensions.getRepos())
+          repo.url: repo.name ?? Uri.tryParse(repo.url)?.host ?? repo.url,
+      };
     } finally {
       isLoading.value = false;
     }
@@ -168,6 +231,30 @@ class ExtensionsController extends GetxController {
       busy.remove(source.sourceId);
     }
   }
+
+  void setRepoFilter(RepoFilter value) => repoFilter.value = value;
+
+  /// How to describe the filter in force, for the banner.
+  ///
+  /// Resolved through [repoLabels] so a repository reads the same here as on
+  /// the rows it owns and in the sheet it was picked from.
+  String get filterLabel => switch (repoFilter.value) {
+    _AllRepos() => 'Every repository',
+    _Detached() => 'Extensions with no repository',
+    _OneRepo(:final url) => repoLabels[url] ?? Uri.tryParse(url)?.host ?? url,
+  };
+
+  /// Whether any source is detached, so the filter can offer that case only
+  /// when it would find something. Offering an option that is always empty
+  /// teaches the user the filter is broken.
+  bool get hasDetached => all.any((s) => s.repoUrl == null);
+
+  /// How to name the repository a source came from, keyed by its URL.
+  ///
+  /// The index may not carry a name, so the host is the fallback — the same
+  /// rule [RepoStatus.label] uses, and deliberately the same map so a repo is
+  /// never called one thing in the sheet and another on the row it owns.
+  final repoLabels = <String, String>{}.obs;
 
   void setQuery(String value) => query.value = value;
 
@@ -283,6 +370,8 @@ class RepoStatus {
   final int installedCount;
 
   /// A name to show. The index may not carry one, so the host is the fallback
-  /// and the raw URL is the fallback's fallback.
+  /// and the raw URL is the fallback's fallback. Kept identical to the map
+  /// `ExtensionsController.repoLabels` builds, so a repository is never called
+  /// one thing in the sheet and another on the rows it owns.
   String get label => repo.name ?? Uri.tryParse(repo.url)?.host ?? repo.url;
 }

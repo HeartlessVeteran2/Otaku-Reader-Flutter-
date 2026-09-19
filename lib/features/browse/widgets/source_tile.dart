@@ -14,9 +14,19 @@ class SourceTile extends StatelessWidget {
     this.onUpdate,
     this.onUninstall,
     this.onTap,
+    this.repoLabel,
   });
 
   final Source source;
+
+  /// What to call the repository this source came from.
+  ///
+  /// Null means **detached** — the repository was removed and the source was
+  /// kept, because library rows point at it by id and deleting it would break
+  /// every entry that uses it. It still works; it will never update again.
+  /// That is worth saying on the row, because nothing else on screen
+  /// distinguishes a frozen source from a current one.
+  final String? repoLabel;
   final bool busy;
   final VoidCallback? onInstall;
   final VoidCallback? onUpdate;
@@ -40,17 +50,47 @@ class SourceTile extends StatelessWidget {
           ],
         ],
       ),
-      subtitle: Text(
-        [
-          source.lang.toUpperCase(),
-          if (source.isInstalled)
-            'v${source.version}'
-          else
-            'v${source.versionLast}',
-          if (source.hasUpdate) '→ v${source.versionLast}',
-        ].join(' · '),
-        style: theme.textTheme.bodySmall,
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            [
+              source.lang.toUpperCase(),
+              if (source.isInstalled)
+                'v${source.version}'
+              else
+                'v${source.versionLast}',
+              if (source.hasUpdate) '→ v${source.versionLast}',
+            ].join(' · '),
+            style: theme.textTheme.bodySmall,
+          ),
+          Row(
+            children: [
+              Icon(
+                repoLabel == null ? Iconsax.link_21 : Iconsax.link,
+                size: 11,
+                color: repoLabel == null
+                    ? theme.colorScheme.error
+                    : theme.colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  repoLabel ?? 'No repository — will not update',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: repoLabel == null
+                        ? theme.colorScheme.error
+                        : theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
+      isThreeLine: true,
       trailing: _Action(
         busy: busy,
         source: source,
