@@ -358,6 +358,14 @@ identical from the outside.
   `score(format: ScoreFormat)`, verified by introspecting the live endpoint.
   Leaving it to AniList's default is what shows a five-star user a ten-point
   number their own profile never displays.
+- **Reporting a finished chapter is serialised, and the lock spans both
+  steps.** `AniListProgressSync` asks AniList what it holds and then writes a
+  bigger number, and the reader fires it *unawaited* from a page turn — so
+  finishing two chapters a tap apart starts two overlapping reports. Both read
+  the same held value, both decide to write, and the writes then race: chapter
+  2's can land first and chapter 1's second, leaving AniList on 1. The
+  never-lower rule cannot catch it, because each call was correct about the
+  value it read. Found by `codeant-ai`.
 - **`CURRENT` is "Reading", not "Current".** `MediaListStatus` is shared with
   anime, where the same value means "Watching"; `REPEATING` likewise. An
   unrecognised status renders the raw value prettified rather than falling
@@ -519,6 +527,7 @@ Kept because they repeat.
 | A review filed a High for the authorize URL "missing" `redirect_uri` | AniList documents that parameter for the **authorization code** grant, warning it must exactly match the registered one, and omits it from the **implicit** grant, which takes `client_id` alone and redirects to the value in application settings. Applying the suggestion would have turned a working request into a hard OAuth rejection for any build registered with a different redirect. Two findings running where the bot was right about the *shape* and wrong about the *facts*: when a finding rests on an external contract — an API, an index format, a published spec — go and read that contract before touching the code. Declining is the fix; pinning the decision in a test so the next reader does not re-raise it is the rest of the fix. |
 | A value and the units it is in came from two different requests | The score was read with `score(format:)` using a **cached** viewer, written once at sign-in and never refreshed, while `SaveMediaListEntry` interprets `score` in the user's *current* format. Change the setting on the website and the app reads 85/100 and writes 85 as a five-star rating. The fix is not a fresher cache, it is asking for the format in the **same response** as the row so the two cannot disagree. General rule: when a number and the scale it is on arrive separately, they will eventually disagree, and the code will not notice. |
 | A clamp was documented as handling a format change, and actually destroyed the rating | `clampScore` turned an 85/100 into 5 stars, and the comment above it said that was the point — so the comment described a goal the code met by throwing the user's data away. Found by `codeant-ai`. The closing lesson of this table in its most literal form: the comment was not wrong about *what* the code did, only about whether that was acceptable. When a comment justifies a lossy operation, state what is lost and check that losing it is the intended answer. |
+| Read-then-act without a lock, again, two files from the rule about it | `AniListProgressSync` read AniList's progress and then wrote a higher one, unawaited from a page turn. Two chapters finished in quick succession both read the same value, both wrote, and the writes raced — chapter 2 landing first and chapter 1 second leaves AniList *lowered*, which the never-lower rule cannot see because each call was right about what it read. Found by `codeant-ai`. This file already carried the rule (`_withRepoLock`, where two `removeRepo` taps resurrected each other's repository) and the fix is the same: the lock spans **both** steps, because making each one individually atomic changes nothing. **Fourth** time a rule written here was not applied in its neighbour. The tell to look for: any `await` between a read and the write that depends on it, in anything a caller can fire twice. |
 | The star row overflowed a 320px phone by 89 pixels, and `flutter analyze` was clean | Five 48px targets plus a clear button need ~330px, which a narrow phone does not have between the sheet's gutters. **Seventh** instance of analyze being structurally blind to layout. A rendered test per *branch* was not enough here — the branch was rendered and passed at the default 800px test viewport. Rendered tests for anything with a fixed-width row need a **narrow width** too; the suite now parameterises the rating control over every format at 320px. |
 
 The general lesson, and the one that keeps recurring across both codebases:
