@@ -210,48 +210,85 @@ void main() {
     expect(bare, plain);
   });
 
-  testWidgets('a header action is a full-size touch target', (tester) async {
-    // The pill gives each action a fixed box, so that box caps the touch
-    // target: two actions sit flush and the pill's 4px padding is outside
-    // their hit areas, adding nothing to the one in the middle. A box under
-    // Material's 48px minimum silently shrinks every header action below it,
-    // including a caller's own `IconButton` or `PopupMenuButton`, whose
-    // padded tap region is clamped to whatever room the parent leaves.
+  group('a header action', () {
+    // The pill gives each action a fixed box, so that box is the touch target:
+    // two actions sit flush and the pill's 4px padding is outside their hit
+    // areas, adding nothing to the one in the middle.
     //
-    // Measured on the button rather than on its tooltip: the tooltip wraps the
-    // *visual* 40px body, and it is the `IconButton`'s own box that the finger
-    // hits.
-    final controller = TextEditingController();
-    addTearDown(controller.dispose);
-
-    await tester.pumpWidget(
-      host(
-        screen(
-          enableSearch: true,
-          controller: controller,
-          onChanged: (_) {},
-          actions: [
-            IconButton(
-              onPressed: () {},
-              tooltip: 'Sort',
-              icon: const Icon(Icons.sort),
-            ),
-            PopupMenuButton<int>(tooltip: 'More', itemBuilder: (_) => const []),
-          ],
+    // Measured **on screen** rather than on the render box. Those are the same
+    // number for an action that fits and different for one that does not, and
+    // the finger only ever meets the first — a raw-size assertion passes at
+    // 112 for a control the user sees at 48.
+    Future<void> pumpWith(WidgetTester tester, List<Widget> actions) async {
+      final controller = TextEditingController();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        host(
+          screen(
+            enableSearch: true,
+            controller: controller,
+            onChanged: (_) {},
+            actions: actions,
+          ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    for (final tooltip in ['Search', 'Sort', 'More']) {
-      final button = find.ancestor(
-        of: find.byTooltip(tooltip),
-        matching: find.byType(IconButton),
       );
-      final size = tester.getSize(button.first);
-      expect(size.width, greaterThanOrEqualTo(48), reason: tooltip);
-      expect(size.height, greaterThanOrEqualTo(48), reason: tooltip);
+      await tester.pumpAndSettle();
     }
+
+    Rect onScreen(WidgetTester tester, String tooltip) => tester.getRect(
+      find
+          .ancestor(
+            of: find.byTooltip(tooltip),
+            matching: find.byType(IconButton),
+          )
+          .first,
+    );
+
+    testWidgets('is a full-size touch target', (tester) async {
+      await pumpWith(tester, [
+        IconButton(
+          onPressed: () {},
+          tooltip: 'Sort',
+          icon: const Icon(Icons.sort),
+        ),
+        PopupMenuButton<int>(tooltip: 'More', itemBuilder: (_) => const []),
+      ]);
+
+      for (final tooltip in ['Search', 'Sort', 'More']) {
+        final size = onScreen(tester, tooltip).size;
+        expect(size.width, greaterThanOrEqualTo(48), reason: tooltip);
+        expect(size.height, greaterThanOrEqualTo(48), reason: tooltip);
+      }
+    });
+
+    testWidgets('too big for its slot is scaled, never erased', (tester) async {
+      // What this replaces was silent: the slot's tight constraints left a
+      // 64px icon behind 24px of padding exactly **0x0** of room, so the
+      // control rendered as a 48x48 nothing. No exception, no overflow
+      // stripe, and `flutter analyze` clean — the failure mode this app has
+      // recorded eight times before and could not see.
+      await pumpWith(tester, [
+        IconButton(
+          onPressed: () {},
+          tooltip: 'Sort',
+          iconSize: 64,
+          padding: const EdgeInsets.all(24),
+          icon: const Icon(Icons.sort),
+        ),
+      ]);
+
+      expect(tester.takeException(), isNull);
+      final icon = tester.getRect(find.byIcon(Icons.sort));
+      expect(
+        icon.width,
+        greaterThan(0),
+        reason: 'the action rendered as an invisible button',
+      );
+      // Still bounded by the slot, so the header keeps its own height.
+      final button = onScreen(tester, 'Sort');
+      expect(button.width, Chrome.actionSize);
+      expect(button.height, Chrome.actionSize);
+    });
   });
 
   group('the header hides on the way down and comes back on the way up', () {
@@ -313,6 +350,56 @@ void main() {
         reason: 'a 60px reversal is past the threshold and was ignored',
       );
     });
+
+    // Driven as a stream of small notifications rather than one `drag`, which
+    // delivers about two. The worry this answers is that the anchor might be
+    // reset by an ordinary sub-threshold update during a reversal, making the
+    // distance needed depend on how the platform chunks a gesture. It is not:
+    // the anchor moves only while the scroll continues the way the header has
+    // already answered, so a reversal is always measured from the turn.
+    //
+    // Measured, the header returns at the first update past 50px — 51, 55, 60
+    // and 60 for 3, 5, 15 and 60px chunks, which is `ceil(51 / chunk) * chunk`
+    // and nothing else. Chunking sets the granularity, never the baseline.
+    for (final chunk in <double>[3, 5, 15, 60]) {
+      testWidgets('returns after ~50px delivered in ${chunk.toInt()}px steps', (
+        tester,
+      ) async {
+        await tester.pumpWidget(host(screen(rows: 300)));
+        await tester.pumpAndSettle();
+
+        final gesture = await tester.startGesture(const Offset(200, 400));
+        await gesture.moveBy(const Offset(0, -20));
+        for (var i = 0; i < 40; i++) {
+          await gesture.moveBy(const Offset(0, -15));
+          await tester.pump();
+        }
+        await tester.pump(const Duration(milliseconds: 600));
+        expect(
+          tester.getRect(find.byType(PillHeader)).bottom,
+          lessThan(0),
+          reason: 'the header never hid, so the reversal proves nothing',
+        );
+
+        var reversed = 0.0;
+        double? returnedAfter;
+        for (var i = 0; i < 40 && returnedAfter == null; i++) {
+          await gesture.moveBy(Offset(0, chunk));
+          await tester.pump();
+          reversed += chunk;
+          await tester.pump(const Duration(milliseconds: 600));
+          if (tester.getRect(find.byType(PillHeader)).top >= 0) {
+            returnedAfter = reversed;
+          }
+        }
+        await gesture.up();
+        await tester.pumpAndSettle();
+
+        expect(returnedAfter, isNotNull, reason: 'the header never came back');
+        // The first step past the threshold, whatever the step size.
+        expect(returnedAfter, lessThanOrEqualTo(51 + chunk));
+      });
+    }
 
     testWidgets('a nudge shorter than the threshold does not move it', (
       tester,

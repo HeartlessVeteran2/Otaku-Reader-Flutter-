@@ -263,12 +263,20 @@ class ChromeScaffold extends StatefulWidget {
   final String title;
   final String? subtitle;
   final Widget body;
+
+  /// Icon-sized controls for the actions pill.
+  ///
+  /// Each is given a [Chrome.actionSize] square — the contract, so the
+  /// header's height is its own property rather than the call site's. One
+  /// that does not fit is scaled down to the slot rather than clipped, but it
+  /// will look scaled: pass an icon, not a composite.
   final List<Widget>? actions;
 
   /// Pinned under the pills and hidden with them — a [SegmentedTabs], a filter
   /// row. It declares its own height, so the header cannot be told the wrong
   /// one.
   final PreferredSizeWidget? bottom;
+
   final Widget? floatingActionButton;
 
   final bool enableSearch;
@@ -665,13 +673,26 @@ class PillHeaderState extends State<PillHeader> {
                 // minimum: a caller's bare `IconButton` or `PopupMenuButton`
                 // lands exactly on its natural size rather than being
                 // squeezed under it.
+                //
+                // `scaleDown` is the failure mode, not the layout. An action
+                // that does not fit the slot used to be *silently destroyed*
+                // rather than overflowing: measured, an `IconButton` with a
+                // 64px icon and 24px padding rendered a 48x48 button around a
+                // **0x0** icon — an invisible control, no exception, analyze
+                // clean, no test failure. Scaling is a no-op for anything
+                // that already fits, so every ordinary action is untouched
+                // and a wrong one is visible instead of absent. Found by
+                // `codeant-ai`, whose reading of the cause was different; see
+                // the measurements on the thread.
                 for (final action in widget.actions ?? const <Widget>[])
                   SizedBox(
                     width: Chrome.actionSize,
                     height: Chrome.actionSize,
                     child: IconTheme.merge(
                       data: const IconThemeData(size: 20),
-                      child: Center(child: action),
+                      child: Center(
+                        child: FittedBox(fit: BoxFit.scaleDown, child: action),
+                      ),
                     ),
                   ),
               ],
