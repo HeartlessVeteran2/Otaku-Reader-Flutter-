@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
@@ -57,8 +59,24 @@ class _StubExtensions implements ExtensionRepository {
   @override
   Future<void> removeRepo(String url) async {}
   @override
-  Future<List<ExtensionRepo>> getRepos() async => repos;
+  Future<List<ExtensionRepo>> getRepos() async {
+    // Snapshotted **before** the gate, not after. Returning the field's
+    // current value would hand the resumed stale call the *newer* data, so
+    // both reloads would produce the same thing and the test could not tell a
+    // dropped stale answer from a published one.
+    final snapshot = repos;
+    // One-shot, so the *first* reload can be held open while a later one
+    // overtakes it. A permanent gate would hold both and prove nothing.
+    final gate = gateFirstRepoRead;
+    if (gate != null) {
+      gateFirstRepoRead = null;
+      await gate;
+    }
+    return snapshot;
+  }
+
   List<ExtensionRepo> repos = const [];
+  Future<void>? gateFirstRepoRead;
   @override
   Future<Map<String, RepoHealth>> repoHealth() async => health;
   Map<String, RepoHealth> health = const {};
@@ -249,6 +267,51 @@ void main() {
         tester.widget<Text>(line).style?.color,
         Theme.of(context).colorScheme.error,
       );
+    });
+
+    // The sheet must publish the newest answer, not the last one to arrive.
+    //
+    // Driven entirely through the UI: the `initState` reload is held open, a
+    // second reload is triggered by adding a repository and completes first,
+    // and only then is the stale one released. Forced with a gated stub,
+    // because today's repository chain is synchronous underneath and so cannot
+    // actually interleave — the guard is for when that stops being true.
+    testWidgets('a slow earlier reload does not publish over a newer', (
+      tester,
+    ) async {
+      final held = Completer<void>();
+      final extensions = await pump(tester, [
+        _source(id: 1, name: 'A', repoUrl: url),
+      ]);
+      extensions
+        ..repos = const [ExtensionRepo(url: url, name: 'Stale repo')]
+        ..health = const {}
+        ..gateFirstRepoRead = held.future;
+
+      // Opening the sheet starts reload #1, which hangs on that gate.
+      // `pumpAndSettle` finishes the sheet's entrance animation without
+      // completing the gate — it waits on frames, not futures — and the button
+      // is not hit-testable until that animation is done.
+      await tester.tap(find.byTooltip('Repositories'));
+      await tester.pumpAndSettle();
+      expect(find.text('Stale repo'), findsNothing);
+
+      // Reload #2, started later and ungated, sees the renamed repository.
+      extensions.repos = const [ExtensionRepo(url: url, name: 'Fresh repo')];
+      await tester.enterText(
+        find.byType(TextField).last,
+        'https://added.test/index.json',
+      );
+      await tester.tap(find.text('Add'));
+      await tester.pumpAndSettle();
+      expect(find.text('Fresh repo'), findsOneWidget);
+
+      // Now let the stale one land. It must be dropped, not painted.
+      held.complete();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Fresh repo'), findsOneWidget);
+      expect(find.text('Stale repo'), findsNothing);
     });
 
     // A fixed-width row on a narrow phone is the eighth instance in CLAUDE.md

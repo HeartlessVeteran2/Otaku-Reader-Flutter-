@@ -409,9 +409,27 @@ class _RepoSheetState extends State<_RepoSheet> {
     if (mounted) await _reload();
   }
 
+  /// Bumped per reload, so a slower earlier one cannot publish over a newer.
+  int _reloadGeneration = 0;
+
+  /// Re-reads the repositories, and publishes only if it is still the newest.
+  ///
+  /// Three call sites can overlap — `initState`, adding, and removing — and each
+  /// awaits before touching state. Today the repository's chain is synchronous
+  /// underneath, so completions follow the microtask queue in call order and
+  /// the older one cannot actually win; this guard is for the moment that stops
+  /// being true, which is one disk read or one network call away, and it costs
+  /// two lines. The same shape already guards the AniList write path, where the
+  /// equivalent race *is* reachable.
+  ///
+  /// `mounted` alone is not enough: an unmounted check answers "is this widget
+  /// still alive", not "is this answer still the current one". Flagged by
+  /// `codeant-ai`.
   Future<void> _reload() async {
+    final generation = ++_reloadGeneration;
     final repos = await widget.controller.repoStatuses();
-    if (mounted) setState(() => _repos = repos);
+    if (!mounted || generation != _reloadGeneration) return;
+    setState(() => _repos = repos);
   }
 
   Future<void> _add() async {
