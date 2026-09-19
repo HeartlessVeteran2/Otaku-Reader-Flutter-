@@ -166,6 +166,36 @@ which is the point — one toolchain instead of two.
 the generator fork and the `isar_community` stable-line pin all existed to
 serve a `d4rt` this app no longer owns.
 
+### The licence, which is not AnymeX's
+
+AnymeX is **MIT**, so its patterns, UI and code are free to take with the
+attribution `NOTICE` already carries. The bridge is **not**:
+`anymex_extension_runtime_bridge` ships the *Unabandon Public License*, which
+by its own text "incorporates all terms and conditions of the GNU General
+Public License Version 3" and adds that derivative works' source must be
+publicly available without restriction or fee.
+
+Two things follow, and neither is obvious from the name:
+
+- **"UPL" is a collision.** The Universal Permissive License is a real,
+  permissive licence with the same acronym. This is not that one. Anyone
+  skimming gets it backwards.
+- **GPLv3 is copyleft, and this repo is Apache-2.0.** Apache-2.0 into GPLv3 is
+  allowed; the reverse is not. So a build that links the bridge is a GPLv3
+  derivative work, and `LICENSE` must change to match **when the bridge
+  actually lands** — not before, because until then the claim would be false.
+
+There is an irony worth keeping: `lib/source/` is derived from **Mangayomi,
+which is Apache-2.0**, and that is exactly why this app can be permissively
+licensed today. The thing that saves the work is the thing that takes the
+licence.
+
+**Decided by the developer: acceptable.** This is a personal build, not
+distributed, and GPL obligations attach on distribution. The note stays so
+that the next reader knows the licence change was chosen rather than
+overlooked — and so that anyone who later wants this app to be something
+other than a personal build knows what it would cost.
+
 ### The order to do it in
 
 Mangayomi through the bridge is **pure Dart** — no native dependency — so it
