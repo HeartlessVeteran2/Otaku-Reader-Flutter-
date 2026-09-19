@@ -94,9 +94,30 @@ Map<String, ExtensionSetting>? settings; // per-backend settings
 SourceMethods createSourceMethods(Source source);
 ```
 
-`SourceMethods` is the call surface the reader and browse sit on, and it is
-**the same verbs this app already uses**: `getPopular`, `getLatestUpdates`,
-`search`, `getDetail`, `getPageList`, `getFilterList`, `getPreference`.
+`SourceMethods` is the call surface the reader and browse sit on. The verb
+*names* rhyme with this app's; the **contracts do not**, and the difference is
+an adapter rather than a rename. Diffed, not assumed — the first version of
+this paragraph claimed "the same verbs this app already uses", which
+`codeant-ai` caught:
+
+| `lib/source/source_methods.dart` | the bridge's `SourceMethods` |
+|---|---|
+| `getSourcePreferences()` → `List`, **sync** | `getPreference()` → `Future<List>`, **async** |
+| `getFilterList()` → `FilterList`, **sync** | `getFilterList()` → `Future<List<dynamic>>` |
+| `getDetail(String url)` | `getDetail(DMedia media)` |
+| `getPageList(String url)` | `getPageList(DEpisode episode)` |
+| `MPages` / `MManga` / `FilterList` | `Pages` / `DMedia` / `List<dynamic>` |
+| `getHeaders()`, `dispose()` | — |
+| — | `setPreference`, `cancelRequest`, `getVideoList`, `getVideoListStream`, `getNovelContent`, `stopHttpServer` |
+| — | a `SourceParams?` named argument on every call |
+
+`getPopular`, `getLatestUpdates` and `search` line up on name and shape, and
+that is the extent of it. **So slice 1 is a model-translation layer**
+(`MManga` ↔ `DMedia`, `MPages` ↔ `Pages`, `FilterList` ↔ `List<dynamic>`) plus
+a sync-to-async shift on preferences and filters — not the rename the first
+draft implied. The anime and novel members (`getVideoList`, `getNovelContent`)
+are surface this app never calls and can throw `UnimplementedError`.
+
 `Repo` carries `{url, name, iconUrl, extensions, managerId}` — note
 `managerId`, the field this app's own repo model lacks, because ours only ever
 had one backend.
@@ -148,7 +169,8 @@ serve a `d4rt` this app no longer owns.
 ### The order to do it in
 
 Mangayomi through the bridge is **pure Dart** — no native dependency — so it
-proves the seam on its own. Aniyomi and Kotatsu need the Android side
+proves the seam on its own, and the model translation above is most of that
+slice's real work. Aniyomi and Kotatsu need the Android side
 (`MethodChannel('aniyomiExtensionBridge')`, a runtime host APK, a `plugin.jar`),
 which is where the 1,396 packages come from and where the real integration risk
 is. Do them in that order, and do not delete `lib/source/` until the first one
