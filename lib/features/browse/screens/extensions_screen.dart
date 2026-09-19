@@ -133,9 +133,20 @@ class _ExtensionsScreenState extends State<ExtensionsScreen>
       ),
       body: Obx(() {
         final error = _c.lastError.value;
+        final filter = _c.repoFilter.value;
         return Column(
           children: [
             if (error != null) _ErrorBanner(message: error),
+            // Rendered only while a filter is on, so the screen -- which
+            // already spends 104px on search and tabs -- costs nothing extra
+            // in the ordinary case. It also has to exist: filtering from
+            // inside a sheet that then closes would otherwise leave a
+            // shortened list with nothing on screen saying why.
+            if (!filter.isAll)
+              _FilterBanner(
+                label: _c.filterLabel,
+                onClear: () => _c.setRepoFilter(RepoFilter.all),
+              ),
             Expanded(
               child: TabBarView(
                 controller: _tabs,
@@ -166,7 +177,15 @@ class _ExtensionsScreenState extends State<ExtensionsScreen>
             physics: const AlwaysScrollableScrollPhysics(),
             children: [
               SizedBox(height: MediaQuery.sizeOf(context).height * 0.2),
-              _EmptyState(tab: tab, filtered: _c.query.value.isNotEmpty),
+              _EmptyState(
+                tab: tab,
+                // The repository filter counts as filtering too. Told only
+                // about the query, an empty result under an active repo
+                // filter claimed the *catalogue* was empty -- over a
+                // catalogue that is in fact full.
+                filtered:
+                    _c.query.value.isNotEmpty || !_c.repoFilter.value.isAll,
+              ),
             ],
           ),
         );
@@ -180,6 +199,15 @@ class _ExtensionsScreenState extends State<ExtensionsScreen>
             final source = items[i];
             return SourceTile(
               source: source,
+              // Null for a detached source, which is what the tile renders as
+              // "No repository". A url the map does not know falls back to its
+              // host rather than to null, so an unknown repo is never mistaken
+              // for no repo at all.
+              repoLabel: source.repoUrl == null
+                  ? null
+                  : _c.repoLabels[source.repoUrl] ??
+                        Uri.tryParse(source.repoUrl!)?.host ??
+                        source.repoUrl,
               busy: _c.busy.contains(source.sourceId),
               onInstall: () => _c.install(source),
               onUpdate: () => _c.updateSource(source),
@@ -308,9 +336,12 @@ class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (icon, text) = switch (tab) {
+      // "that search" was accurate while the query was the only filter. It
+      // is not once a repository can be one, and naming the wrong control
+      // sends the user to clear something they never set.
       _ when filtered => (
         Iconsax.search_normal,
-        'Nothing matches that search.',
+        'Nothing matches the current filters.',
       ),
       ExtensionTab.installed => (
         Iconsax.box,
@@ -506,6 +537,35 @@ class _RepoSheetState extends State<_RepoSheet> {
                   _RepoRow(
                     status: status,
                     onRemove: () => _confirmRemove(status),
+                    // Filtering lives here rather than behind a fourth app-bar
+                    // action: this sheet already lists every repository with
+                    // its count, and the screen's bar is tight enough that a
+                    // fourth 48px action crowds the title on a narrow phone.
+                    onFilter: () {
+                      widget.controller.setRepoFilter(
+                        RepoFilter.of(status.repo.url),
+                      );
+                      Navigator.of(context).pop();
+                    },
+                  ),
+                if (widget.controller.hasDetached)
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(
+                      Iconsax.link_21,
+                      size: 18,
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                    title: const Text('Extensions with no repository'),
+                    subtitle: const Text(
+                      'Kept when their repository was removed. They still '
+                      'work, and will never update.',
+                    ),
+                    onTap: () {
+                      widget.controller.setRepoFilter(RepoFilter.detached);
+                      Navigator.of(context).pop();
+                    },
                   ),
               ],
             ),
@@ -523,10 +583,15 @@ class _RepoSheetState extends State<_RepoSheet> {
 /// empty the extension list — which also means a dead repo is indistinguishable
 /// from a healthy one until you notice it never gains anything. This says so.
 class _RepoRow extends StatelessWidget {
-  const _RepoRow({required this.status, required this.onRemove});
+  const _RepoRow({
+    required this.status,
+    required this.onRemove,
+    required this.onFilter,
+  });
 
   final RepoStatus status;
   final VoidCallback onRemove;
+  final VoidCallback onFilter;
 
   @override
   Widget build(BuildContext context) {
@@ -537,6 +602,7 @@ class _RepoRow extends StatelessWidget {
     return ListTile(
       dense: true,
       contentPadding: EdgeInsets.zero,
+      onTap: onFilter,
       title: Text(status.label, overflow: TextOverflow.ellipsis),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -610,5 +676,53 @@ class _RepoRow extends StatelessWidget {
     if (d.inMinutes < 60) return '${d.inMinutes}m ago';
     if (d.inHours < 24) return '${d.inHours}h ago';
     return '${d.inDays}d ago';
+  }
+}
+
+/// Says which repository the list is restricted to, and offers a way out.
+///
+/// The way out is the point: the filter is set from a sheet that closes behind
+/// it, so without this the user is left with a shortened list, no explanation,
+/// and no obvious route back.
+class _FilterBanner extends StatelessWidget {
+  const _FilterBanner({required this.label, required this.onClear});
+
+  final String label;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      color: theme.colorScheme.secondaryContainer,
+      padding: const EdgeInsets.fromLTRB(16, 6, 6, 6),
+      child: Row(
+        children: [
+          Icon(
+            Iconsax.filter,
+            size: 14,
+            color: theme.colorScheme.onSecondaryContainer,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSecondaryContainer,
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Iconsax.close_circle, size: 18),
+            tooltip: 'Show every repository',
+            onPressed: onClear,
+            visualDensity: VisualDensity.compact,
+          ),
+        ],
+      ),
+    );
   }
 }

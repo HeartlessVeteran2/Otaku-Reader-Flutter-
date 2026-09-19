@@ -117,8 +117,15 @@ void main() {
     Get.reset();
   });
 
-  Future<_StubExtensions> pump(WidgetTester tester, List<Source> rows) async {
-    final extensions = _StubExtensions(rows);
+  Future<_StubExtensions> pump(
+    WidgetTester tester,
+    List<Source> rows, {
+    List<ExtensionRepo> repos = const [],
+  }) async {
+    // Seeded before the controller is built: `onInit` calls `load()`, which is
+    // what fills `repoLabels`, so repos assigned afterwards would never reach
+    // the rows.
+    final extensions = _StubExtensions(rows)..repos = repos;
     Get.put<ExtensionsController>(
       ExtensionsController(
         extensions: extensions,
@@ -381,4 +388,189 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  group('an extension row says where it came from', () {
+    const alpha = 'https://alpha.test/index.json';
+
+    testWidgets('a row names its repository', (tester) async {
+      await pump(
+        tester,
+        [_source(id: 1, name: 'From alpha', code: 'X', repoUrl: alpha)],
+        repos: const [ExtensionRepo(url: alpha, name: 'Alpha')],
+      );
+
+      expect(find.text('Alpha'), findsOneWidget);
+    });
+
+    testWidgets('a repository with no name falls back to its host', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        [_source(id: 1, name: 'From alpha', code: 'X', repoUrl: alpha)],
+        repos: const [ExtensionRepo(url: alpha)],
+      );
+
+      expect(find.text('alpha.test'), findsOneWidget);
+    });
+
+    // The row that matters. A detached source still works and will never
+    // update again, and nothing else on the screen distinguishes it from a
+    // current one — so the row has to say so, in the error colour.
+    testWidgets('a detached row says it will not update', (tester) async {
+      await pump(tester, [_source(id: 1, name: 'Orphan', code: 'X')]);
+
+      final line = find.text('No repository — will not update');
+      expect(line, findsOneWidget);
+      final context = tester.element(line);
+      expect(
+        tester.widget<Text>(line).style?.color,
+        Theme.of(context).colorScheme.error,
+      );
+    });
+
+    // An unknown url is not the same as no url: only the second means frozen.
+    testWidgets('a url no repository claims still shows a host, not nothing', (
+      tester,
+    ) async {
+      await pump(tester, [
+        _source(id: 1, name: 'Stray', code: 'X', repoUrl: alpha),
+      ]);
+
+      expect(find.text('alpha.test'), findsOneWidget);
+      expect(find.text('No repository — will not update'), findsNothing);
+    });
+  });
+
+  group('the repository filter', () {
+    const alpha = 'https://alpha.test/index.json';
+    const beta = 'https://beta.test/index.json';
+
+    Future<_StubExtensions> pumpBoth(
+      WidgetTester tester, {
+      Size? surface,
+    }) async {
+      if (surface != null) {
+        await tester.binding.setSurfaceSize(surface);
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+      }
+      return pump(
+        tester,
+        [
+          _source(id: 1, name: 'From alpha', code: 'X', repoUrl: alpha),
+          _source(id: 2, name: 'From beta', code: 'X', repoUrl: beta),
+          _source(id: 3, name: 'Orphan', code: 'X'),
+        ],
+        repos: const [
+          ExtensionRepo(url: alpha, name: 'Alpha'),
+          ExtensionRepo(url: beta, name: 'Beta'),
+        ],
+      );
+    }
+
+    testWidgets('no banner until a filter is on', (tester) async {
+      await pumpBoth(tester);
+      expect(find.byTooltip('Show every repository'), findsNothing);
+    });
+
+    testWidgets('tapping a repository filters and explains itself', (
+      tester,
+    ) async {
+      await pumpBoth(tester);
+      await tester.tap(find.byTooltip('Repositories'));
+      await tester.pumpAndSettle();
+      // The URL, not the name: the name now appears on every row that
+      // repository owns, so `find.text('Alpha')` matches the sheet row *and*
+      // the provenance labels behind it.
+      await tester.tap(find.text(alpha));
+      await tester.pumpAndSettle();
+
+      // The sheet closed, so without the banner the user would be left with a
+      // shortened list and no reason given.
+      expect(find.byTooltip('Show every repository'), findsOneWidget);
+      expect(find.text('From alpha'), findsOneWidget);
+      expect(find.text('From beta'), findsNothing);
+      expect(find.text('Orphan'), findsNothing);
+    });
+
+    testWidgets('the detached group is offered, and finds them', (
+      tester,
+    ) async {
+      await pumpBoth(tester);
+      await tester.tap(find.byTooltip('Repositories'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Extensions with no repository'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Orphan'), findsOneWidget);
+      expect(find.text('From alpha'), findsNothing);
+    });
+
+    testWidgets('an offer that would find nothing is not made', (tester) async {
+      await pump(
+        tester,
+        [_source(id: 1, name: 'From alpha', code: 'X', repoUrl: alpha)],
+        repos: const [ExtensionRepo(url: alpha, name: 'Alpha')],
+      );
+      await tester.tap(find.byTooltip('Repositories'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Extensions with no repository'), findsNothing);
+    });
+
+    testWidgets('clearing the filter brings everything back', (tester) async {
+      await pumpBoth(tester);
+      await tester.tap(find.byTooltip('Repositories'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(alpha));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Show every repository'));
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Show every repository'), findsNothing);
+      expect(find.text('From beta'), findsOneWidget);
+      expect(find.text('Orphan'), findsOneWidget);
+    });
+
+    // A filtered-empty list must not claim the catalogue is empty. The empty
+    // state was told only about the search query, so a repository filter that
+    // matches nothing produced "No extensions installed yet" over a catalogue
+    // that is in fact full.
+    testWidgets('an empty result explains the filter, not the catalogue', (
+      tester,
+    ) async {
+      await pumpBoth(tester);
+      await tester.tap(find.byTooltip('Repositories'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(alpha));
+      await tester.pumpAndSettle();
+
+      // Alpha has nothing on the Updates tab, so that tab is filtered-empty.
+      await tester.tap(find.text('Updates'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Nothing matches'), findsOneWidget);
+      expect(find.textContaining('No extensions installed yet'), findsNothing);
+    });
+
+    // Widths picked by measurement, not assumption: the tab bar's own overflow
+    // lived at 360 and 384, not only at 320.
+    for (final width in <double>[320, 360, 384]) {
+      testWidgets('rows and banner lay out at ${width.toInt()}px', (
+        tester,
+      ) async {
+        await pumpBoth(tester, surface: Size(width, 640));
+        expect(tester.takeException(), isNull);
+
+        await tester.tap(find.byTooltip('Repositories'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(alpha));
+        await tester.pumpAndSettle();
+
+        expect(find.byTooltip('Show every repository'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  });
 }

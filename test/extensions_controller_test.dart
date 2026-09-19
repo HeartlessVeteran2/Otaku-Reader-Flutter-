@@ -20,6 +20,7 @@ Source _source({
   String version = '1.0.0',
   String versionLast = '1.0.0',
   bool nsfw = false,
+  String? repoUrl,
 }) => Source()
   ..sourceId = id
   ..name = name
@@ -28,6 +29,7 @@ Source _source({
   ..version = version
   ..versionLast = versionLast
   ..isNsfw = nsfw
+  ..repoUrl = repoUrl
   ..sourceCodeUrl = 'https://example.test/$id.dart';
 
 class _FakeExtensions implements ExtensionRepository {
@@ -88,7 +90,8 @@ class _FakeExtensions implements ExtensionRepository {
   Future<void> removeRepo(String url) async => calls.add('removeRepo:$url');
 
   @override
-  Future<List<ExtensionRepo>> getRepos() async => const [];
+  Future<List<ExtensionRepo>> getRepos() async => repos;
+  List<ExtensionRepo> repos = const [];
   @override
   Future<Map<String, RepoHealth>> repoHealth() async => health;
   Map<String, RepoHealth> health = const {};
@@ -372,5 +375,134 @@ void main() {
     ]);
 
     expect(c.availableLangs, ['en', 'fr']);
+  });
+
+  group('filtering by repository', () {
+    const alpha = 'https://alpha.test/index.json';
+    const beta = 'https://beta.test/index.json';
+
+    Future<ExtensionsController> withCatalogue() async {
+      final extensions =
+          _FakeExtensions([
+              _source(id: 1, name: 'From alpha', code: 'X', repoUrl: alpha),
+              _source(id: 2, name: 'From beta', code: 'X', repoUrl: beta),
+              // Detached: its repository was removed and it was kept, because
+              // library rows point at it by id.
+              _source(id: 3, name: 'Orphan', code: 'X'),
+            ])
+            ..repos = const [
+              ExtensionRepo(url: alpha, name: 'Alpha'),
+              ExtensionRepo(url: beta),
+            ];
+      final controller = ExtensionsController(
+        extensions: extensions,
+        sources: _FakeSources(),
+        nsfw: NsfwPreference(),
+      );
+      await controller.load();
+      return controller;
+    }
+
+    List<String> names(ExtensionsController c) =>
+        c.visible(ExtensionTab.installed).map((s) => s.name).toList();
+
+    test('no filter shows everything, detached included', () async {
+      final c = await withCatalogue();
+      expect(c.repoFilter.value.isAll, isTrue);
+      expect(names(c), ['From alpha', 'From beta', 'Orphan']);
+    });
+
+    test('one repository shows only its own', () async {
+      final c = await withCatalogue();
+      c.setRepoFilter(const RepoFilter.of(alpha));
+      expect(names(c), ['From alpha']);
+    });
+
+    // The distinction the type exists for. "Detached" is not "unfiltered", and
+    // a detached source is not a member of any repository — collapsing either
+    // direction makes the frozen sources unfindable, which is the one thing
+    // this filter is for.
+    test('detached is its own group, in neither direction', () async {
+      final c = await withCatalogue();
+
+      c.setRepoFilter(RepoFilter.detached);
+      expect(names(c), ['Orphan']);
+
+      c.setRepoFilter(const RepoFilter.of(alpha));
+      expect(names(c), isNot(contains('Orphan')));
+    });
+
+    test('the filter composes with the search query', () async {
+      final c = await withCatalogue();
+      c.setRepoFilter(const RepoFilter.of(alpha));
+      c.setQuery('beta');
+      expect(names(c), isEmpty, reason: 'beta is not in alpha');
+    });
+
+    test(
+      'hasDetached answers from the catalogue, not from the repos',
+      () async {
+        final c = await withCatalogue();
+        expect(c.hasDetached, isTrue);
+
+        final tidy = ExtensionsController(
+          extensions: _FakeExtensions([
+            _source(id: 1, name: 'From alpha', code: 'X', repoUrl: alpha),
+          ])..repos = const [ExtensionRepo(url: alpha, name: 'Alpha')],
+          sources: _FakeSources(),
+          nsfw: NsfwPreference(),
+        );
+        await tidy.load();
+        expect(tidy.hasDetached, isFalse);
+      },
+    );
+
+    test('a repository is labelled the same everywhere', () async {
+      final c = await withCatalogue();
+      // The index carried a name for alpha and none for beta, so beta falls
+      // back to its host — and must do so identically in both places, or the
+      // sheet and the rows disagree about what a repository is called.
+      expect(c.repoLabels[alpha], 'Alpha');
+      expect(c.repoLabels[beta], 'beta.test');
+
+      final statuses = await c.repoStatuses();
+      expect(statuses.map((s) => s.label), ['Alpha', 'beta.test']);
+    });
+
+    // CodeAnt's finding on #44. Removing the repository a filter names leaves
+    // the filter pointing at something gone, so the list empties and the banner
+    // advertises a repository that no longer exists.
+    test('removing the filtered repository clears the filter', () async {
+      final c = await withCatalogue();
+      c.setRepoFilter(const RepoFilter.of(alpha));
+      expect(names(c), ['From alpha']);
+
+      await c.removeRepo(alpha);
+
+      expect(c.repoFilter.value.isAll, isTrue);
+      expect(names(c), isNotEmpty);
+    });
+
+    // ...but only that one. Removing a different repository must not silently
+    // undo a filter the user set, which is a second surprise on top of the
+    // removal they asked for.
+    test('removing a different repository leaves the filter alone', () async {
+      final c = await withCatalogue();
+      c.setRepoFilter(const RepoFilter.of(alpha));
+
+      await c.removeRepo(beta);
+
+      expect(c.repoFilter.value, const RepoFilter.of(alpha));
+      expect(names(c), ['From alpha']);
+    });
+
+    test('the banner label names the filter in force', () async {
+      final c = await withCatalogue();
+      expect(c.filterLabel, 'Every repository');
+      c.setRepoFilter(const RepoFilter.of(beta));
+      expect(c.filterLabel, 'beta.test');
+      c.setRepoFilter(RepoFilter.detached);
+      expect(c.filterLabel, 'Extensions with no repository');
+    });
   });
 }
