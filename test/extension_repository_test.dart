@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -43,8 +44,12 @@ class _Fetcher {
   final List<String> requested = [];
   Object? failWith;
 
+  /// Holds the fetch open, so a removal can land mid-refresh.
+  Future<void>? gate;
+
   Future<String> call(Uri url) async {
     requested.add(url.toString());
+    if (gate != null) await gate;
     if (failWith != null) throw failWith!;
     final body = bodies[url.toString()];
     if (body == null) throw StateError('no canned body for $url');
@@ -463,6 +468,205 @@ void main() {
       expect(db.isar.sources.where().findFirstSync()!.isInstalled, isFalse);
     },
   );
+
+  group('repo health', () {
+    // The record exists to answer "which of my repos is failing?". A refresh
+    // that fails deliberately leaves the known sources in place, so without
+    // this a dead repo is indistinguishable from a healthy one that simply has
+    // nothing new to offer.
+
+    test('a successful refresh records a success', () async {
+      final fetcher = _Fetcher({
+        _repo: jsonEncode([_entry(id: 1)]),
+      });
+      final repository = repoWith(fetcher);
+      await repository.addRepo(const ExtensionRepo(url: _repo));
+
+      final health = await repository.repoHealth();
+      expect(health.keys, [_repo]);
+      expect(health[_repo]!.isSuccess, isTrue);
+      expect(health[_repo]!.error, isNull);
+    });
+
+    // Each of `_refresh`'s three exits gets its own case, because the wrapper
+    // exists so that none of them can skip the record -- and a failure that
+    // goes unrecorded is the single case this whole feature is for.
+    test('a transport failure is recorded, with its reason', () async {
+      final fetcher = _Fetcher({})..failWith = const SocketExceptionStub();
+      final repository = repoWith(fetcher);
+      await repository.addRepo(const ExtensionRepo(url: _repo));
+
+      final health = await repository.repoHealth();
+      expect(health[_repo]!.isSuccess, isFalse);
+      expect(health[_repo]!.error, contains('host unreachable'));
+    });
+
+    test('an index that is not a list is recorded as a failure', () async {
+      final fetcher = _Fetcher({_repo: '{"not": "a list"}'});
+      final repository = repoWith(fetcher);
+      await repository.addRepo(const ExtensionRepo(url: _repo));
+
+      final health = await repository.repoHealth();
+      expect(health[_repo]!.isSuccess, isFalse);
+      expect(health[_repo]!.error, contains('not a JSON list'));
+    });
+
+    test('a later success clears an earlier failure', () async {
+      final fetcher = _Fetcher({
+        _repo: jsonEncode([_entry(id: 1)]),
+      })..failWith = const SocketExceptionStub();
+      final repository = repoWith(fetcher);
+      await repository.addRepo(const ExtensionRepo(url: _repo));
+      expect((await repository.repoHealth())[_repo]!.isSuccess, isFalse);
+
+      fetcher.failWith = null;
+      await repository.refresh(_repo);
+      final health = await repository.repoHealth();
+      expect(health[_repo]!.isSuccess, isTrue);
+      expect(health[_repo]!.error, isNull);
+    });
+
+    // Never-checked is a third state. A repo carrying no record must not
+    // borrow either of the other two: reporting a repo nobody has refreshed as
+    // *failing* is a claim about a request that was never made.
+    test('a repo that has never been refreshed has no record', () async {
+      final fetcher = _Fetcher({
+        _repo: jsonEncode([_entry(id: 1)]),
+      });
+      final repository = repoWith(fetcher);
+      SourceKeys.repoUrls.set<List<dynamic>>([
+        const ExtensionRepo(url: _repo).toJson(),
+        const ExtensionRepo(url: _otherRepo).toJson(),
+      ]);
+      await repository.refresh(_repo);
+
+      final health = await repository.repoHealth();
+      expect(health.containsKey(_repo), isTrue);
+      expect(health.containsKey(_otherRepo), isFalse);
+    });
+
+    test('removing a repo forgets its record', () async {
+      final fetcher = _Fetcher({
+        _repo: jsonEncode([_entry(id: 1)]),
+      });
+      final repository = repoWith(fetcher);
+      await repository.addRepo(const ExtensionRepo(url: _repo));
+      expect(await repository.repoHealth(), isNotEmpty);
+
+      await repository.removeRepo(_repo);
+      expect(await repository.repoHealth(), isEmpty);
+
+      // The stored row is gone, not merely filtered out of the answer --
+      // otherwise re-adding the same URL shows its previous life's outcome
+      // until a fresh refresh lands.
+      final raw = SourceKeys.repoHealth.get<Map<String, dynamic>?>();
+      expect(raw == null || !raw.containsKey(_repo), isTrue);
+    });
+
+    test('a record never outlives the repo it describes', () async {
+      final fetcher = _Fetcher({
+        _repo: jsonEncode([_entry(id: 1)]),
+      });
+      final repository = repoWith(fetcher);
+      await repository.addRepo(const ExtensionRepo(url: _repo));
+      // A row that outlived its repo: a removal that raced a refresh, or a
+      // build whose removal predates the pruning.
+      SourceKeys.repoUrls.set<List<dynamic>>([]);
+
+      expect(await repository.repoHealth(), isEmpty);
+    });
+
+    // Both refreshes read the whole map, change one entry and write it back.
+    // Nothing serialises them — nothing needs to, because that read-modify-write
+    // is synchronous and so cannot be interleaved on Dart's one thread.
+    //
+    // This test is the guard on that property rather than on a lock. Proven by
+    // putting a single `await` between the read and the write: this is the test
+    // that fails, and only this one.
+    test('two refreshes at once do not lose one another', () async {
+      final fetcher = _Fetcher({
+        _repo: jsonEncode([_entry(id: 1)]),
+        _otherRepo: jsonEncode([_entry(id: 2)]),
+      });
+      final repository = repoWith(fetcher);
+      SourceKeys.repoUrls.set<List<dynamic>>([
+        const ExtensionRepo(url: _repo).toJson(),
+        const ExtensionRepo(url: _otherRepo).toJson(),
+      ]);
+
+      await Future.wait([
+        repository.refresh(_repo),
+        repository.refresh(_otherRepo),
+      ]);
+
+      final health = await repository.repoHealth();
+      expect(health.keys.toSet(), {_repo, _otherRepo});
+    });
+
+    test('a corrupt stored row is dropped, not thrown', () async {
+      final fetcher = _Fetcher({
+        _repo: jsonEncode([_entry(id: 1)]),
+      });
+      final repository = repoWith(fetcher);
+      SourceKeys.repoUrls.set<List<dynamic>>([
+        const ExtensionRepo(url: _repo).toJson(),
+      ]);
+      // No `checkedAt`: a row some other build wrote.
+      SourceKeys.repoHealth.set<Map<String, dynamic>>({
+        _repo: {'error': 'whatever'},
+      });
+
+      expect(await repository.repoHealth(), isEmpty);
+    });
+  });
+
+  group('CodeAnt #43 findings', () {
+    // (3) `fromJson` is documented to return null rather than throw for a row
+    // this app did not write. `DateTime.fromMillisecondsSinceEpoch` throws on
+    // an out-of-range int, so the doc oversells.
+    test('an out-of-range checkedAt is dropped, not thrown', () async {
+      final fetcher = _Fetcher({
+        _repo: jsonEncode([_entry(id: 1)]),
+      });
+      final repository = repoWith(fetcher);
+      SourceKeys.repoUrls.set<List<dynamic>>([
+        const ExtensionRepo(url: _repo).toJson(),
+      ]);
+      SourceKeys.repoHealth.set<Map<String, dynamic>>({
+        _repo: {'checkedAt': 999999999999999999},
+      });
+
+      expect(await repository.repoHealth(), isEmpty);
+    });
+
+    // (1) A refresh in flight when the repo is removed writes its record after
+    // `_forgetHealth` has run, so re-adding the same URL shows the dead repo's
+    // last outcome until the new refresh lands.
+    test(
+      'a refresh in flight when the repo is removed records nothing',
+      () async {
+        final gate = Completer<void>();
+        final fetcher = _Fetcher({
+          _repo: jsonEncode([_entry(id: 1)]),
+        })..gate = gate.future;
+        final repository = repoWith(fetcher);
+        SourceKeys.repoUrls.set<List<dynamic>>([
+          const ExtensionRepo(url: _repo).toJson(),
+        ]);
+
+        final inFlight = repository.refresh(_repo);
+        await repository.removeRepo(_repo);
+        gate.complete();
+        await inFlight;
+
+        // Nothing stored at all -- not merely filtered out of the answer. The
+        // filter hides it while the repo is gone; it reappears the moment the
+        // same URL is added back.
+        final raw = SourceKeys.repoHealth.get<Map<String, dynamic>?>();
+        expect(raw == null || !raw.containsKey(_repo), isTrue);
+      },
+    );
+  });
 }
 
 /// Stands in for a transport failure without depending on dart:io's exact type.

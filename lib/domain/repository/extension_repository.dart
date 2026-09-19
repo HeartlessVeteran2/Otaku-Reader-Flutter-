@@ -24,6 +24,70 @@ class ExtensionRepo {
   int get hashCode => Object.hash(url, name);
 }
 
+/// What happened the last time a repo's index was read, and when.
+///
+/// Persisted per repo, because "this repository has been failing for a week" is
+/// the thing a user with several of them needs to see and the thing nothing in
+/// the app could previously tell them. A refresh deliberately leaves the
+/// previously known sources in place when it fails, which is right — a flaky
+/// network must not empty the extension list — but it also means a dead repo
+/// looks exactly like a healthy one until you notice it never gains anything.
+///
+/// **Absent is a third state, not a failure.** A repo added before this shipped,
+/// or one whose refresh has never run, has no record — and "never checked" is
+/// something the user can act on ("refresh it") in a way that "failed" is not.
+/// Collapsing the two would report a working repo as broken.
+///
+/// The added/updated/removed counts from [RefreshResult] are deliberately *not*
+/// stored. They describe one moment and go stale as soon as anything else
+/// touches the catalogue, whereas how many sources a repo currently lists is
+/// free to count from the loaded rows and is always true.
+class RepoHealth {
+  const RepoHealth({required this.checkedAt, this.error});
+
+  /// When the index was last read, successfully or not.
+  final DateTime checkedAt;
+
+  /// Null when that read succeeded.
+  final String? error;
+
+  bool get isSuccess => error == null;
+
+  Map<String, dynamic> toJson() => {
+    'checkedAt': checkedAt.millisecondsSinceEpoch,
+    if (error != null) 'error': error,
+  };
+
+  /// The largest magnitude `DateTime.fromMillisecondsSinceEpoch` accepts.
+  ///
+  /// It is 100,000,000 days either side of the epoch; anything beyond throws
+  /// rather than clamping. Named here because the check below is the whole
+  /// reason this constructor cannot simply be called.
+  static const int _maxMillis = 8640000000000000;
+
+  /// Returns null for a row this app did not write, rather than throwing.
+  ///
+  /// This is a disposable cache with a re-fetchable upstream: the worst a
+  /// dropped row costs is one "Never checked" until the next refresh, which is
+  /// a far better outcome than a corrupt entry taking out the repo sheet.
+  ///
+  /// The range check is not decoration. An earlier version stopped at
+  /// `millis is! int`, and this doc still promised not to throw — but an
+  /// out-of-range int reaches `fromMillisecondsSinceEpoch` and throws
+  /// `ArgumentError`, taking `repoHealth()` and the sheet with it. Found by
+  /// `codeant-ai`; a comment asserting a property is not evidence of it.
+  static RepoHealth? fromJson(Map<String, dynamic> json) {
+    final millis = json['checkedAt'];
+    if (millis is! int) return null;
+    if (millis.abs() > _maxMillis) return null;
+    final error = json['error'];
+    return RepoHealth(
+      checkedAt: DateTime.fromMillisecondsSinceEpoch(millis),
+      error: error is String ? error : null,
+    );
+  }
+}
+
 /// What a refresh of one repo did, so the UI can say something specific.
 ///
 /// A refresh that reaches the network and finds nothing is not the same as one
@@ -61,10 +125,21 @@ abstract interface class ExtensionRepository {
   /// rather than duplicating it.
   Future<RefreshResult> addRepo(ExtensionRepo repo);
 
-  /// Removes [url] and deletes the sources that came from it.
+  /// Removes [url], deleting only the sources that are safe to delete.
   ///
-  /// Installed sources go too: leaving them would strand rows whose origin the
-  /// user has explicitly removed, and whose updates can never arrive again.
+  /// An **installed** source is *detached*, not deleted: its `repoUrl` is
+  /// cleared, so it keeps working and simply stops receiving updates. Every
+  /// library entry stores its source's id, and the user's chapters, progress
+  /// and favourites all hang off that id — so deleting the row makes each of
+  /// those entries fail with "No source with id ...", which the Kotlin app
+  /// calls its highest-impact bug ever and which has no way back.
+  ///
+  /// Uninstalled sources are deleted outright; nothing points at them.
+  ///
+  /// This doc previously said the opposite — that installed sources went too —
+  /// while the implementation has always detached them. It is recorded here
+  /// because a doc that contradicts its implementation is worse than no doc:
+  /// the next reader "fixes" the code to match and reintroduces the bug.
   Future<void> removeRepo(String url);
 
   /// Re-reads every configured repo index. Each repo is reported separately, so
@@ -72,6 +147,13 @@ abstract interface class ExtensionRepository {
   Future<List<RefreshResult>> refreshAll();
 
   Future<RefreshResult> refresh(String repoUrl);
+
+  /// The last refresh outcome for each repo, keyed by URL.
+  ///
+  /// A repo with no entry has never been refreshed by this build. Entries for
+  /// repos the user has since removed are dropped, so the map never outlives
+  /// what [getRepos] returns.
+  Future<Map<String, RepoHealth>> repoHealth();
 
   /// Every known extension, installed or not.
   Future<List<Source>> listAll();

@@ -200,15 +200,6 @@ class ExtensionsController extends GetxController {
     return result.isSuccess ? null : 'Could not read that index';
   }
 
-  /// How many **installed** sources removing [url] would detach.
-  ///
-  /// They are kept and keep working; the count exists so the confirmation can
-  /// say what will actually happen rather than implying the extensions go with
-  /// the repo. Read from the loaded catalogue, so it is answered before the
-  /// removal — afterwards no row says which sources belonged to that repo.
-  int installedSourcesOf(String url) =>
-      all.where((s) => s.repoUrl == url && s.isInstalled).length;
-
   /// Removes a repo, and only the sources that are safe to remove.
   ///
   /// An **installed** source is detached rather than deleted: every library
@@ -235,5 +226,63 @@ class ExtensionsController extends GetxController {
 
   Future<List<ExtensionRepo>> repos() => _extensions.getRepos();
 
+  /// The repos, each paired with how it last behaved and how much it carries.
+  ///
+  /// One call rather than three, because the sheet renders them on one row and
+  /// three independent futures would let the count arrive before the health and
+  /// repaint twice. The count is read from the **loaded catalogue** rather than
+  /// stored: a persisted number goes stale the moment an install, an uninstall
+  /// or another repo's refresh touches the rows, and counting what is in memory
+  /// is free and always true.
+  Future<List<RepoStatus>> repoStatuses() async {
+    final repos = await _extensions.getRepos();
+    final health = await _extensions.repoHealth();
+    return [
+      for (final repo in repos)
+        RepoStatus(
+          repo: repo,
+          health: health[repo.url],
+          sourceCount: all.where((s) => s.repoUrl == repo.url).length,
+          installedCount: all
+              .where((s) => s.repoUrl == repo.url && s.isInstalled)
+              .length,
+        ),
+    ];
+  }
+
   static String _host(String url) => Uri.tryParse(url)?.host ?? url;
+}
+
+/// A repo as the sheet shows it: what it is, how it last behaved, what it holds.
+class RepoStatus {
+  const RepoStatus({
+    required this.repo,
+    required this.health,
+    required this.sourceCount,
+    required this.installedCount,
+  });
+
+  final ExtensionRepo repo;
+
+  /// Null when this repo has never been refreshed by this build — which is a
+  /// state of its own, not a failure. A repo added before per-repo health
+  /// existed has no record, and telling the user it is broken would be a lie
+  /// about a repo that may be perfectly fine.
+  final RepoHealth? health;
+
+  /// How many extensions this repo currently lists, installed or not.
+  final int sourceCount;
+
+  /// How many of those the user has installed.
+  ///
+  /// These are the ones that *survive* the repo being removed — they are
+  /// detached, not deleted — so this is the number the removal dialog counts.
+  /// It has to be read from the loaded catalogue **before** the removal:
+  /// afterwards no row says which sources belonged to that repo, because the
+  /// detach is precisely the clearing of `repoUrl`.
+  final int installedCount;
+
+  /// A name to show. The index may not carry one, so the host is the fallback
+  /// and the raw URL is the fallback's fallback.
+  String get label => repo.name ?? Uri.tryParse(repo.url)?.host ?? repo.url;
 }

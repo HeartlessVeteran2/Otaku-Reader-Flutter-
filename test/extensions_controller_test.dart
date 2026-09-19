@@ -89,6 +89,9 @@ class _FakeExtensions implements ExtensionRepository {
 
   @override
   Future<List<ExtensionRepo>> getRepos() async => const [];
+  @override
+  Future<Map<String, RepoHealth>> repoHealth() async => health;
+  Map<String, RepoHealth> health = const {};
 }
 
 class _FakeSources implements SourceRepository {

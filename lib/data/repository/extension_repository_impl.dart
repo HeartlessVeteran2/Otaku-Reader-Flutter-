@@ -66,13 +66,101 @@ class ExtensionRepositoryImpl implements ExtensionRepository {
     return result;
   }
 
+  /// The health map's read-modify-write cycles are **synchronous**, which is
+  /// what makes them atomic — not a lock.
+  ///
+  /// [_withRepoLock] exists two methods up because [_removeRepo] awaits
+  /// `getRepos()` between reading the list and writing it back, and an `await`
+  /// is a yield point a second caller can land in. These two do not have one:
+  /// `KvHelper.get` is `findFirstSync` and `KvHelper.set` is `writeTxnSync`, so
+  /// read, modify and write run in a single turn of the event loop and nothing
+  /// can interleave with them on Dart's one thread.
+  ///
+  /// So they are deliberately **not** `async`. A lock here would guard nothing
+  /// while reading as though concurrency had been handled, which is worse than
+  /// no lock at all — and a `Future` return type would invite an `await` to be
+  /// added inside, at which point the atomicity silently disappears with no
+  /// signature change to notice. Keeping them `void` makes introducing that
+  /// hazard a visible decision rather than an edit.
+  ///
+  /// This was written with a lock first. Deleting it failed no test, which is
+  /// how the lock was found to be guarding nothing.
+  Map<String, RepoHealth> _readHealth() {
+    final stored = SourceKeys.repoHealth.get<Map<String, dynamic>?>();
+    if (stored == null) return const {};
+    final out = <String, RepoHealth>{};
+    stored.forEach((url, value) {
+      // Converted per entry rather than trusting the outer cast. `jsonDecode`
+      // erases the value type, and `KvHelper` converts only the outermost map
+      // -- so reading a nested one as `Map<String, dynamic>` succeeds at the
+      // cast and throws on first access. That is exactly how the `List<String>`
+      // bug in this file's own KV tier worked (CLAUDE.md).
+      if (value is! Map) return;
+      final parsed = RepoHealth.fromJson(Map<String, dynamic>.from(value));
+      if (parsed != null) out[url] = parsed;
+    });
+    return out;
+  }
+
+  @override
+  Future<Map<String, RepoHealth>> repoHealth() async {
+    final stored = _readHealth();
+    if (stored.isEmpty) return stored;
+    // Entries for repos the user has removed are never returned, so a repo
+    // re-added later cannot show the health of its previous life. `removeRepo`
+    // also prunes, but a row can outlive it -- a removal that raced a refresh,
+    // or a build where the removal predates this code.
+    final live = {for (final r in await getRepos()) r.url};
+    return {
+      for (final e in stored.entries)
+        if (live.contains(e.key)) e.key: e.value,
+    };
+  }
+
+  void _recordHealth(RefreshResult result) {
+    // A refresh already in flight when the user removes its repo would
+    // otherwise land *after* `_forgetHealth` and revive the record, so
+    // re-adding the same URL shows the dead repo's last outcome until the new
+    // refresh completes. Checking here rather than reordering the removal is
+    // what actually closes it: the racing writer is this method, and it does
+    // not hold -- and must not take -- the repo lock. Found by `codeant-ai`.
+    //
+    // Synchronous on purpose: an `await` here would reintroduce the yield point
+    // the whole design avoids.
+    if (!_storedRepos().any((r) => r.url == result.repoUrl)) return;
+    final map = {
+      for (final e in _readHealth().entries) e.key: e.value.toJson(),
+    };
+    map[result.repoUrl] = RepoHealth(
+      checkedAt: DateTime.now(),
+      error: result.error,
+    ).toJson();
+    SourceKeys.repoHealth.set<Map<String, dynamic>>(map);
+  }
+
+  void _forgetHealth(String url) {
+    final stored = _readHealth();
+    if (!stored.containsKey(url)) return;
+    SourceKeys.repoHealth.set<Map<String, dynamic>>({
+      for (final e in stored.entries)
+        if (e.key != url) e.key: e.value.toJson(),
+    });
+  }
+
   /// The index every Mangayomi client reads. Seeded so a fresh install has
   /// something to browse before the user has added anything.
   static const defaultRepoUrl =
       'https://raw.githubusercontent.com/kodjodevf/mangayomi-extensions/main/index.json';
 
   @override
-  Future<List<ExtensionRepo>> getRepos() async {
+  Future<List<ExtensionRepo>> getRepos() async => _storedRepos();
+
+  /// The configured repos, read synchronously.
+  ///
+  /// `getRepos` is the async face of this; the sync one exists because
+  /// [_recordHealth] must ask "is this repo still configured?" without an
+  /// `await`, which is what keeps its read-modify-write atomic.
+  List<ExtensionRepo> _storedRepos() {
     // Nullable T deliberately: with a non-nullable T and nothing stored,
     // KvHelper returns `null as T` and throws. Absent has to be distinguishable
     // from empty here, because absent means "seed the default repo" and empty
@@ -111,7 +199,13 @@ class ExtensionRepositoryImpl implements ExtensionRepository {
   }
 
   @override
-  Future<void> removeRepo(String url) => _withRepoLock(() => _removeRepo(url));
+  Future<void> removeRepo(String url) async {
+    await _withRepoLock(() => _removeRepo(url));
+    // After the repo list write: a health row for a repo that no longer exists
+    // is invisible state that would resurface with the old outcome if the user
+    // re-added the same URL.
+    _forgetHealth(url);
+  }
 
   Future<void> _removeRepo(String url) async {
     final repos = await getRepos();
@@ -153,12 +247,50 @@ class ExtensionRepositoryImpl implements ExtensionRepository {
     for (final repo in repos) {
       results.add(await refresh(repo.url));
     }
-    SourceKeys.lastRepoRefresh.set<int>(DateTime.now().millisecondsSinceEpoch);
     return results;
   }
 
+  /// Reads [repoUrl]'s index and records the outcome.
+  ///
+  /// A wrapper, so that **every** exit is recorded. `_refresh` returns early in
+  /// three places -- a transport failure, an index that is not a JSON list, and
+  /// the success path -- and recording at each of those is three chances to add
+  /// a fourth and forget. The health record exists to tell a user that a repo
+  /// has been failing, so an unrecorded failure is the one case that matters.
+  ///
+  /// The `catch` is the fourth exit, and it is why that claim is now true.
+  /// `_refresh`'s own try covers only the fetch and the decode; the reconcile
+  /// transaction sits outside it, so a database failure -- two repos listing
+  /// one `sourceId`, which the unique index refuses -- propagated straight past
+  /// the record. It also escaped `refreshAll`, whose loop has no try, losing
+  /// every other repo's result with it. Returning it as a `RefreshResult`
+  /// rather than rethrowing keeps failure on the one channel every caller
+  /// already reads. Found by `codeant-ai`.
+  ///
+  /// **This catch is deliberately uncovered by a test, and that is not an
+  /// oversight to fix by deleting it.** No input reachable through
+  /// [TextFetcher] makes the reconcile throw: the obvious candidate, two repos
+  /// listing one `sourceId`, is `@Index(unique: true, replace: true)` and so
+  /// replaces rather than failing. The reachable trigger is the database itself
+  /// going away mid-refresh, and closing the shared test instance to force it
+  /// takes the rest of the suite with it. So the guard stands on the argument
+  /// above rather than on a red-to-green demonstration -- stated here because
+  /// an untested branch that nobody flagged as untested is how one gets
+  /// deleted as dead code later.
   @override
   Future<RefreshResult> refresh(String repoUrl) async {
+    RefreshResult result;
+    try {
+      result = await _refresh(repoUrl);
+    } catch (e) {
+      Log.error('Reconciling $repoUrl failed: $e');
+      result = RefreshResult(repoUrl: repoUrl, error: '$e');
+    }
+    _recordHealth(result);
+    return result;
+  }
+
+  Future<RefreshResult> _refresh(String repoUrl) async {
     final List<dynamic> entries;
     try {
       final body = await _fetch(Uri.parse(repoUrl));

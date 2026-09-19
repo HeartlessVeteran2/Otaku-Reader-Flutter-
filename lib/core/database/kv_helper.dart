@@ -7,8 +7,15 @@ import 'package:otaku_reader/core/database/key_value.dart';
 /// Grafts typed persistence onto every enum in the app.
 ///
 /// Declaring keys as enum members rather than string literals makes them
-/// rename-safe and autocompletable, and removes the whole class of bug where a
-/// read and a write disagree about a string by one character.
+/// autocompletable and removes the whole class of bug where a read and a write
+/// disagree about a string by one character.
+///
+/// It does **not** make them rename-safe, which an earlier version of this
+/// comment claimed. The stored key is the member's `name`, so renaming a member
+/// silently orphans every value already written under the old name — the code
+/// still compiles, every call site is updated by the rename, and the user's
+/// data is simply gone. Renaming a key is a migration, not a refactor.
+/// Reordering members, on the other hand, is free: nothing depends on `index`.
 extension KvExtensions on Enum {
   T get<T>([T? defaultValue]) =>
       KvHelper.get<T>(name, defaultVal: defaultValue);
