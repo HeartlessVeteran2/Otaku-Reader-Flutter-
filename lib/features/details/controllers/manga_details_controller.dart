@@ -8,6 +8,7 @@ import 'dart:async';
 
 import 'package:get/get.dart';
 
+import 'package:otaku_reader/data/anilist/anilist_auth.dart';
 import 'package:otaku_reader/data/anilist/anilist_list_service.dart';
 import 'package:otaku_reader/data/anilist/anilist_metadata_service.dart';
 import 'package:otaku_reader/data/anilist/title_matcher.dart';
@@ -314,6 +315,7 @@ class MangaDetailsController extends GetxController {
   Future<AniListSaveResult> saveAniList({
     AniListListStatus? status,
     int? progress,
+    double? score,
   }) async {
     final mediaId = anilist.value?.id;
     if (mediaId == null) return AniListSaveResult.refused;
@@ -324,6 +326,7 @@ class MangaDetailsController extends GetxController {
         mediaId: mediaId,
         status: status,
         progress: progress,
+        score: score,
       );
       if (saved == null) return AniListSaveResult.refused;
       // Publish only if this page is still about the media the write went to.
@@ -344,6 +347,16 @@ class MangaDetailsController extends GetxController {
       isSavingAniList.value = false;
     }
   }
+
+  /// The units this page's AniList row is in.
+  ///
+  /// **The row's own format first**, which came back in the same response as
+  /// the row, and only then the cached viewer's. The cache is written at
+  /// sign-in and the format is a setting the user can change from another
+  /// device, so preferring it would let the editor open on a scale the number
+  /// in front of it is not on.
+  ScoreFormat? get anilistScoreFormat =>
+      anilistList.value.scoreFormat ?? _anilistList.scoreFormat;
 
   /// Candidates for the manual picker, best first.
   Future<List<TitleMatch>> anilistCandidates() async {

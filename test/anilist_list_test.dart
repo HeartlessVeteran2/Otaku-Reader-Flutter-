@@ -19,8 +19,12 @@ String _listBody({
   Object? score = 8.5,
   int repeat = 0,
   bool private = false,
+  String scoreFormat = 'POINT_10_DECIMAL',
 }) => jsonEncode({
   'data': {
+    'Viewer': {
+      'mediaListOptions': {'scoreFormat': scoreFormat},
+    },
     'MediaList': {
       'id': 99,
       'status': status,
@@ -290,6 +294,108 @@ void main() {
           (jsonDecode(sent.single.body) as Map<String, dynamic>)['variables']
               as Map<String, dynamic>;
       expect(vars['progress'], 0);
+    });
+
+    test('a score is sent in the viewer\'s own format, never as scoreRaw', () async {
+      // `SaveMediaListEntry` takes both `score` (the viewer's format) and
+      // `scoreRaw` (always 0-100). This app sends `score`, and the choice is
+      // load-bearing rather than arbitrary: converting a POINT_3 smiley to a
+      // 0-100 number means inventing a mapping AniList does not publish, and
+      // handing back the units the row was read in needs no arithmetic at all.
+      //
+      // Pinned so the "simplification" to scoreRaw is a failing test rather
+      // than a silently wrong rating.
+      final sent = <http.Request>[];
+      final auth = await signedIn([_savedBody()], sent);
+
+      await AniListListService(auth).save(mediaId: 7, score: 8.5);
+
+      final vars =
+          (jsonDecode(sent.single.body) as Map<String, dynamic>)['variables']
+              as Map<String, dynamic>;
+      expect(vars['score'], 8.5);
+      expect(vars.containsKey('scoreRaw'), isFalse);
+      expect(
+        vars.containsKey('status'),
+        isFalse,
+        reason: 'rating something says nothing about its status',
+      );
+      expect(vars.containsKey('progress'), isFalse);
+    });
+
+    test('a zero score is still sent, because zero means unscored', () async {
+      // The same trap as progress 0, and AniList's own schema is explicit
+      // about it: POINT_3 is documented as "0 => No Score". So clearing a
+      // rating and never having set one are the same value, and treating
+      // falsy as absent would make "remove my score" silently do nothing.
+      final sent = <http.Request>[];
+      final auth = await signedIn([_savedBody()], sent);
+
+      await AniListListService(auth).save(mediaId: 7, score: 0);
+
+      final vars =
+          (jsonDecode(sent.single.body) as Map<String, dynamic>)['variables']
+              as Map<String, dynamic>;
+      expect(vars['score'], 0);
+    });
+
+    test('the row\'s units come from the same response as the row', () async {
+      // The defect this closes. The cached viewer is written once, at
+      // sign-in, and the score format is a setting the user can change from
+      // any other device. Left to the cache the app reads a row as 85/100 and
+      // then writes 85 as a five-star rating, because `SaveMediaListEntry`
+      // reads `score` in the user's *current* units.
+      //
+      // So the lookup asks for the live format in the same request. Here the
+      // cache says POINT_10_DECIMAL and AniList says POINT_5; the row must
+      // come back described as POINT_5.
+      final auth = AniListAuth(
+        storage: FakeVault(),
+        clientId: 'abc',
+        client: _SequencedClient([
+          viewerBody(),
+          _listBody(score: 4, scoreFormat: 'POINT_5'),
+        ]),
+      );
+      await auth.signIn('t');
+      expect(auth.viewer.value!.scoreFormat, ScoreFormat.point10Decimal);
+
+      final result = await AniListListService(auth).lookUp(7);
+
+      expect(result.scoreFormat, ScoreFormat.point5);
+      expect(
+        auth.viewer.value!.scoreFormat,
+        ScoreFormat.point5,
+        reason:
+            'the write path renders its response with the cached viewer, '
+            'so it has to agree with what was just read',
+      );
+    });
+
+    test('a manga not on the list still reports the units', () async {
+      // Adding an untracked manga opens the same editor, so it needs the same
+      // scale — a rating control with no units is one that writes a guess.
+      final auth = AniListAuth(
+        storage: FakeVault(),
+        clientId: 'abc',
+        client: _SequencedClient([
+          viewerBody(),
+          jsonEncode({
+            'data': {
+              'Viewer': {
+                'mediaListOptions': {'scoreFormat': 'POINT_3'},
+              },
+              'MediaList': null,
+            },
+          }),
+        ]),
+      );
+      await auth.signIn('t');
+
+      final result = await AniListListService(auth).lookUp(7);
+
+      expect(result.lookup, AniListListLookup.notOnList);
+      expect(result.scoreFormat, ScoreFormat.point3);
     });
 
     test('an empty edit is not sent at all', () async {
