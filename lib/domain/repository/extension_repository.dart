@@ -58,14 +58,28 @@ class RepoHealth {
     if (error != null) 'error': error,
   };
 
+  /// The largest magnitude `DateTime.fromMillisecondsSinceEpoch` accepts.
+  ///
+  /// It is 100,000,000 days either side of the epoch; anything beyond throws
+  /// rather than clamping. Named here because the check below is the whole
+  /// reason this constructor cannot simply be called.
+  static const int _maxMillis = 8640000000000000;
+
   /// Returns null for a row this app did not write, rather than throwing.
   ///
   /// This is a disposable cache with a re-fetchable upstream: the worst a
   /// dropped row costs is one "Never checked" until the next refresh, which is
   /// a far better outcome than a corrupt entry taking out the repo sheet.
+  ///
+  /// The range check is not decoration. An earlier version stopped at
+  /// `millis is! int`, and this doc still promised not to throw — but an
+  /// out-of-range int reaches `fromMillisecondsSinceEpoch` and throws
+  /// `ArgumentError`, taking `repoHealth()` and the sheet with it. Found by
+  /// `codeant-ai`; a comment asserting a property is not evidence of it.
   static RepoHealth? fromJson(Map<String, dynamic> json) {
     final millis = json['checkedAt'];
     if (millis is! int) return null;
+    if (millis.abs() > _maxMillis) return null;
     final error = json['error'];
     return RepoHealth(
       checkedAt: DateTime.fromMillisecondsSinceEpoch(millis),

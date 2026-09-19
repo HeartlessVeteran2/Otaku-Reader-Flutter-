@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -43,8 +44,12 @@ class _Fetcher {
   final List<String> requested = [];
   Object? failWith;
 
+  /// Holds the fetch open, so a removal can land mid-refresh.
+  Future<void>? gate;
+
   Future<String> call(Uri url) async {
     requested.add(url.toString());
+    if (gate != null) await gate;
     if (failWith != null) throw failWith!;
     final body = bodies[url.toString()];
     if (body == null) throw StateError('no canned body for $url');
@@ -613,6 +618,54 @@ void main() {
 
       expect(await repository.repoHealth(), isEmpty);
     });
+  });
+
+  group('CodeAnt #43 findings', () {
+    // (3) `fromJson` is documented to return null rather than throw for a row
+    // this app did not write. `DateTime.fromMillisecondsSinceEpoch` throws on
+    // an out-of-range int, so the doc oversells.
+    test('an out-of-range checkedAt is dropped, not thrown', () async {
+      final fetcher = _Fetcher({
+        _repo: jsonEncode([_entry(id: 1)]),
+      });
+      final repository = repoWith(fetcher);
+      SourceKeys.repoUrls.set<List<dynamic>>([
+        const ExtensionRepo(url: _repo).toJson(),
+      ]);
+      SourceKeys.repoHealth.set<Map<String, dynamic>>({
+        _repo: {'checkedAt': 999999999999999999},
+      });
+
+      expect(await repository.repoHealth(), isEmpty);
+    });
+
+    // (1) A refresh in flight when the repo is removed writes its record after
+    // `_forgetHealth` has run, so re-adding the same URL shows the dead repo's
+    // last outcome until the new refresh lands.
+    test(
+      'a refresh in flight when the repo is removed records nothing',
+      () async {
+        final gate = Completer<void>();
+        final fetcher = _Fetcher({
+          _repo: jsonEncode([_entry(id: 1)]),
+        })..gate = gate.future;
+        final repository = repoWith(fetcher);
+        SourceKeys.repoUrls.set<List<dynamic>>([
+          const ExtensionRepo(url: _repo).toJson(),
+        ]);
+
+        final inFlight = repository.refresh(_repo);
+        await repository.removeRepo(_repo);
+        gate.complete();
+        await inFlight;
+
+        // Nothing stored at all -- not merely filtered out of the answer. The
+        // filter hides it while the repo is gone; it reappears the moment the
+        // same URL is added back.
+        final raw = SourceKeys.repoHealth.get<Map<String, dynamic>?>();
+        expect(raw == null || !raw.containsKey(_repo), isTrue);
+      },
+    );
   });
 }
 

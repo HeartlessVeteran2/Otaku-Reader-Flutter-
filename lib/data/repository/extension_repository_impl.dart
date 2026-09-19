@@ -118,6 +118,16 @@ class ExtensionRepositoryImpl implements ExtensionRepository {
   }
 
   void _recordHealth(RefreshResult result) {
+    // A refresh already in flight when the user removes its repo would
+    // otherwise land *after* `_forgetHealth` and revive the record, so
+    // re-adding the same URL shows the dead repo's last outcome until the new
+    // refresh completes. Checking here rather than reordering the removal is
+    // what actually closes it: the racing writer is this method, and it does
+    // not hold -- and must not take -- the repo lock. Found by `codeant-ai`.
+    //
+    // Synchronous on purpose: an `await` here would reintroduce the yield point
+    // the whole design avoids.
+    if (!_storedRepos().any((r) => r.url == result.repoUrl)) return;
     final map = {
       for (final e in _readHealth().entries) e.key: e.value.toJson(),
     };
@@ -143,7 +153,14 @@ class ExtensionRepositoryImpl implements ExtensionRepository {
       'https://raw.githubusercontent.com/kodjodevf/mangayomi-extensions/main/index.json';
 
   @override
-  Future<List<ExtensionRepo>> getRepos() async {
+  Future<List<ExtensionRepo>> getRepos() async => _storedRepos();
+
+  /// The configured repos, read synchronously.
+  ///
+  /// `getRepos` is the async face of this; the sync one exists because
+  /// [_recordHealth] must ask "is this repo still configured?" without an
+  /// `await`, which is what keeps its read-modify-write atomic.
+  List<ExtensionRepo> _storedRepos() {
     // Nullable T deliberately: with a non-nullable T and nothing stored,
     // KvHelper returns `null as T` and throws. Absent has to be distinguishable
     // from empty here, because absent means "seed the default repo" and empty
@@ -240,9 +257,35 @@ class ExtensionRepositoryImpl implements ExtensionRepository {
   /// the success path -- and recording at each of those is three chances to add
   /// a fourth and forget. The health record exists to tell a user that a repo
   /// has been failing, so an unrecorded failure is the one case that matters.
+  ///
+  /// The `catch` is the fourth exit, and it is why that claim is now true.
+  /// `_refresh`'s own try covers only the fetch and the decode; the reconcile
+  /// transaction sits outside it, so a database failure -- two repos listing
+  /// one `sourceId`, which the unique index refuses -- propagated straight past
+  /// the record. It also escaped `refreshAll`, whose loop has no try, losing
+  /// every other repo's result with it. Returning it as a `RefreshResult`
+  /// rather than rethrowing keeps failure on the one channel every caller
+  /// already reads. Found by `codeant-ai`.
+  ///
+  /// **This catch is deliberately uncovered by a test, and that is not an
+  /// oversight to fix by deleting it.** No input reachable through
+  /// [TextFetcher] makes the reconcile throw: the obvious candidate, two repos
+  /// listing one `sourceId`, is `@Index(unique: true, replace: true)` and so
+  /// replaces rather than failing. The reachable trigger is the database itself
+  /// going away mid-refresh, and closing the shared test instance to force it
+  /// takes the rest of the suite with it. So the guard stands on the argument
+  /// above rather than on a red-to-green demonstration -- stated here because
+  /// an untested branch that nobody flagged as untested is how one gets
+  /// deleted as dead code later.
   @override
   Future<RefreshResult> refresh(String repoUrl) async {
-    final result = await _refresh(repoUrl);
+    RefreshResult result;
+    try {
+      result = await _refresh(repoUrl);
+    } catch (e) {
+      Log.error('Reconciling $repoUrl failed: $e');
+      result = RefreshResult(repoUrl: repoUrl, error: '$e');
+    }
     _recordHealth(result);
     return result;
   }
