@@ -54,10 +54,16 @@ abstract final class Chrome {
   static const gap = 8.0;
   static const sectionGap = 20.0;
 
-  /// A header action. Deliberately smaller than Material's 48px minimum
-  /// because two of them sit inside a pill that has to stay a pill; the pill's
-  /// own padding brings the touch target back to 48.
-  static const actionSize = 40.0;
+  /// A header action, and **Material's 48px minimum** rather than the 40 the
+  /// pill would look tidier at.
+  ///
+  /// The pill gives each action a fixed box, so this is the whole touch
+  /// target: two actions sit flush against each other and the pill's 4px
+  /// padding is outside their hit areas, so it adds nothing to the one in the
+  /// middle. An earlier 40 here shrank every header action below the platform
+  /// minimum, under a comment claiming the padding made up the difference —
+  /// which it does not. Found by `codeant-ai`.
+  static const actionSize = 48.0;
 
   static const tabBarHeight = 46.0;
 
@@ -278,7 +284,12 @@ class ChromeScaffold extends StatefulWidget {
 
 class _ChromeScaffoldState extends State<ChromeScaffold> {
   final _visible = ValueNotifier<bool>(true);
-  double _lastOffset = 0;
+
+  /// Where the current measurement started, not where the header last moved.
+  ///
+  /// Those are different once the user keeps scrolling the same way past a
+  /// crossing, and the difference is the bug below.
+  double _anchor = 0;
 
   /// The header's measured height, once there has been a header to measure.
   ///
@@ -311,16 +322,30 @@ class _ChromeScaffoldState extends State<ChromeScaffold> {
       // gesture went. Anything else means a screen can open with its own title
       // hidden.
       _visible.value = true;
-      _lastOffset = offset;
+      _anchor = offset;
       return;
     }
     // An overscroll at the bottom is a bounce, not a direction: acting on it
     // hides the header when the user hits the end of a list.
     if (offset >= metrics.maxScrollExtent) return;
 
-    if ((offset - _lastOffset).abs() > _threshold) {
-      _visible.value = offset < _lastOffset;
-      _lastOffset = offset;
+    // Carrying on in the direction the header is already answering moves the
+    // anchor with the finger, so the next reversal is measured from where it
+    // happened.
+    //
+    // Anchoring on the last *crossing* instead — which is what AnymeX does,
+    // and what this was ported as — leaves the baseline behind as the scroll
+    // continues, so the reversal needed to bring the header back grows with
+    // however far past the crossing the user went. Scroll down 300 and back
+    // up 60 and nothing happens, which reads as a header that has stopped
+    // working. Found by `codeant-ai`.
+    if (_visible.value ? offset < _anchor : offset > _anchor) {
+      _anchor = offset;
+      return;
+    }
+    if ((offset - _anchor).abs() > _threshold) {
+      _visible.value = offset < _anchor;
+      _anchor = offset;
     }
   }
 
@@ -635,10 +660,11 @@ class PillHeaderState extends State<PillHeader> {
                     onPressed: _toggleSearch,
                   ),
                 // Every action is the same fixed box, whatever the caller
-                // passed. A bare Material `IconButton` carries a 48px minimum
-                // and would make the pill taller than the title beside it --
-                // and would make the header's height a property of the call
-                // site rather than of the header.
+                // passed, so the header's height is a property of the header
+                // and not of the call site. The box is Material's own 48px
+                // minimum: a caller's bare `IconButton` or `PopupMenuButton`
+                // lands exactly on its natural size rather than being
+                // squeezed under it.
                 for (final action in widget.actions ?? const <Widget>[])
                   SizedBox(
                     width: Chrome.actionSize,
@@ -728,9 +754,9 @@ class PillHeaderState extends State<PillHeader> {
 
 /// One action inside the actions pill.
 ///
-/// Sized down from Material's 48px minimum so two fit in a pill; the pill's
-/// own padding and the gap to its neighbour put the real touch target back
-/// over 44, which is the number that matters.
+/// [Chrome.actionSize] square, which is Material's minimum touch target — the
+/// pill is sized around the actions rather than the actions squeezed into the
+/// pill.
 class _HeaderAction extends StatelessWidget {
   const _HeaderAction({
     required this.icon,

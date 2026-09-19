@@ -210,6 +210,50 @@ void main() {
     expect(bare, plain);
   });
 
+  testWidgets('a header action is a full-size touch target', (tester) async {
+    // The pill gives each action a fixed box, so that box caps the touch
+    // target: two actions sit flush and the pill's 4px padding is outside
+    // their hit areas, adding nothing to the one in the middle. A box under
+    // Material's 48px minimum silently shrinks every header action below it,
+    // including a caller's own `IconButton` or `PopupMenuButton`, whose
+    // padded tap region is clamped to whatever room the parent leaves.
+    //
+    // Measured on the button rather than on its tooltip: the tooltip wraps the
+    // *visual* 40px body, and it is the `IconButton`'s own box that the finger
+    // hits.
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      host(
+        screen(
+          enableSearch: true,
+          controller: controller,
+          onChanged: (_) {},
+          actions: [
+            IconButton(
+              onPressed: () {},
+              tooltip: 'Sort',
+              icon: const Icon(Icons.sort),
+            ),
+            PopupMenuButton<int>(tooltip: 'More', itemBuilder: (_) => const []),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    for (final tooltip in ['Search', 'Sort', 'More']) {
+      final button = find.ancestor(
+        of: find.byTooltip(tooltip),
+        matching: find.byType(IconButton),
+      );
+      final size = tester.getSize(button.first);
+      expect(size.width, greaterThanOrEqualTo(48), reason: tooltip);
+      expect(size.height, greaterThanOrEqualTo(48), reason: tooltip);
+    }
+  });
+
   group('the header hides on the way down and comes back on the way up', () {
     testWidgets('a scroll down past the threshold sends it off screen', (
       tester,
@@ -234,6 +278,40 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(tester.getRect(find.byType(PillHeader)).top, 0);
+    });
+
+    testWidgets('a short reversal still brings it back after scrolling on', (
+      tester,
+    ) async {
+      // The measurement runs from where the finger last was, not from where
+      // the header last moved. Those diverge as soon as the user carries on
+      // scrolling *without* crossing the threshold again -- the second drag
+      // here -- and anchoring on the crossing instead leaves the baseline
+      // behind, so the reversal needed grows with however far past it they
+      // went. That is what this was ported as, and it reads as a header that
+      // has stopped answering.
+      //
+      // The middle drag is the whole test: without it both versions pass,
+      // because a drag that ends past the threshold commits its own end as
+      // the baseline.
+      await tester.pumpWidget(host(screen(rows: 200)));
+      await tester.pumpAndSettle();
+
+      await tester.drag(find.text('Row 5'), const Offset(0, -600));
+      await tester.pumpAndSettle();
+      expect(tester.getRect(find.byType(PillHeader)).bottom, lessThan(0));
+
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -40));
+      await tester.pumpAndSettle();
+
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, 60));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.getRect(find.byType(PillHeader)).top,
+        0,
+        reason: 'a 60px reversal is past the threshold and was ignored',
+      );
     });
 
     testWidgets('a nudge shorter than the threshold does not move it', (
