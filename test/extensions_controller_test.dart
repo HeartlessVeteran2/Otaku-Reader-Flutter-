@@ -469,6 +469,33 @@ void main() {
       expect(statuses.map((s) => s.label), ['Alpha', 'beta.test']);
     });
 
+    // CodeAnt's finding on #44. Removing the repository a filter names leaves
+    // the filter pointing at something gone, so the list empties and the banner
+    // advertises a repository that no longer exists.
+    test('removing the filtered repository clears the filter', () async {
+      final c = await withCatalogue();
+      c.setRepoFilter(const RepoFilter.of(alpha));
+      expect(names(c), ['From alpha']);
+
+      await c.removeRepo(alpha);
+
+      expect(c.repoFilter.value.isAll, isTrue);
+      expect(names(c), isNotEmpty);
+    });
+
+    // ...but only that one. Removing a different repository must not silently
+    // undo a filter the user set, which is a second surprise on top of the
+    // removal they asked for.
+    test('removing a different repository leaves the filter alone', () async {
+      final c = await withCatalogue();
+      c.setRepoFilter(const RepoFilter.of(alpha));
+
+      await c.removeRepo(beta);
+
+      expect(c.repoFilter.value, const RepoFilter.of(alpha));
+      expect(names(c), ['From alpha']);
+    });
+
     test('the banner label names the filter in force', () async {
       final c = await withCatalogue();
       expect(c.filterLabel, 'Every repository');

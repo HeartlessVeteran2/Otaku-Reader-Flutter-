@@ -177,7 +177,15 @@ class _ExtensionsScreenState extends State<ExtensionsScreen>
             physics: const AlwaysScrollableScrollPhysics(),
             children: [
               SizedBox(height: MediaQuery.sizeOf(context).height * 0.2),
-              _EmptyState(tab: tab, filtered: _c.query.value.isNotEmpty),
+              _EmptyState(
+                tab: tab,
+                // The repository filter counts as filtering too. Told only
+                // about the query, an empty result under an active repo
+                // filter claimed the *catalogue* was empty -- over a
+                // catalogue that is in fact full.
+                filtered:
+                    _c.query.value.isNotEmpty || !_c.repoFilter.value.isAll,
+              ),
             ],
           ),
         );
@@ -328,9 +336,12 @@ class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (icon, text) = switch (tab) {
+      // "that search" was accurate while the query was the only filter. It
+      // is not once a repository can be one, and naming the wrong control
+      // sends the user to clear something they never set.
       _ when filtered => (
         Iconsax.search_normal,
-        'Nothing matches that search.',
+        'Nothing matches the current filters.',
       ),
       ExtensionTab.installed => (
         Iconsax.box,

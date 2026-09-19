@@ -303,6 +303,20 @@ class ExtensionsController extends GetxController {
         .map((s) => s.sourceId)
         .toList();
     await _extensions.removeRepo(url);
+    // A filter naming the repository that just went away would match nothing
+    // for ever, leaving an empty list under a banner advertising something
+    // that no longer exists. Cleared to `all` rather than to `detached`:
+    // the removal just orphaned this repo's installed sources, so jumping to
+    // them looks helpful and is a second surprise on top of the one the user
+    // asked for -- and it would also sweep in sources orphaned by earlier
+    // removals, so it would not even be "what you just did". Found by
+    // `codeant-ai`.
+    //
+    // Only this repository's filter: clearing on *any* removal would silently
+    // undo a filter the user set on a different one.
+    if (repoFilter.value == RepoFilter.of(url)) {
+      repoFilter.value = RepoFilter.all;
+    }
     // Evicted whether the row was deleted or detached: a detached row is the
     // same source, but its `repoUrl` changed, and the cache key covers it.
     for (final sourceId in affected) {

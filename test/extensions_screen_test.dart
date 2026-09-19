@@ -533,6 +533,27 @@ void main() {
       expect(find.text('Orphan'), findsOneWidget);
     });
 
+    // A filtered-empty list must not claim the catalogue is empty. The empty
+    // state was told only about the search query, so a repository filter that
+    // matches nothing produced "No extensions installed yet" over a catalogue
+    // that is in fact full.
+    testWidgets('an empty result explains the filter, not the catalogue', (
+      tester,
+    ) async {
+      await pumpBoth(tester);
+      await tester.tap(find.byTooltip('Repositories'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(alpha));
+      await tester.pumpAndSettle();
+
+      // Alpha has nothing on the Updates tab, so that tab is filtered-empty.
+      await tester.tap(find.text('Updates'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Nothing matches'), findsOneWidget);
+      expect(find.textContaining('No extensions installed yet'), findsNothing);
+    });
+
     // Widths picked by measurement, not assumption: the tab bar's own overflow
     // lived at 360 and 384, not only at 320.
     for (final width in <double>[320, 360, 384]) {
