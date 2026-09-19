@@ -9,6 +9,7 @@ import 'package:otaku_reader/core/database/database.dart' as db;
 import 'package:otaku_reader/domain/repository/extension_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/features/browse/controllers/extensions_controller.dart';
+import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:otaku_reader/features/browse/screens/extensions_screen.dart';
 import 'package:otaku_reader/source/model/source.dart';
 import 'package:otaku_reader/source/source_methods.dart';
@@ -151,6 +152,66 @@ void main() {
     expect(find.text('Available'), findsOneWidget);
     expect(find.text('Updates'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  group('the rows clear the floating header', () {
+    // This screen supplies its own body -- three tabs, each its own
+    // scrollable -- so `ChromeScaffold` cannot insert the gap for it and each
+    // list pads itself from `ChromeHeaderScope`. Forgetting that renders the
+    // first row *behind* a translucent, blurred pill, which reads as a design
+    // flourish rather than as a row nobody can press.
+    for (final width in <double>[320, 360, 384]) {
+      testWidgets('at ${width.toInt()}px', (tester) async {
+        await tester.binding.setSurfaceSize(Size(width, 720));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        await pump(tester, [
+          for (var i = 1; i <= 8; i++)
+            _source(id: i, name: 'Source $i', code: 'X'),
+        ]);
+
+        final header = tester.getRect(find.byType(PillHeader));
+        final row = tester.getRect(find.text('Source 1'));
+        expect(row.top, greaterThanOrEqualTo(header.bottom));
+      });
+    }
+
+    testWidgets('and so does the empty state', (tester) async {
+      await pump(tester, []);
+
+      final header = tester.getRect(find.byType(PillHeader));
+      final message = tester.getRect(
+        find.textContaining('No extensions installed'),
+      );
+      expect(message.top, greaterThanOrEqualTo(header.bottom));
+    });
+  });
+
+  testWidgets('searching filters the list from inside the header pill', (
+    tester,
+  ) async {
+    // The permanent field under the app bar is gone: it cost 52px of every
+    // screenful for a control used occasionally. What replaces it has to
+    // actually filter, which is the half that is easy to lose in the move.
+    await pump(tester, [
+      _source(id: 1, name: 'MangaRead', code: 'X'),
+      _source(id: 2, name: 'Zinmanga', code: 'X'),
+    ]);
+
+    expect(find.byType(TextField), findsNothing);
+    await tester.tap(find.byTooltip('Search'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), 'zin');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Zinmanga'), findsOneWidget);
+    expect(find.text('MangaRead'), findsNothing);
+
+    await tester.tap(find.byTooltip('Close search'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('MangaRead'), findsOneWidget);
   });
 
   testWidgets('an installed source shows on the Installed tab', (tester) async {

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:iconsax/iconsax.dart';
 
-import 'package:otaku_reader/core/theme/one_ui.dart';
+import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:otaku_reader/data/isar/manga_entry.dart';
 import 'package:otaku_reader/features/details/screens/manga_details_screen.dart';
 import 'package:otaku_reader/features/library/controllers/library_controller.dart';
@@ -48,9 +48,15 @@ class _LibraryScreenState extends State<LibraryScreen>
       2,
       6,
     );
-    return OneUiScaffold(
+    return ChromeScaffold.slivers(
       title: 'Library',
       onRefresh: _c.load,
+      // In the pill, not under it. The permanent 52px field this replaces was
+      // 52px spent on every screenful for a control used occasionally.
+      enableSearch: true,
+      searchController: _search,
+      onSearchChanged: _c.setQuery,
+      searchHint: 'Search your library',
       actions: [
         PopupMenuButton<LibrarySort>(
           icon: const Icon(Iconsax.sort),
@@ -78,24 +84,6 @@ class _LibraryScreenState extends State<LibraryScreen>
           ],
         ),
       ],
-      bottom: PreferredSize(
-        preferredSize: const Size.fromHeight(52),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-          child: TextField(
-            controller: _search,
-            onChanged: _c.setQuery,
-            decoration: InputDecoration(
-              isDense: true,
-              hintText: 'Search your library',
-              prefixIcon: const Icon(Iconsax.search_normal, size: 18),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(OneUi.radiusSmall),
-              ),
-            ),
-          ),
-        ),
-      ),
       slivers: [
         // The pull-to-refresh that each branch used to carry its own copy of
         // now lives on the scaffold, so the empty state is pullable without
@@ -115,7 +103,10 @@ class _LibraryScreenState extends State<LibraryScreen>
             );
           }
           return SliverPadding(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.symmetric(
+              horizontal: Chrome.gutter,
+              vertical: Chrome.gap,
+            ),
             sliver: SliverGrid.builder(
               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: columns,

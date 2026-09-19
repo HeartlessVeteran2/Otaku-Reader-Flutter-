@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:iconsax/iconsax.dart';
 
+import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:otaku_reader/source/model/source.dart';
 
 /// One extension row: icon, name, language and version, and the action that
@@ -36,67 +37,75 @@ class SourceTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return ListTile(
+    // A card per row rather than a flat divider-separated list: the house
+    // shape, and what makes this read as AnymeX rather than as Material.
+    return ChromeCard(
+      margin: const EdgeInsets.fromLTRB(
+        Chrome.gutter,
+        0,
+        Chrome.gutter,
+        Chrome.gap,
+      ),
       // A row with an install or uninstall in flight must not open: the source
       // it would open is the one being replaced or removed.
       onTap: busy ? null : onTap,
-      leading: _Icon(url: source.iconUrl, name: source.name),
-      title: Row(
-        children: [
-          Flexible(child: Text(source.name, overflow: TextOverflow.ellipsis)),
-          if (source.isNsfw) ...[
-            const SizedBox(width: 6),
-            _Chip(label: '18+', color: theme.colorScheme.error),
-          ],
-        ],
-      ),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            [
-              source.lang.toUpperCase(),
-              if (source.isInstalled)
-                'v${source.version}'
-              else
-                'v${source.versionLast}',
-              if (source.hasUpdate) '→ v${source.versionLast}',
-            ].join(' · '),
-            style: theme.textTheme.bodySmall,
-          ),
-          Row(
-            children: [
-              Icon(
-                repoLabel == null ? Iconsax.link_21 : Iconsax.link,
-                size: 11,
-                color: repoLabel == null
-                    ? theme.colorScheme.error
-                    : theme.colorScheme.onSurfaceVariant,
-              ),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(
-                  repoLabel ?? 'No repository — will not update',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: repoLabel == null
-                        ? theme.colorScheme.error
-                        : theme.colorScheme.onSurfaceVariant,
+      child: ChromeTile(
+        title: source.name,
+        titleSuffix: source.isNsfw
+            ? _Chip(label: '18+', color: theme.colorScheme.error)
+            : null,
+        leading: _Icon(url: source.iconUrl, name: source.name),
+        // The card owns the tap, so the row must not offer a second one -- and
+        // a chevron beside an install button reads as two actions.
+        showChevron: false,
+        subtitleWidget: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 2),
+            Text(
+              [
+                source.lang.toUpperCase(),
+                if (source.isInstalled)
+                  'v${source.version}'
+                else
+                  'v${source.versionLast}',
+                if (source.hasUpdate) '→ v${source.versionLast}',
+              ].join(' · '),
+              style: theme.textTheme.bodySmall,
+            ),
+            Row(
+              children: [
+                Icon(
+                  repoLabel == null ? Iconsax.link_21 : Iconsax.link,
+                  size: 11,
+                  color: repoLabel == null
+                      ? theme.colorScheme.error
+                      : theme.colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    repoLabel ?? 'No repository — will not update',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: repoLabel == null
+                          ? theme.colorScheme.error
+                          : theme.colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
-        ],
-      ),
-      isThreeLine: true,
-      trailing: _Action(
-        busy: busy,
-        source: source,
-        onInstall: onInstall,
-        onUpdate: onUpdate,
-        onUninstall: onUninstall,
+              ],
+            ),
+          ],
+        ),
+        trailing: _Action(
+          busy: busy,
+          source: source,
+          onInstall: onInstall,
+          onUpdate: onUpdate,
+          onUninstall: onUninstall,
+        ),
       ),
     );
   }
