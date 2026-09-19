@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:iconsax/iconsax.dart';
 
-import 'package:otaku_reader/domain/repository/extension_repository.dart';
 import 'package:otaku_reader/features/browse/controllers/extensions_controller.dart';
 import 'package:otaku_reader/features/browse/screens/source_browse_screen.dart';
 import 'package:otaku_reader/features/browse/widgets/source_tile.dart';
@@ -78,19 +77,51 @@ class _ExtensionsScreenState extends State<ExtensionsScreen>
               Obx(
                 () => TabBar(
                   controller: _tabs,
+                  // Every label scales down rather than demanding its intrinsic
+                  // width.
+                  //
+                  // A non-scrollable `TabBar` divides the width equally, but
+                  // each tab still reports `label + 2 * kTabLabelPadding` as its
+                  // *minimum*, and three of these sum past a phone: measured,
+                  // the bar overflowed by 24px at 320, **11px at 360 and 2.7px
+                  // at 384**, and was clean only from 411 up. So this was not a
+                  // narrow-phone edge case — it drew an overflow stripe on
+                  // Pixel-class devices, and `flutter analyze` was clean
+                  // throughout. Found by the 320px test added with the repo
+                  // sheet; eighth instance of that blindness in CLAUDE.md.
+                  //
+                  // `scaleDown` only scales when it has to, so the filled
+                  // equal-thirds layout is untouched wherever it already fitted:
+                  // the three tab centres at 800px are identical before and
+                  // after (133.3 / 400.0 / 666.7), which is why this is
+                  // preferred over `isScrollable`, whose own measured fix moves
+                  // them to 255 / 414 / 559.
                   tabs: [
-                    const Tab(text: 'Installed'),
-                    const Tab(text: 'Available'),
+                    const Tab(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text('Installed'),
+                      ),
+                    ),
+                    const Tab(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text('Available'),
+                      ),
+                    ),
                     Tab(
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Text('Updates'),
-                          if (_c.updateCount > 0) ...[
-                            const SizedBox(width: 6),
-                            Badge(label: Text('${_c.updateCount}')),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text('Updates'),
+                            if (_c.updateCount > 0) ...[
+                              const SizedBox(width: 6),
+                              Badge(label: Text('${_c.updateCount}')),
+                            ],
                           ],
-                        ],
+                        ),
                       ),
                     ),
                   ],
@@ -323,7 +354,7 @@ class _RepoSheet extends StatefulWidget {
 
 class _RepoSheetState extends State<_RepoSheet> {
   final _url = TextEditingController();
-  List<ExtensionRepo> _repos = const [];
+  List<RepoStatus> _repos = const [];
   String? _error;
   bool _adding = false;
 
@@ -345,8 +376,9 @@ class _RepoSheetState extends State<_RepoSheet> {
   /// updates — because deleting them would strand every library entry pointing
   /// at them. The dialog says so, because "remove, and its extensions with it"
   /// described the old behaviour and was the more frightening of the two.
-  Future<void> _confirmRemove(ExtensionRepo repo) async {
-    final kept = widget.controller.installedSourcesOf(repo.url);
+  Future<void> _confirmRemove(RepoStatus status) async {
+    final repo = status.repo;
+    final kept = status.installedCount;
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -378,7 +410,7 @@ class _RepoSheetState extends State<_RepoSheet> {
   }
 
   Future<void> _reload() async {
-    final repos = await widget.controller.repos();
+    final repos = await widget.controller.repoStatuses();
     if (mounted) setState(() => _repos = repos);
   }
 
@@ -452,24 +484,10 @@ class _RepoSheetState extends State<_RepoSheet> {
             child: ListView(
               shrinkWrap: true,
               children: [
-                for (final repo in _repos)
-                  ListTile(
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(
-                      repo.name ?? Uri.tryParse(repo.url)?.host ?? repo.url,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    subtitle: Text(
-                      repo.url,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    trailing: IconButton(
-                      icon: const Icon(Iconsax.trash, size: 18),
-                      tooltip: 'Remove this repository',
-                      onPressed: () => _confirmRemove(repo),
-                    ),
+                for (final status in _repos)
+                  _RepoRow(
+                    status: status,
+                    onRemove: () => _confirmRemove(status),
                   ),
               ],
             ),
@@ -477,5 +495,102 @@ class _RepoSheetState extends State<_RepoSheet> {
         ],
       ),
     );
+  }
+}
+
+/// One repository, with what it holds and how it last behaved.
+///
+/// The health line is the point of the row. A refresh that fails deliberately
+/// leaves the previously known sources in place — a flaky network must not
+/// empty the extension list — which also means a dead repo is indistinguishable
+/// from a healthy one until you notice it never gains anything. This says so.
+class _RepoRow extends StatelessWidget {
+  const _RepoRow({required this.status, required this.onRemove});
+
+  final RepoStatus status;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final health = status.health;
+    final failed = health != null && !health.isSuccess;
+
+    return ListTile(
+      dense: true,
+      contentPadding: EdgeInsets.zero,
+      title: Text(status.label, overflow: TextOverflow.ellipsis),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(status.repo.url, maxLines: 1, overflow: TextOverflow.ellipsis),
+          const SizedBox(height: 2),
+          Row(
+            children: [
+              Icon(
+                failed
+                    ? Iconsax.warning_2
+                    : health == null
+                    ? Iconsax.clock
+                    : Iconsax.tick_circle,
+                size: 13,
+                // The error colour is load-bearing here rather than decorative:
+                // it is what makes one failing repo findable in a list of
+                // healthy ones without reading every line.
+                color: failed
+                    ? theme.colorScheme.error
+                    : theme.colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  _healthLine(status),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: failed
+                        ? theme.colorScheme.error
+                        : theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+      isThreeLine: true,
+      trailing: IconButton(
+        icon: const Icon(Iconsax.trash, size: 18),
+        tooltip: 'Remove this repository',
+        onPressed: onRemove,
+      ),
+    );
+  }
+
+  /// "12 extensions · checked 5m ago", or why not.
+  ///
+  /// Three states, never two: a repo that has never been refreshed says so
+  /// rather than borrowing either of the others. "Never checked" is something
+  /// the user can act on; reporting it as a failure would be a claim about a
+  /// request that was never made.
+  static String _healthLine(RepoStatus status) {
+    final count = status.sourceCount == 1
+        ? '1 extension'
+        : '${status.sourceCount} extensions';
+    final health = status.health;
+    if (health == null) return '$count · never checked';
+    final when = _ago(DateTime.now().difference(health.checkedAt));
+    if (health.isSuccess) return '$count · checked $when';
+    return '$count · failed $when';
+  }
+
+  /// A coarse "how long ago". Deliberately coarse: the exact second a repo was
+  /// last read is never the question, and a ticking string would repaint the
+  /// sheet forever.
+  static String _ago(Duration d) {
+    if (d.inMinutes < 1) return 'just now';
+    if (d.inMinutes < 60) return '${d.inMinutes}m ago';
+    if (d.inHours < 24) return '${d.inHours}h ago';
+    return '${d.inDays}d ago';
   }
 }

@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
 
@@ -18,13 +19,15 @@ Source _source({
   String? code,
   String version = '1.0.0',
   String versionLast = '1.0.0',
+  String? repoUrl,
 }) => Source()
   ..sourceId = id
   ..name = name
   ..lang = 'en'
   ..sourceCode = code
   ..version = version
-  ..versionLast = versionLast;
+  ..versionLast = versionLast
+  ..repoUrl = repoUrl;
 
 class _StubExtensions implements ExtensionRepository {
   _StubExtensions(this.rows);
@@ -54,7 +57,11 @@ class _StubExtensions implements ExtensionRepository {
   @override
   Future<void> removeRepo(String url) async {}
   @override
-  Future<List<ExtensionRepo>> getRepos() async => const [];
+  Future<List<ExtensionRepo>> getRepos() async => repos;
+  List<ExtensionRepo> repos = const [];
+  @override
+  Future<Map<String, RepoHealth>> repoHealth() async => health;
+  Map<String, RepoHealth> health = const {};
 }
 
 class _StubSources implements SourceRepository {
@@ -162,4 +169,153 @@ void main() {
       expect(find.textContaining('No extensions installed'), findsOneWidget);
     },
   );
+
+  group('the repo sheet says how each repository is behaving', () {
+    const url = 'https://example.test/index.json';
+
+    /// Opens the Repositories sheet over a catalogue and a health map.
+    Future<void> openSheet(
+      WidgetTester tester, {
+      required List<Source> rows,
+      required Map<String, RepoHealth> health,
+      List<ExtensionRepo> repos = const [
+        ExtensionRepo(url: url, name: 'Example repo'),
+      ],
+      Size? surface,
+    }) async {
+      if (surface != null) {
+        await tester.binding.setSurfaceSize(surface);
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+      }
+      final extensions = await pump(tester, rows);
+      extensions
+        ..repos = repos
+        ..health = health;
+      await tester.tap(find.byTooltip('Repositories'));
+      await tester.pumpAndSettle();
+    }
+
+    // Three states, never two. A repo nobody has refreshed must not borrow
+    // either of the others: "never checked" is something the user can act on,
+    // and calling it a failure is a claim about a request never made.
+    testWidgets('a repository nobody has refreshed says so', (tester) async {
+      await openSheet(
+        tester,
+        rows: [_source(id: 1, name: 'A', repoUrl: url)],
+        health: const {},
+      );
+
+      expect(find.textContaining('never checked'), findsOneWidget);
+      expect(find.textContaining('failed'), findsNothing);
+    });
+
+    testWidgets('a healthy repository says what it carries', (tester) async {
+      await openSheet(
+        tester,
+        rows: [
+          _source(id: 1, name: 'A', repoUrl: url),
+          _source(id: 2, name: 'B', repoUrl: url),
+          // A source from elsewhere must not be counted against this repo.
+          _source(id: 3, name: 'C', repoUrl: 'https://other.test/index.json'),
+        ],
+        health: {url: RepoHealth(checkedAt: DateTime.now())},
+      );
+
+      expect(find.textContaining('2 extensions'), findsOneWidget);
+      expect(find.textContaining('checked just now'), findsOneWidget);
+    });
+
+    testWidgets('a failing repository is marked, in the error colour', (
+      tester,
+    ) async {
+      await openSheet(
+        tester,
+        rows: [_source(id: 1, name: 'A', repoUrl: url)],
+        health: {
+          url: RepoHealth(
+            checkedAt: DateTime.now().subtract(const Duration(hours: 3)),
+            error: 'SocketException: host unreachable',
+          ),
+        },
+      );
+
+      final line = find.textContaining('failed 3h ago');
+      expect(line, findsOneWidget);
+      // The colour is the point, not decoration: it is what makes one bad repo
+      // findable among healthy ones without reading every line. A test that
+      // asserted only the text would pass with the colour dropped.
+      final context = tester.element(line);
+      expect(
+        tester.widget<Text>(line).style?.color,
+        Theme.of(context).colorScheme.error,
+      );
+    });
+
+    // A fixed-width row on a narrow phone is the eighth instance in CLAUDE.md
+    // of `flutter analyze` being blind to layout, and the default 800px test
+    // viewport hides it. 320 is the narrow phone. Parameterised so a failure
+    // names the state that overflowed rather than just "the sheet" — including
+    // an **empty** repo list, which renders none of these rows and so says
+    // whether an overflow belongs to the row or to the sheet around it.
+    for (final state
+        in <
+          ({
+            String name,
+            List<ExtensionRepo> repos,
+            Map<String, RepoHealth> health,
+          })
+        >[
+          (name: 'no repositories at all', repos: const [], health: const {}),
+          (
+            name: 'never checked',
+            repos: const [ExtensionRepo(url: url, name: 'Example repo')],
+            health: const {},
+          ),
+          (
+            name: 'healthy',
+            repos: const [ExtensionRepo(url: url, name: 'Example repo')],
+            health: {url: RepoHealth(checkedAt: DateTime.now())},
+          ),
+          (
+            name: 'failing, with a long message',
+            repos: const [ExtensionRepo(url: url, name: 'Example repo')],
+            health: {
+              url: RepoHealth(
+                checkedAt: DateTime.now(),
+                error: 'SocketException: no route to host after 30s',
+              ),
+            },
+          ),
+        ]) {
+      testWidgets('${state.name} lays out at 320px', (tester) async {
+        await openSheet(
+          tester,
+          rows: [_source(id: 1, name: 'A', repoUrl: url)],
+          repos: state.repos,
+          health: state.health,
+          surface: const Size(320, 640),
+        );
+        expect(tester.takeException(), isNull);
+      });
+    }
+  });
+
+  // The tab bar overflowed on real phones, not just tiny ones: measured at
+  // 24px over at 320, 11px at 360 and 2.7px at 384, clean only from 411 up. So
+  // these widths are the guard, and 360/384 are the ones that matter — a test
+  // at 320 alone would have looked like a narrow-phone nicety.
+  for (final width in <double>[320, 360, 384, 411]) {
+    testWidgets('the tab bar lays out at ${width.toInt()}px', (tester) async {
+      await tester.binding.setSurfaceSize(Size(width, 640));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      // With an update badge, which is the widest the third tab ever gets.
+      await pump(tester, [
+        _source(id: 1, name: 'A', code: 'X', versionLast: '2.0.0'),
+      ]);
+
+      expect(find.text('Installed'), findsWidgets);
+      expect(tester.takeException(), isNull);
+    });
+  }
 }

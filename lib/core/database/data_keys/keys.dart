@@ -75,7 +75,15 @@ enum LibraryKeys {
 
 enum SourceKeys {
   repoUrls,
-  lastRepoRefresh,
+
+  /// Per-repo last-refresh outcome, keyed by repo URL.
+  ///
+  /// Replaces a single global `lastRepoRefresh` timestamp, which was written on
+  /// every refresh and read by nothing — one number for every repo cannot say
+  /// *which* one is failing, which is the only question worth asking when you
+  /// have several. Keys come from the enum member's `name`, so dropping the old
+  /// member leaves an orphan row and breaks nothing.
+  repoHealth,
   enabledLanguages,
   showNsfwSources,
   pinnedSourceIds,
