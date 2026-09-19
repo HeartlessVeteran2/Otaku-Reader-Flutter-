@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 
 import 'package:otaku_reader/core/database/data_keys/keys.dart';
 import 'package:otaku_reader/core/database/kv_helper.dart';
+import 'package:otaku_reader/core/theme/brand.dart';
 
 /// How the seed colour is chosen.
 enum ThemeSource {
@@ -22,7 +23,8 @@ enum ThemeSource {
 const kSchemeVariants = DynamicSchemeVariant.values;
 
 class ThemeController extends GetxController {
-  static const _defaultSeed = Color(0xFF6750A4);
+  /// The app's own seed, and the starting point for a custom colour.
+  static const _defaultSeed = BrandPalette.petal;
 
   final source = ThemeSource.standard.obs;
   final themeMode = ThemeMode.system.obs;
@@ -46,7 +48,7 @@ class ThemeController extends GetxController {
         .values[ThemeKeys.isSystemMode.get<int>(ThemeMode.system.index)];
     isOled.value = ThemeKeys.isOled.get<bool>(false);
     variantIndex.value = ThemeKeys.selectedVariantIndex
-        .get<int>(0)
+        .get<int>(kDefaultSchemeVariant.index)
         .clamp(0, kSchemeVariants.length - 1);
     final hex = ThemeKeys.customHexColor.get<int>(_defaultSeed.toARGB32());
     customColor.value = Color(hex);
@@ -110,21 +112,44 @@ class ThemeController extends GetxController {
     refreshTheme();
   }
 
-  Color get seedColor {
-    if (useCoverColor.value && coverSeed.value != null) return coverSeed.value!;
+  /// The seed in force, and whether it is the app's own.
+  ///
+  /// The two travel together because they are one decision. The mark's navy and
+  /// coral fill the secondary and tertiary families **only** when the brand seed
+  /// is what is being used: a user who picks green, or a cover that comes back
+  /// green, asked for green — handing them green with the logo's navy and coral
+  /// stapled on is not their colour, it is ours wearing theirs.
+  ({Color seed, bool isBrand}) get _resolvedSeed {
+    if (useCoverColor.value && coverSeed.value != null) {
+      return (seed: coverSeed.value!, isBrand: false);
+    }
     return switch (source.value) {
-      ThemeSource.standard => _defaultSeed,
-      ThemeSource.dynamicColor => _platformSeed ?? _defaultSeed,
-      ThemeSource.custom => customColor.value,
+      ThemeSource.standard => (seed: _defaultSeed, isBrand: true),
+      // A device with no Material You support falls back to the app seed, and
+      // that fallback *is* the brand palette — same seed, same three inks.
+      ThemeSource.dynamicColor =>
+        _platformSeed == null
+            ? (seed: _defaultSeed, isBrand: true)
+            : (seed: _platformSeed!, isBrand: false),
+      ThemeSource.custom => (seed: customColor.value, isBrand: false),
     };
   }
 
+  Color get seedColor => _resolvedSeed.seed;
+
+  /// True when the whole mark's palette is in force, not just its pink.
+  bool get usesBrandPalette => _resolvedSeed.isBrand;
+
   ThemeData theme(Brightness brightness) {
-    final scheme = ColorScheme.fromSeed(
-      seedColor: seedColor,
-      brightness: brightness,
-      dynamicSchemeVariant: kSchemeVariants[variantIndex.value],
-    );
+    final resolved = _resolvedSeed;
+    final variant = kSchemeVariants[variantIndex.value];
+    final scheme = resolved.isBrand
+        ? brandColorScheme(brightness: brightness, variant: variant)
+        : ColorScheme.fromSeed(
+            seedColor: resolved.seed,
+            brightness: brightness,
+            dynamicSchemeVariant: variant,
+          );
     final oled = isOled.value && brightness == Brightness.dark;
     return ThemeData(
       useMaterial3: true,
