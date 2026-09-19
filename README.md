@@ -3,9 +3,13 @@
 A manga and manhwa reader for Android, built in Flutter on the
 [Mangayomi](https://github.com/kodjodevf/mangayomi) extension ecosystem.
 
-> **Status: early.** The extension runtime works end to end and is verified
-> against live sites. The app around it is still being built — see
-> [`FEATURES.md`](FEATURES.md) for what is done and what is coming.
+> **Status: early, and the source layer is gaining a second backend.** This
+> app's own Mangayomi runtime stays; alongside it,
+> [AnymeX's extension bridge](https://github.com/RyanYuuki/AnymeXExtensionRuntimeBridge)
+> is being adopted for **Tachiyomi/Mihon** extensions, which is where the other
+> ~1,400 extension packages are. An earlier plan replaced the runtime instead;
+> measuring the two against each other reversed that. See `CLAUDE.md`,
+> "The extension bridge". [`FEATURES.md`](FEATURES.md) tracks the rest.
 
 ## Why this exists
 
@@ -24,8 +28,13 @@ live index (363 entries):
 The seven Dart scripts are site-parameterised templates — `madara.dart` alone
 drives 151 sites. **A Dart app can interpret them; a Kotlin one cannot.** The
 Kotlin version could only ever run the JavaScript half, which is why it kept a
-second, APK-based backend alive purely for catalogue size. Here that second
-backend is unnecessary.
+second, APK-based backend alive purely for catalogue size.
+
+That argument is still right about *why a Dart rewrite*, and it was wrong about
+what follows: "so no second backend" reads as a pure win, and it is a trade.
+Even reaching every one of those 245 sites, the ceiling is this ecosystem's,
+and the Tachiyomi/Mihon one is ~1,400 packages. So this app keeps a second
+backend too — through AnymeX's bridge rather than by loading APKs itself.
 
 A second benefit falls out of the same change: the Dart bridge hands extensions
 real element handles rather than HTML strings, so DOM traversal (`parent`,
