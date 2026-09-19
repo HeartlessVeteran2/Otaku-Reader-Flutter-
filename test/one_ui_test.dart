@@ -30,8 +30,6 @@ import 'package:otaku_reader/features/home/controllers/home_controller.dart';
 import 'package:otaku_reader/features/home/screens/home_screen.dart';
 import 'package:otaku_reader/features/library/controllers/library_controller.dart';
 import 'package:otaku_reader/features/library/screens/library_screen.dart';
-import 'package:otaku_reader/features/more/screens/about_screen.dart';
-import 'package:otaku_reader/features/more/screens/more_screen.dart';
 import 'package:otaku_reader/features/settings/screens/settings_screen.dart';
 import 'package:otaku_reader/features/updates/controllers/updates_controller.dart';
 import 'package:otaku_reader/features/updates/screens/updates_screen.dart';
@@ -160,13 +158,20 @@ void main() {
     child: MaterialApp(home: child),
   );
 
-  /// Every screen converted to [OneUiScaffold]. Rendering each one is the
+  /// The screens still on [OneUiScaffold]. Rendering each one is the
   /// assertion: a box widget in a sliver slot throws during layout, so a clean
   /// pump *is* the proof that the sliver contract holds on that screen.
+  ///
+  /// This list shrinks as screens move to the chrome vocabulary, and a screen
+  /// must be **removed** when it does rather than left here because it still
+  /// happens to pass. `ChromeScaffold.slivers` also builds a `CustomScrollView`
+  /// internally, so a converted screen can satisfy every assertion below while
+  /// this group's own docstring has stopped being true of it — which is this
+  /// project's most-recorded defect, in a test file. More and About left for
+  /// exactly that reason; they are covered by `more_screen_test.dart` and
+  /// `about_screen_test.dart`, which assert the chrome contract instead.
   final screens = <String, Widget Function()>{
     'Settings': () => const SettingsScreen(),
-    'More': () => const MoreScreen(),
-    'About': () => const AboutScreen(),
     'Downloads': () => const DownloadsScreen(),
   };
 
