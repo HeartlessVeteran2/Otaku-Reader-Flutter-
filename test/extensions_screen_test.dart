@@ -68,7 +68,11 @@ class _StubExtensions implements ExtensionRepository {
     if (failingAdds.contains(r.url)) {
       return RefreshResult(repoUrl: r.url, error: 'nope');
     }
-    repos = [...repos, r];
+    // Replaces rather than appends, which is the contract `addRepo` documents:
+    // "adding an already-present URL refreshes it rather than duplicating it".
+    // A fake that appends would let a duplicate in a pasted list look like two
+    // repositories and nothing would notice. Flagged by `codeant-ai`.
+    repos = [...repos.where((e) => e.url != r.url), r];
     return RefreshResult(repoUrl: r.url);
   }
 
@@ -77,11 +81,16 @@ class _StubExtensions implements ExtensionRepository {
   /// Holds a removal open, so the row's in-flight state can be observed.
   Future<void>? gateRemove;
 
+  /// Thrown by the next removal, for the path where the database gives out.
+  Object? removeThrows;
+
   @override
   Future<void> removeRepo(String url) async {
     removals.add(url);
     final gate = gateRemove;
     if (gate != null) await gate;
+    final boom = removeThrows;
+    if (boom != null) throw boom;
     repos = repos.where((r) => r.url != url).toList();
     rows = rows.where((s) => s.repoUrl != url || s.isInstalled).toList();
   }
@@ -735,6 +744,72 @@ void main() {
           'https://bad.test/index.json',
         );
       });
+    });
+
+    testWidgets('a removal that fails says so', (tester) async {
+      // The row un-dims either way, so without this the user sees a spinner
+      // stop, the repository still there, and nothing said — which reads as
+      // the app being broken rather than as the removal having failed. The
+      // same rule `open_link.dart` exists for.
+      final extensions = await open(
+        tester,
+        rows: [_source(id: 1, name: 'Not installed', repoUrl: alpha)],
+      );
+      extensions.removeThrows = StateError('disk gave out');
+
+      await tester.tap(find.byTooltip('Remove this repository'));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.textContaining('Could not remove'), findsOneWidget);
+      // Still listed, because it still exists.
+      expect(find.text('/repos/index.json'), findsOneWidget);
+      // And still removable: the row is back to its ordinary state.
+      expect(find.byTooltip('Remove this repository'), findsOneWidget);
+    });
+
+    testWidgets('the same URL twice in a paste is one repository', (
+      tester,
+    ) async {
+      await open(tester, repos: const []);
+
+      await tester.tap(find.byType(FloatingActionButton));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byType(TextField).last,
+        'https://one.test/index.json\nhttps://one.test/index.json',
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Add'));
+      await tester.pumpAndSettle();
+
+      // Both are offered, because refusing the second would mean this screen
+      // deciding what the repository layer already decides — and it refreshes
+      // rather than duplicating.
+      expect(find.text('/index.json'), findsOneWidget);
+    });
+
+    testWidgets('a check dated in the future does not claim to be recent', (
+      tester,
+    ) async {
+      // `checkedAt` is persisted, so a clock correction can leave a record
+      // ahead of `now`. The difference is then negative, and a bare
+      // "under a minute" test renders it as "just now" — a claim about when
+      // the check happened, made from a number that cannot say.
+      final extensions = await pump(
+        tester,
+        const [],
+        repos: const [ExtensionRepo(url: alpha, name: 'Alpha')],
+      );
+      extensions.health = {
+        alpha: RepoHealth(
+          checkedAt: DateTime.now().add(const Duration(days: 1)),
+        ),
+      };
+      await tester.tap(find.byTooltip('Repositories'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('just now'), findsNothing);
+      expect(find.textContaining('checked'), findsOneWidget);
     });
 
     for (final width in <double>[320, 360, 384]) {

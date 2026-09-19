@@ -93,6 +93,19 @@ class _RepositoriesScreenState extends State<RepositoriesScreen> {
     try {
       await widget.controller.removeRepo(status.repo.url);
       if (mounted) await _reload();
+    } catch (error) {
+      // The row un-dims either way, so without this the user sees a spinner
+      // stop, the repository still sitting there, and nothing said — which
+      // reads as the app being broken rather than as the removal having
+      // failed. It is the rule `open_link.dart` exists for, and the removal
+      // really can throw: it writes the KV tier and an Isar transaction, and
+      // a database failure escaping an untried block is already a row in
+      // CLAUDE.md. Found by `codeant-ai`.
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not remove that repository: $error')),
+        );
+      }
     } finally {
       // Removed from the set whatever happened: a row left dimmed with a
       // spinner after a failure reads as a removal still in progress, and the
@@ -358,15 +371,26 @@ class _RepoCard extends StatelessWidget {
         : '${status.sourceCount} extensions';
     final health = status.health;
     if (health == null) return '$count · never checked';
+    final verb = health.isSuccess ? 'checked' : 'failed';
     final when = ago(DateTime.now().difference(health.checkedAt));
-    if (health.isSuccess) return '$count · checked $when';
-    return '$count · failed $when';
+    // The outcome is always said; only its age can be unsayable.
+    return when == null ? '$count · $verb' : '$count · $verb $when';
   }
 
-  /// A coarse "how long ago". Deliberately coarse: the exact second a repo was
-  /// last read is never the question, and a ticking string would repaint the
-  /// list forever.
-  static String ago(Duration d) {
+  /// A coarse "how long ago", or **null** when the record is ahead of the
+  /// clock.
+  ///
+  /// Deliberately coarse: the exact second a repo was last read is never the
+  /// question, and a ticking string would repaint the list forever.
+  ///
+  /// `checkedAt` is persisted, so a clock correction — a timezone change, an
+  /// NTP step, a user setting the date back — can leave a stored record dated
+  /// in the future. The difference is then negative, and every bound below is
+  /// "less than", so it would render as *"just now"*: a confident claim about
+  /// when the check happened, made from a number that cannot say. Dropping the
+  /// clause says less and nothing false. Found by `codeant-ai`.
+  static String? ago(Duration d) {
+    if (d.isNegative) return null;
     if (d.inMinutes < 1) return 'just now';
     if (d.inMinutes < 60) return '${d.inMinutes}m ago';
     if (d.inHours < 24) return '${d.inHours}h ago';
