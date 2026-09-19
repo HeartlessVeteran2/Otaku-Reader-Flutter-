@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
 import 'package:otaku_reader/core/database/database.dart' as db;
+import 'package:otaku_reader/data/anilist/anilist_progress_sync.dart';
 import 'package:otaku_reader/data/repository/library_repository_impl.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
@@ -98,6 +99,21 @@ List<PageUrl> _pages(int n) => [
   for (var i = 0; i < n; i++) PageUrl('https://img/$i.jpg'),
 ];
 
+/// Records what the reader asked to report, so the *transition* can be
+/// asserted rather than just the end state.
+class _SpyReporter implements AniListProgressReporter {
+  final calls = <({int entryId, double? chapterNumber})>[];
+
+  @override
+  Future<AniListProgressOutcome> reportChapter({
+    required int entryId,
+    required double? chapterNumber,
+  }) async {
+    calls.add((entryId: entryId, chapterNumber: chapterNumber));
+    return AniListProgressOutcome.written;
+  }
+}
+
 void main() {
   // Nullable, not `late`: when open() throws -- a missing native library is
   // the realistic case -- a `late` field makes tearDownAll throw
@@ -127,6 +143,8 @@ void main() {
     ),
   );
 
+  late _SpyReporter reporter;
+
   Future<(ReaderController, _Methods)> open(
     String chapterUrl, {
     Map<String, List<PageUrl>>? pages,
@@ -134,9 +152,11 @@ void main() {
     final methods = _Methods(_row())
       ..pagesByChapter =
           pages ?? {'/c-1': _pages(3), '/c-2': _pages(4), '/c-3': _pages(2)};
+    reporter = _SpyReporter();
     final c = ReaderController(
       sources: _Sources(methods, _row()),
       library: library,
+      anilistProgress: reporter,
       sourceId: _sourceId,
       mangaUrl: _manga,
       chapterUrl: chapterUrl,
@@ -193,6 +213,69 @@ void main() {
     ))!.chapters.firstWhere((x) => x.url == '/c-2');
     expect(chapter.read, isFalse);
     expect(chapter.lastPageRead, 1);
+  });
+
+  test('finishing a chapter reports it to AniList once', () async {
+    await seed();
+    final (c, _) = await open('/c-1');
+
+    c.onPageChanged(2); // last of three
+    await c.flush();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(reporter.calls, hasLength(1));
+    expect(reporter.calls.single.chapterNumber, 1);
+  });
+
+  test('a chapter already read is not reported again', () async {
+    // The guard this exists for. `onPageChanged` fires on every scroll, so a
+    // chapter sitting at its last page would report itself on every twitch of
+    // the finger — a mutation per frame at the end of every chapter.
+    //
+    // Checking `read` *before* the write is what makes it a transition; a
+    // state check after it is always true and reports forever.
+    await seed();
+    final (c, _) = await open('/c-1');
+
+    c.onPageChanged(2);
+    await c.flush();
+    await Future<void>.delayed(Duration.zero);
+    expect(reporter.calls, hasLength(1));
+
+    // Still on the last page, scrolling around.
+    c.onPageChanged(1);
+    await c.flush();
+    await Future<void>.delayed(Duration.zero);
+    c.onPageChanged(2);
+    await c.flush();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(
+      reporter.calls,
+      hasLength(1),
+      reason: 'the chapter was already read; nothing changed to report',
+    );
+  });
+
+  test('stopping short reports nothing', () async {
+    await seed();
+    final (c, _) = await open('/c-2');
+
+    c.onPageChanged(1); // of four
+    await c.flush();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(reporter.calls, isEmpty);
+  });
+
+  test('opening a chapter reports nothing', () async {
+    // Opening saves with `markRead: false` explicitly, so a one-page chapter
+    // does not report itself for being glanced at.
+    await seed();
+    await open('/c-3');
+    await Future<void>.delayed(Duration.zero);
+
+    expect(reporter.calls, isEmpty);
   });
 
   test('reopening a finished chapter never marks it unread', () async {
@@ -416,6 +499,7 @@ void main() {
     final c = ReaderController(
       sources: _Sources(methods, _row()),
       library: library,
+      anilistProgress: _SpyReporter(),
       sourceId: _sourceId,
       mangaUrl: _manga,
       chapterUrl: '/c-1',

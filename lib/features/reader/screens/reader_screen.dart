@@ -7,6 +7,9 @@ import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:iconsax/iconsax.dart';
 
+import 'package:otaku_reader/data/anilist/anilist_list_service.dart';
+import 'package:otaku_reader/data/anilist/anilist_metadata_service.dart';
+import 'package:otaku_reader/data/anilist/anilist_progress_sync.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
@@ -38,6 +41,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
     ReaderController(
       sources: Get.find<SourceRepository>(),
       library: Get.find<LibraryRepository>(),
+      anilistProgress: AniListProgressSync(
+        Get.find<AniListMetadataService>(),
+        Get.find<AniListListService>(),
+      ),
       sourceId: widget.sourceId,
       mangaUrl: widget.mangaUrl,
       chapterUrl: widget.chapterUrl,

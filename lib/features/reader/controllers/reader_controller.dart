@@ -10,6 +10,8 @@ import 'dart:io';
 import 'package:get/get.dart';
 import 'package:path/path.dart' as p;
 
+import 'package:otaku_reader/data/anilist/anilist_progress_sync.dart';
+
 import 'package:otaku_reader/core/database/data_keys/keys.dart';
 import 'package:otaku_reader/core/database/kv_helper.dart';
 import 'package:otaku_reader/data/isar/manga_entry.dart';
@@ -29,15 +31,22 @@ class ReaderController extends GetxController {
   ReaderController({
     required SourceRepository sources,
     required LibraryRepository library,
+    required AniListProgressReporter anilistProgress,
     required this.sourceId,
     required this.mangaUrl,
     required String chapterUrl,
   }) : _sources = sources,
        _library = library,
+       _anilistProgress = anilistProgress,
        currentChapterUrl = chapterUrl.obs;
 
   final SourceRepository _sources;
   final LibraryRepository _library;
+
+  /// Required rather than optional. An optional collaborator that the screen
+  /// forgets to pass is how this app already shipped live UI wired to
+  /// nothing; making it required means the wiring cannot be missing quietly.
+  final AniListProgressReporter _anilistProgress;
   final int sourceId;
   final String mangaUrl;
   final RxString currentChapterUrl;
@@ -320,6 +329,24 @@ class ReaderController extends GetxController {
     if (entry == null) return;
 
     final reachedEnd = page.value >= total - 1;
+    final nowRead = markRead ?? reachedEnd;
+
+    // Read *before* the write, because the write is what changes it. This is a
+    // transition detector rather than a state check, and it has to be:
+    // `onPageChanged` fires on every scroll, so a chapter already sitting at
+    // its last page would otherwise report itself to AniList again on every
+    // twitch of the finger.
+    // Written out rather than `firstWhereOrNull`: that extension reaches this
+    // file only through somebody else's re-export, and a loop needs nothing.
+    Chapter? before;
+    for (final chapter in entry.chapters) {
+      if (chapter.url == chapterUrl) {
+        before = chapter;
+        break;
+      }
+    }
+    final becameRead = nowRead && !(before?.read ?? false);
+
     await _library.updateChapterProgress(
       sourceId: sourceId,
       url: mangaUrl,
@@ -331,7 +358,20 @@ class ReaderController extends GetxController {
       // Reaching the last page is what marks a chapter read. Doing it on open
       // would mark a chapter read that was merely glanced at -- see the
       // explicit `markRead: false` on the initial save.
-      markRead: markRead ?? reachedEnd,
+      markRead: nowRead,
+    );
+
+    if (!becameRead) return;
+    // Unawaited on purpose. This is a network round trip sitting behind a page
+    // turn, and the reader must not wait on a tracker to record where the user
+    // got to. It reports nothing to the screen for the same reason: the user
+    // did not ask for this write, so a snackbar over the last page of a
+    // chapter would interrupt them about something they did not do.
+    unawaited(
+      _anilistProgress.reportChapter(
+        entryId: entry.id,
+        chapterNumber: before?.number,
+      ),
     );
   }
 
