@@ -402,54 +402,72 @@ identical from the outside.
 
 ---
 
-### The visual language: One UI over AnymeX's layout
+### The visual language: AnymeX's chrome
 
-Decided by the developer, and recorded because it is a *house style*, not a
-preference to re-litigate per screen: **build the UI as a Samsung One UI
-engineer would, over AnymeX's information architecture.** AnymeX decides what
-is on a screen and in what order; One UI decides how it looks and where the
-user's thumb goes.
+**Decided by the developer, twice, and the second decision reversed the first.**
+Recorded in full because a section that only states the current rule reads as
+though the alternative was never considered, and the next session re-litigates
+it.
 
-What that means concretely, and what to check a new screen against:
+**What it was.** Phase 7 built the UI "as a Samsung One UI engineer would" over
+AnymeX's information architecture: `SliverAppBar.large` collapsing headers on
+eight screens, a per-screen table deciding where they went, Material `TabBar`s,
+`ListTile` rows, and an explicit instruction to *drop* AnymeX's glass/blur app
+bars because they fight a collapsing header.
 
-- **A large collapsing header.** One UI's signature is a title that starts
-  oversized in the top half and shrinks into the app bar as the content
-  scrolls — `SliverAppBar.large`, expanded height around 150-170. It is not
-  decoration: it pushes the first row of content into the lower half of a tall
-  phone, which is the only part of the screen a thumb reaches.
-- **Reach matters more than density.** Primary actions belong in the bottom
-  third. A dialog's buttons, a sheet's confirm, a FAB — low, not top-right.
-- **Rounded, grouped lists.** Related settings rows sit inside one rounded
-  container (radius ~26) with the group's label above it in the accent colour,
-  rather than as a flat divider-separated list. Cards and sheets share that
-  radius; it is the most recognisable One UI tell after the header.
-- **Soft surfaces, not shadows.** Elevation is expressed as a container
-  colour step (`surfaceContainer*`), not a drop shadow.
-- **Generous vertical rhythm.** One UI breathes: 20-24 between sections, not
-  8-12.
-- **Motion is short and eased**, never bouncy.
+**What it is now.** The developer: *"I prefer AnymeX kind of layout over the
+bars or whatever from komikku style"*, and, asked how far that goes, chose
+**AnymeX chrome everywhere** over keeping the collapsing headers. So the
+headers go, and the blur comes back — that instruction to drop it existed only
+because of the header it fought, and the reason left with the header.
 
-**Where the large header does *not* go, and why.** The pattern is not a
-sweep. A collapsing title costs about 150px of the first screenful, and it
-earns that only where the screen's own content is the point. Decided per
-screen, after looking at each:
+What survives from One UI, because it never conflicted: reach matters more than
+density (primary actions in the bottom third), elevation as a surface colour
+step rather than a drop shadow, generous vertical rhythm, and short eased
+motion. AnymeX agrees with all four.
 
-| Screen | Header? | Why |
-|---|---|---|
-| Home, Library, Updates, History | **yes** | Content-first lists. The header pushes the first row into thumb reach, which is what it is for. |
-| Settings, More, About, Downloads | **yes** | Grouped lists, the canonical One UI shape. |
-| Global search | **no** | Its app bar *title* is the search field. A large title above the field pushes the thing the user came to type into the middle of the screen. One UI's own search screens do the same: field in the bar, straight to results. |
-| Source browse | **no** | 96px of search field and mode chips already. Adding 152px of title spends half a phone screen before the first cover, and the title is only the source's name — decoration next to controls the user actually presses. |
-| Extensions | **no** | Same, plus 104px of search and a `TabBar` driving a `TabBarView`. A collapsing header over tab views needs `NestedScrollView`, which is a restructure with real regression risk bought for a visual change. |
+#### The four shapes
 
-A screen that keeps a compact app bar is not unconverted — it is converted
-to the right answer. Do not "finish the job" by forcing the header onto
-these three.
+Ported from `/home/user/AnymeX-HV`, which is checked out in every session.
 
-Two things from AnymeX to keep, because they are what the developer asked for:
-the **carousel-of-covers home page** and the **AniList-rich details page**.
-Two to drop: its glass/blur app bars (they fight the collapsing header) and
-its habit of letting a service build its own widgets.
+- **The header is two floating pills, not a bar.** A title pill on the left, an
+  actions pill on the right, and the content scrolls *under* both. Each pill is
+  a `ClipRRect` over a `BackdropFilter(blur 16)` filled with
+  `surfaceContainer` at 55% alpha, a 0.5px `onSurface`-at-8% hairline border and
+  a soft shadow, at radius 30. A full-width opaque bar is the Komikku shape and
+  is what the developer asked to move away from.
+- **Search toggles in place.** The header swaps its split row for a search row
+  through an `AnimatedSwitcher` (300ms, `easeOutCubic`) rather than stacking a
+  permanent field under the title. This is what buys back the height the
+  collapsing header used to spend.
+- **Tabs are a segmented pill, and cannot overflow.** An `AnimatedAlign` moves a
+  `FractionallySizedBox(widthFactor: 1 / total)` behind a `Row` of `Expanded`
+  tabs whose labels are `Flexible` and ellipsised. Every tab is a fraction of
+  the available width *by construction* — which is why this replaced Material's
+  `TabBar` rather than patching it. See the mistakes table: that `TabBar`
+  overflowed at 320, **360 and 384**, on a bug class this shape does not have.
+- **Rows are cards, through one container primitive.** Rounded, optionally
+  bordered, optionally carrying a primary-tinted glow, always clipped. The
+  leading element is the house motif: a 36x36 rounded-10 tile filled
+  `primary` at 12% with a 20px `primary` icon. A tappable row ends in a
+  `chevron_right_rounded` at `onSurface` 35%.
+
+#### Two things to carry that are easy to miss
+
+- **Radius, glow and blur are scaled by user multipliers.** AnymeX runs every
+  radius through `multiplyRadius()` and every glow through `multiplyGlow()`, so
+  the whole app's roundness is a setting. Worth adopting rather than hardcoding
+  numbers in thirty widgets.
+- **A choice belongs inside its row.** AnymeX's tile embeds a segmented
+  selector, so a setting changes without leaving the row. This app opens radio
+  dialogs (`_pick<T>`), which is the pattern being moved away from.
+
+#### Still from AnymeX, unchanged by any of this
+
+The **carousel-of-covers home page** and the **AniList-rich details page**, both
+of which the developer asked for by name. And still not carried over: its habit
+of letting a service build its own widgets — return data, let one screen render
+it.
 
 None of this is a reason to change behaviour. A screen that reads better and
 does something different is a regression.
@@ -536,9 +554,9 @@ the launcher icon so the icon and the UI cannot drift apart:
 
 ### AnymeX is checked out — read the equivalent screen before designing one
 
-**`/home/user/AnymeX-HV`.** It is on disk in every session, and this file says
-AnymeX decides *information architecture* while One UI decides how it looks. The
-first half has been skipped at least once, with a measurable cost.
+**`/home/user/AnymeX-HV`.** It is on disk in every session, and it now decides
+both halves — information architecture *and* chrome. It has been skipped at
+least once, with a measurable cost.
 
 The repository sheet was designed from scratch. AnymeX's equivalent
 (`lib/screens/settings/sub_settings/settings_extensions.dart`, 911 lines) is a
@@ -558,10 +576,10 @@ Every tab is a fraction of the available width *by construction*, so the
 intrinsic-width negotiation that overflowed at 320, 360 and 384 cannot happen.
 Hours went into measuring and patching a bug the blueprint had designed out.
 
-**So: before building a screen, open AnymeX's version of it.** Not to copy the
-look — the One UI rules above still decide that — but because the structural
-decisions are already made there, and the ones that differ are worth being
-deliberate about rather than accidental.
+**So: before building a screen, open AnymeX's version of it.** The structural
+decisions are already made there, and a difference is worth being deliberate
+about rather than accidental. Where this app leads — per-repo health, source
+counts — build on AnymeX's shell rather than beside it.
 
 ---
 
