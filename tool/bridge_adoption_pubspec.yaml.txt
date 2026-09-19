@@ -1,53 +1,78 @@
-name: adopt_spike
-environment:
-    sdk: ^3.13.1
-dependencies:
-    isar_community: 3.3.0-dev.3
-    isar_community_flutter_libs: 3.3.0-dev.3
-    flutter:
-        sdk: flutter
-    # AnymeX's runtime bridge supplies the source layer (Mangayomi + Aniyomi +
-    # Kotatsu + ...), so this app no longer needs its own d4rt.
-    anymex_extension_runtime_bridge:
-        git:
-            url: https://github.com/RyanYuuki/AnymeXExtensionRuntimeBridge.git
-            ref: da1e1ebe7edb8b75fd4669193b58cfe05df2baa1
-    # Everything this app keeps.
-    get: ^4.7.3
-    flutter_secure_storage: ^9.2.4
-    path: ^1.9.0
-    path_provider: ^2.1.5
-    http: ^1.2.2
-    http_interceptor: ^2.0.0
-    dynamic_color: ^1.7.0
-    iconsax: ^0.0.8
-    cached_network_image: ^3.4.1
-    intl: ^0.20.1
-    collection: ^1.19.0
-    package_info_plus: ^8.1.1
-    url_launcher: ^6.3.1
-dev_dependencies:
-    flutter_test:
-        sdk: flutter
-    # The PUBLISHED generator, not Mangayomi's analyzer-8 fork.
-    isar_community_generator: ^3.3.0-dev.3
-    build_runner: ^2.4.13
+# Not a package. The record of what was measured before adopting AnymeX's
+# extension bridge, so the next reader does not repeat the resolution spike.
+#
+# Read CLAUDE.md -> "The extension bridge" for the decision this supports.
+# The short version: the bridge is ADDITIVE. lib/source/ stays.
 
-# ── How this was proven, 2026-09-19 ────────────────────────────────────────
-# `flutter pub get` on the above resolves: 160 dependencies.
-# A file importing the bridge and calling the seam analyses clean:
+# ── 1. The combination that resolves, keeping lib/source/ ──────────────────
+# This is this app's real pubspec with three edits. It was applied in place and
+# verified end to end; the pins were then REVERTED, because a d4rt downgrade
+# buys nothing until the bridge actually lands.
 #
-#   import 'package:anymex_extension_runtime_bridge/anymex_extension_runtime_bridge.dart';
-#   List<String> backendsSupportingManga(List<Extension> all) =>
-#       [for (final e in all) if (e.supportsManga) '${e.id}:${e.name}'];
-#   Future<void> addMangaRepo(Extension b, String url) =>
-#       b.addRepo(url, ItemType.manga);
-#   Repo describe(String url) => Repo(url: url, managerId: 'aniyomi');
+#   - isar_community / isar_community_flutter_libs : ^3.3.2  ->  3.3.0-dev.3
+#   - isar_community_generator (dev)  : Mangayomi's git fork ->  3.3.0-dev.3
+#   - d4rt                            : ^0.2.4              ->  0.1.7
+#   + anymex_extension_runtime_bridge :
+#         git:
+#             url: https://github.com/RyanYuuki/AnymeXExtensionRuntimeBridge.git
+#             ref: 62df59fab5b74968cc68c70ddc9c1570050e316f
 #
-# The four combinations that do NOT resolve, for the next reader:
-#   1. bridge + isar_community ^3.3.2          -> bridge pins 3.3.0-dev.3 exactly
-#   2. bridge + Mangayomi's generator fork     -> ^3.3.0 excludes pre-releases
-#   3. + override isar to dev.3                -> bridge pins d4rt 0.1.7 exactly
-#   4. + override d4rt to 0.1.7                -> analyzer ^7.4.5 vs fork's ^8.4.0
-# The conflict is entirely this app's own d4rt ^0.2.4. Drop it with lib/source/
-# and the bridge supplies the runtime instead.
+# Pin the ref to a commit, never `main`: this is a third-party plugin that
+# runs third-party code, and AnymeX's own pubspec tracking `main` is not a
+# reason for this app to.
+#
+# The conflict everyone hits is NOT d4rt. It is Mangayomi's
+# isar_community_generator fork, which wants analyzer ^8.4.0 while d4rt <0.2.0
+# wants ^7.4.5. Swapping the fork for the published generator of the same
+# version removes it; d4rt 0.1.7 then resolves against the bridge's own pin.
+
+# ── 2. lib/source/ on d4rt 0.1.7 — one line ────────────────────────────────
+# 0.2.4 deprecated `args: Object?` for `positionalArgs: List<Object?>`. 0.1.7
+# has only `args`, and wraps a single object into [args] itself, so:
+#
+#   -  positionalArgs: [source.toMSource()],
+#   +  args: source.toMSource(),
+#
+# in lib/source/runtime/dart_source_runtime.dart, and nothing else across the
+# 17 files that import d4rt. The BridgedClass surface is identical between the
+# two versions -- checkable directly, since the bridge's own
+# Eval/dart/bridge/*.dart and this app's are ports of the same upstream.
+#
+# Verified on those pins:
+#   flutter analyze                 clean
+#   build_runner                    output identical but for the `version:`
+#                                   string stamped into each schema
+#   flutter test                    512 passing
+#   flutter test tool/source_sweep  evaluated 55/55, popular 8,
+#                                   detail+chapters 6, full chain 6
+#                                   -- the baseline, exactly
+#   + the bridge as a git dependency:
+#   flutter pub get                 resolves, no dependency_overrides
+#   flutter analyze                 clean
+
+# ── 3. The four combinations that do NOT resolve ───────────────────────────
+#   1. bridge + isar_community ^3.3.2       -> the bridge pins 3.3.0-dev.3 exactly
+#   2. bridge + Mangayomi's generator fork  -> ^3.3.0 excludes pre-releases
+#   3. + override isar to dev.3             -> the bridge pins d4rt 0.1.7 exactly
+#   4. + override d4rt to 0.1.7             -> analyzer ^7.4.5 vs the fork's ^8.4.0
+
+# ── 4. The Android side does not build as-is ───────────────────────────────
+# `flutter build apk --debug` with the bridge added fails three times, each on
+# a plugin pinned to a 2022-era toolchain:
+#
+#   device_apps 2.2.0    jcenter() (gone in Gradle 9), AGP 4.0.1 classpath,
+#                        compileSdkVersion 30. Abandoned; 2.2.0 is latest.
+#                        Used ONLY by AniyomiExtensions: isAppInstalled,
+#                        uninstallApp.
+#   install_plugin 2.1.0 no namespace, compileSdkVersion 28, AGP 7.3.0
+#                        classpath. Abandoned. One method: installApk.
+#   file_picker          compiled against android-34 -- this repo's own root
+#                        Gradle hook was silently losing to it. Fixed with
+#                        androidComponents.finalizeDsl.
+#
+# With a stub standing in for each of the first two, the debug APK BUILDS.
+# Both are Aniyomi-only, so writing real replacements is slice 2's work.
+#
+# Carried in regardless of what this app calls: libtorrent_flutter (12.3 MB of
+# native torrent library PER ABI), flutter_inappwebview 6.2.0-beta.2, jni,
+# file_picker, QuickJS (libqjs.so). Debug APK measured 198.9 MB -> 239.9 MB.
