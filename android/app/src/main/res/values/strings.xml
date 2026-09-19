@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The name under the launcher icon. Flutter's template uses the pubspec
+         package name verbatim, which puts "otaku_reader" on the home screen. -->
+    <string name="app_name">Otaku Reader</string>
+</resources>

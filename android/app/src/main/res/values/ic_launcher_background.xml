@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The black the logo is drawn on, measured off the artwork. The adaptive
+         icon's foreground is opaque and carries this same colour behind the
+         flower, so the two layers must not drift apart — see
+         tool/generate_launcher_icons.py for why the foreground is not matted. -->
+    <color name="ic_launcher_background">#FF0A0A0B</color>
+
+    <!-- The launch window, which is what the user looks at between tapping the
+         icon and Flutter's first frame. It only has to be close: being one
+         shade off for 200ms is invisible, and being the wrong *brightness* is
+         a white flash in front of a dark app. So there are two, and
+         values-night/styles.xml picks the other one. These track the M3
+         surface the default scheme generates (#FFF8F8 light, #1B1016 dark);
+         nothing reads them back, so they are allowed to be approximate. -->
+    <color name="launch_background_light">#FFFFF8F8</color>
+    <color name="launch_background_dark">#FF1B1016</color>
+</resources>
