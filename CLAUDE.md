@@ -340,6 +340,20 @@ identical from the outside.
   "unset" — every format bottoms out at 0 — so taking the number at face value
   stamps a rating of zero on every entry the user never rated, which is most
   of them. Both the model and the rendered row drop it.
+- **The score's format travels with the score.** `AniListListResult` carries
+  the `ScoreFormat` AniList reported in the *same response* as the row, and
+  the editor uses that rather than the cached viewer's. The cache is written
+  once at sign-in and the format is a server-side setting the user can change
+  from another device — so reading in one scale and writing in another turns
+  an 85/100 into a five-star 85. One extra field on a request already being
+  made closes it. What is left is a seconds-wide window between the lookup and
+  the save, which only `scoreRaw` could close, and that would mean inventing
+  AniList's undocumented POINT_3 mapping.
+- **`score` is sent, never `scoreRaw`.** The mutation takes both. `scoreRaw`
+  is always 0-100 and looks like the tidier choice, but converting a POINT_3
+  smiley to it means inventing a mapping AniList does not publish — so the one
+  format where the arithmetic is a guess is the one where a wrong guess is
+  most visible. Handing back the units the row was read in needs no arithmetic.
 - **`score` is requested with an explicit `format:`.** The schema is
   `score(format: ScoreFormat)`, verified by introspecting the live endpoint.
   Leaving it to AniList's default is what shows a five-star user a ten-point
@@ -503,6 +517,10 @@ Kept because they repeat.
 | A four-state distinction had tests for how it *renders* and none for how it is *decided* | Collapsing `notOnList` back into `unavailable` in the service failed nothing — the row's widget tests covered each state, but nothing asserted the service told a successful-but-empty reply apart from a failed call. That distinction is the entire reason the type changed. Rendering tests are not decision tests; assert the branch where the decision is made, not only where its result is shown. |
 | A "signed out asks nothing" test passed with the guard deleted | `AniListAuth.query` already refuses when there is no token, so the service's own `viewer == null` check was covered by somebody else's guard. It earns its keep in a *different* state the obvious test never reaches: an offline launch keeps the stored token deliberately, so `isSignedIn` is true while `viewer` is still null and there is no user id to query by. Found by mutating the guard and watching nothing fail. When a check looks redundant, find the state where it is not — or delete it. |
 | A review filed a High for the authorize URL "missing" `redirect_uri` | AniList documents that parameter for the **authorization code** grant, warning it must exactly match the registered one, and omits it from the **implicit** grant, which takes `client_id` alone and redirects to the value in application settings. Applying the suggestion would have turned a working request into a hard OAuth rejection for any build registered with a different redirect. Two findings running where the bot was right about the *shape* and wrong about the *facts*: when a finding rests on an external contract — an API, an index format, a published spec — go and read that contract before touching the code. Declining is the fix; pinning the decision in a test so the next reader does not re-raise it is the rest of the fix. |
+
+| A value and the units it is in came from two different requests | The score was read with `score(format:)` using a **cached** viewer, written once at sign-in and never refreshed, while `SaveMediaListEntry` interprets `score` in the user's *current* format. Change the setting on the website and the app reads 85/100 and writes 85 as a five-star rating. The fix is not a fresher cache, it is asking for the format in the **same response** as the row so the two cannot disagree. General rule: when a number and the scale it is on arrive separately, they will eventually disagree, and the code will not notice. |
+| A clamp was documented as handling a format change, and actually destroyed the rating | `clampScore` turned an 85/100 into 5 stars, and the comment above it said that was the point — so the comment described a goal the code met by throwing the user's data away. Found by `codeant-ai`. The same recurring lesson as the row below, in its most literal form: the comment was not wrong about *what* the code did, only about whether that was acceptable. When a comment justifies a lossy operation, state what is lost and check that losing it is the intended answer. |
+| The star row overflowed a 320px phone by 89 pixels, and `flutter analyze` was clean | Five 48px targets plus a clear button need ~330px, which a narrow phone does not have between the sheet's gutters. **Seventh** instance of analyze being structurally blind to layout. A rendered test per *branch* was not enough here — the branch was rendered and passed at the default 800px test viewport. Rendered tests for anything with a fixed-width row need a **narrow width** too; the suite now parameterises the rating control over every format at 320px. |
 
 The general lesson, and the one that keeps recurring across both codebases:
 **a comment describing the goal is not evidence the code achieves it.** After
