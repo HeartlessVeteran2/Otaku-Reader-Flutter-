@@ -15,11 +15,12 @@ set is the parity checklist — see `FEATURES.md`.
 
 **Android first.** Code stays platform-agnostic; desktop is not a goal yet.
 
-### Why the rewrite exists
+### Why the rewrite exists, and what that argument left out
 
 The Kotlin app can only run the **JavaScript** half of Mangayomi's ecosystem,
 which collapses to 18 distinct scripts, so it keeps a Tachiyomi APK backend
-alive purely for catalogue size. Measured against the live index (363 entries):
+alive purely for catalogue size. Measured against the live index (363 entries,
+**all of them manga** — there is no anime half):
 
 | | index entries | distinct scripts | distinct sites |
 |---|---|---|---|
@@ -27,8 +28,23 @@ alive purely for catalogue size. Measured against the live index (363 entries):
 | JS (`sourceCodeLanguage: 1`) | 114 | 18 | 18 |
 
 The 7 Dart scripts are site-parameterised multisrc templates — `madara.dart`
-alone drives 151 sites. **Dart can interpret them; Kotlin cannot.** That is the
-whole argument, and it removes any reason for a second backend.
+alone drives 151 sites. **Dart can interpret them; Kotlin cannot.** That part is
+true and still is.
+
+**What it left out is the price.** "No second backend" was stated as a pure win.
+It is a trade, and nobody wrote down the other side: the Kotlin app's APK
+backend reaches the Tachiyomi/Mihon catalogue, which is **1,396 extension
+packages** (2,387 sources, 566 of them English or all-language) against this
+ecosystem's ceiling of **263 distinct sites**, of which we run 245. So the
+rewrite bought architectural simplicity by giving up roughly **6x the
+catalogue, and 10x the English-facing sources**.
+
+For a manga reader the catalogue is the product, so that trade is the wrong way
+round — and it is not something more work in this codebase closes, because the
+ceiling is the ecosystem's, not ours.
+
+**Decided 2026-09-19: adopt AnymeX's extension bridge and stop maintaining a
+parallel source runtime.** See "The extension bridge" below.
 
 ---
 
@@ -51,6 +67,100 @@ anything.
 **Add dependencies per phase, as the code using them lands.** Declaring the
 eventual set up front dragged in Android plugins pinned below the app's
 `compileSdk` and failed the build for features that did not exist yet.
+
+---
+
+## The extension bridge — the decision that supersedes phase 1
+
+**`anymex_extension_runtime_bridge`** (`RyanYuuki/AnymeXExtensionRuntimeBridge`)
+is a Flutter **plugin**, Dart *and* Android, that AnymeX uses for its whole
+source layer. Everything under `lib/source/` here is a parallel implementation
+of the Mangayomi part of it, ported from the same upstream. Phase 1 built it
+without checking whether the reference app already had one.
+
+### What it is
+
+`Extension` is the seam, implemented once per backend — Mangayomi, Aniyomi,
+Kotatsu, CloudStream, Legado, LnReader, Sora:
+
+```dart
+Future<void> addRepo(String repoUrl, ItemType type);   // per backend, per type
+Future<void> removeRepo(String repoUrl, ItemType type);
+Future<void> installSource / uninstallSource / updateSource(Source);
+Rx<List<Source>> getInstalledRx / getAvailableRx(ItemType);
+Rx<List<Repo>>   getReposRx(ItemType);
+bool get requiresPlugin;                 // Kotatsu: needs a plugin.jar
+Map<String, ExtensionSetting>? settings; // per-backend settings
+SourceMethods createSourceMethods(Source source);
+```
+
+`SourceMethods` is the call surface the reader and browse sit on, and it is
+**the same verbs this app already uses**: `getPopular`, `getLatestUpdates`,
+`search`, `getDetail`, `getPageList`, `getFilterList`, `getPreference`.
+`Repo` carries `{url, name, iconUrl, extensions, managerId}` — note
+`managerId`, the field this app's own repo model lacks, because ours only ever
+had one backend.
+
+### Repos are yours to add, per backend
+
+This is the part that matters and the part a survey misses:
+
+- **Aniyomi** takes any Tachiyomi/Mihon repo URL. `_parseExtensions` sniffs the
+  gzip magic, then branches on the first byte: JSON for the old flat
+  `index.min.json`, otherwise **protobuf** through a hand-rolled `PbDecoder`.
+  Media type comes from an `Aniyomi: `/`Tachiyomi: ` name prefix, falling back
+  to `.anime.`/`.manga.` in the package name; multi-language packages collapse
+  to one row carrying `langs`.
+- **Kotatsu**'s repo URL *is* a `plugin.jar`: adding one downloads it and
+  clears the parser cache. `requiresPlugin => true`.
+- **Mangayomi** reads the same `index.json` this app already reads.
+
+**Keiyoushi's `index.min.json` is now a two-entry "Outdated App" stub.** The
+live index is `.../keiyoushi/extensions/repo/index.pb` — gzipped, ~706 KB
+decompressed, **1,396 packages** — and the protobuf branch is exactly what
+reads it. A count taken from the repo's nested `index.json` is *not* reachable
+by this parser, which returns `const []` for any JSON that is not a list.
+
+### Why it could not be a dependency, and why it now can
+
+The bridge pins `d4rt 0.1.7` and `isar_community 3.3.0-dev.3` **exactly**.
+`d4rt <0.2.0` wants `analyzer ^7.4.5`; Mangayomi's `isar_community_generator`
+fork wants `analyzer ^8.4.0`. No `dependency_overrides` combination resolves
+that — four attempts, all recorded.
+
+The resolution is that the conflict only exists while this app carries **its
+own** `d4rt ^0.2.4`. Drop that with `lib/source/`, take the bridge's runtime,
+and move Isar to AnymeX's pins, and it resolves: 160 dependencies, and the
+seam analyses clean from this app's own code. That is AnymeX's configuration,
+which is the point — one toolchain instead of two.
+
+| | before | after |
+|---|---|---|
+| source layer | `lib/source/` (4,361 lines) | the bridge plugin |
+| `d4rt` | `^0.2.4` | `0.1.7` (the bridge's) |
+| analyzer | 8 | 7 |
+| Isar | `^3.3.2` + Mangayomi's generator fork | `3.3.0-dev.3` + the published generator |
+
+**So the toolchain table above is superseded by this row** — the Flutter pin,
+the generator fork and the `isar_community` stable-line pin all existed to
+serve a `d4rt` this app no longer owns.
+
+### The order to do it in
+
+Mangayomi through the bridge is **pure Dart** — no native dependency — so it
+proves the seam on its own. Aniyomi and Kotatsu need the Android side
+(`MethodChannel('aniyomiExtensionBridge')`, a runtime host APK, a `plugin.jar`),
+which is where the 1,396 packages come from and where the real integration risk
+is. Do them in that order, and do not delete `lib/source/` until the first one
+browses and reads end to end.
+
+### What this does not change
+
+`lib/source/`'s **rules** were right and the deferred `upstream-behaviour`
+issues still describe real upstream behaviour — the bridge ports the same files
+from the same place. Nothing here says that work was wrong; it says it was
+already done elsewhere, and that checking first is cheaper than being right
+twice.
 
 ---
 
@@ -701,6 +811,7 @@ Kept because they repeat.
 | A scope read from the wrong side of the widget that publishes it | `ChromeHeaderScope` tells a body how much room the floating header is taking, and answers **0** when there is none — which is right for a converted row dropped into a sheet. `ExtensionsScreen` read it from its own `State`'s `context`, which sits *above* the `ChromeScaffold` that `build` returns, so the lookup found nothing and took that fallback. What it produces is the first row rendered *behind* a translucent, blurred pill: it reads as a design flourish rather than as a row nobody can press, and `flutter analyze` was clean — the **ninth** instance of that blindness. The rendered test at 320/360/384 failed on its first run, which is the only reason it was ever seen. The general shape: a default that is correct for one caller makes a lookup silently wrong for every other, so an `of(context)` with a fallback needs a test that the *right* context was used, not only that the value is sane. |
 | A widget that did not fit its slot was erased rather than clipped | The header gives every action a tight 48px box so the header's height is its own property. Measured, an `IconButton` with a 64px icon behind 24px of padding rendered a 48x48 button around a **0x0** icon — an invisible control, with no exception, no overflow stripe, `flutter analyze` clean and no failing test. Clipping is loud and this was silent, which is worse: the **tenth** instance of analyze being blind to layout, and the one class of defect a shared vocabulary must not have when nine more screens are about to be built on it. Fixed with `FittedBox(fit: BoxFit.scaleDown)` *inside* the slot, measured to be a no-op at scale 1.0 for every action that already fits — the same argument as the tab labels two rows up. The general shape: when a parent forces a size, ask what happens to a child that cannot meet it, because "too small to see" and "not there" render identically. |
 | A touch-target test measured the render box, not the screen | It asserted `getSize`, which is the **pre-transform** size: 48 for an action that fits and 112 for one scaled down to the slot. So a control the user meets at 48 would have satisfied a test whose name promises 48, by reporting a number that is not on screen. `getRect` is post-transform and is the only one a finger touches. Raised as a weak-test complaint by `codeant-ai`, which was right that the test was weak and named a different reason. Whenever a widget can be scaled, rotated or otherwise transformed between layout and paint, a size assertion has to say which of the two numbers it means. |
+| An entire subsystem was built while the reference app on disk already had it | `lib/source/` is 4,361 lines implementing the Mangayomi Dart runtime. `anymex_extension_runtime_bridge` — the plugin AnymeX depends on, whose repo is one `git clone` away and whose name is in AnymeX's own `pubspec.yaml` — implements the same thing from the same upstream, plus six other backends. Phase 1 never checked. This is the row two below it ("Building a screen without opening AnymeX's version of it") at the scale of the whole architecture, and the *third* time in this project: a screen, a widget, now a subsystem. The tell each time was identical — a survey (`ls`, `grep`, a pubspec skim) reported as a deep dive. A survey tells you what files exist; it does not tell you what they do. **Before building any layer, `clone` the reference's dependencies and read the seam, not the directory listing.** Cost here: 4,361 lines, plus a stated rewrite rationale that had to be rewritten, plus a catalogue ceiling 6x below what was available the whole time. |
 | Building a screen without opening AnymeX's version of it | The repository sheet was designed from scratch while `/home/user/AnymeX-HV` sat on disk with a 911-line equivalent that is a screen rather than a sheet, splits the URL into monospace path over host, offers copy, dims and spins a row being deleted, and adds several URLs at once. Worse, the `TabBar` overflow two rows up was already designed out there: `AnymeXTabBar` gives each tab `1 / total` of the width with an ellipsised label, so it *cannot* overflow, while this app reached for Material's `TabBar` and then spent a long stretch measuring and patching it. The feature (per-repo health and counts) was genuinely net-new and AnymeX has nothing like it — but the shell around it was reinvented worse. Read the blueprint's version of a screen *before* designing one, not after a review finds the bug it had already avoided. |
 
 The general lesson, and the one that keeps recurring across both codebases:

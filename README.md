@@ -3,9 +3,12 @@
 A manga and manhwa reader for Android, built in Flutter on the
 [Mangayomi](https://github.com/kodjodevf/mangayomi) extension ecosystem.
 
-> **Status: early.** The extension runtime works end to end and is verified
-> against live sites. The app around it is still being built — see
-> [`FEATURES.md`](FEATURES.md) for what is done and what is coming.
+> **Status: early, and the source layer is changing.** The app is being moved
+> onto [AnymeX's extension bridge](https://github.com/RyanYuuki/AnymeXExtensionRuntimeBridge),
+> which runs Mangayomi, Tachiyomi/Mihon, Kotatsu and four other extension
+> ecosystems behind one seam — roughly 6x the manga catalogue this app's own
+> runtime could reach. See `CLAUDE.md`, "The extension bridge".
+> [`FEATURES.md`](FEATURES.md) tracks the rest.
 
 ## Why this exists
 

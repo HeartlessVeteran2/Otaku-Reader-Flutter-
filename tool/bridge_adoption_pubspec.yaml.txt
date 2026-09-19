@@ -1,0 +1,53 @@
+name: adopt_spike
+environment:
+    sdk: ^3.13.1
+dependencies:
+    isar_community: 3.3.0-dev.3
+    isar_community_flutter_libs: 3.3.0-dev.3
+    flutter:
+        sdk: flutter
+    # AnymeX's runtime bridge supplies the source layer (Mangayomi + Aniyomi +
+    # Kotatsu + ...), so this app no longer needs its own d4rt.
+    anymex_extension_runtime_bridge:
+        git:
+            url: https://github.com/RyanYuuki/AnymeXExtensionRuntimeBridge.git
+            ref: da1e1ebe7edb8b75fd4669193b58cfe05df2baa1
+    # Everything this app keeps.
+    get: ^4.7.3
+    flutter_secure_storage: ^9.2.4
+    path: ^1.9.0
+    path_provider: ^2.1.5
+    http: ^1.2.2
+    http_interceptor: ^2.0.0
+    dynamic_color: ^1.7.0
+    iconsax: ^0.0.8
+    cached_network_image: ^3.4.1
+    intl: ^0.20.1
+    collection: ^1.19.0
+    package_info_plus: ^8.1.1
+    url_launcher: ^6.3.1
+dev_dependencies:
+    flutter_test:
+        sdk: flutter
+    # The PUBLISHED generator, not Mangayomi's analyzer-8 fork.
+    isar_community_generator: ^3.3.0-dev.3
+    build_runner: ^2.4.13
+
+# ── How this was proven, 2026-09-19 ────────────────────────────────────────
+# `flutter pub get` on the above resolves: 160 dependencies.
+# A file importing the bridge and calling the seam analyses clean:
+#
+#   import 'package:anymex_extension_runtime_bridge/anymex_extension_runtime_bridge.dart';
+#   List<String> backendsSupportingManga(List<Extension> all) =>
+#       [for (final e in all) if (e.supportsManga) '${e.id}:${e.name}'];
+#   Future<void> addMangaRepo(Extension b, String url) =>
+#       b.addRepo(url, ItemType.manga);
+#   Repo describe(String url) => Repo(url: url, managerId: 'aniyomi');
+#
+# The four combinations that do NOT resolve, for the next reader:
+#   1. bridge + isar_community ^3.3.2          -> bridge pins 3.3.0-dev.3 exactly
+#   2. bridge + Mangayomi's generator fork     -> ^3.3.0 excludes pre-releases
+#   3. + override isar to dev.3                -> bridge pins d4rt 0.1.7 exactly
+#   4. + override d4rt to 0.1.7                -> analyzer ^7.4.5 vs fork's ^8.4.0
+# The conflict is entirely this app's own d4rt ^0.2.4. Drop it with lib/source/
+# and the bridge supplies the runtime instead.
