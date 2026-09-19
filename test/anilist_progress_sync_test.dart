@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:otaku_reader/data/anilist/anilist_auth.dart';
@@ -61,6 +63,43 @@ class _List extends AniListListService {
   }
 }
 
+/// A list service that actually *holds* a progress value, so the order two
+/// overlapping reports land in changes the answer.
+///
+/// The fakes above return a fixed lookup, which cannot show a race: every
+/// caller reads the same thing whatever happened before it.
+class _StatefulList extends AniListListService {
+  _StatefulList(this.progress)
+    : super(AniListAuth(storage: FakeVault(), clientId: 'x'));
+
+  int progress;
+  final writes = <int>[];
+
+  /// Holds the write of one particular progress value open, so the test can
+  /// choose the interleaving rather than hope for one.
+  int? gateFor;
+  final gate = Completer<void>();
+
+  @override
+  Future<AniListListResult> lookUp(int mediaId) async => AniListListResult(
+    AniListListLookup.onList,
+    AniListListEntry(id: 1, mediaId: mediaId, progress: progress),
+  );
+
+  @override
+  Future<AniListListEntry?> save({
+    required int mediaId,
+    AniListListStatus? status,
+    int? progress,
+    double? score,
+  }) async {
+    if (gateFor == progress) await gate.future;
+    writes.add(progress!);
+    this.progress = progress;
+    return AniListListEntry(id: 1, mediaId: mediaId, progress: progress);
+  }
+}
+
 AniListListResult _onList(int progress) => AniListListResult(
   AniListListLookup.onList,
   AniListListEntry(id: 1, mediaId: 7, progress: progress),
@@ -113,6 +152,46 @@ void main() {
 
       expect(list.writes, [41]);
     });
+  });
+
+  test('two chapters finished back to back cannot lower the number', () async {
+    // Rule 1 is a read-then-act — ask what AniList holds, then write a bigger
+    // number — and the reader fires it unawaited from a page turn. `next()`
+    // makes finishing two chapters a single tap apart, so two reports overlap:
+    // both read the same held value, both decide to write, and the two writes
+    // race. Chapter 2's can land first and chapter 1's second, leaving AniList
+    // on 1 — a lowering that rule 1 cannot see, because each call was correct
+    // about the value it read.
+    //
+    // The fix is a lock spanning *both* steps. Removing it fails this test:
+    // the gate holds chapter 1's write open, chapter 2's goes straight
+    // through, and the release then stamps 1 over the top of 2.
+    final list = _StatefulList(0)..gateFor = 1;
+    final sync = AniListProgressSync(_Metadata(7), list);
+
+    final first = sync.reportChapter(entryId: 1, chapterNumber: 1);
+    final second = sync.reportChapter(entryId: 1, chapterNumber: 2);
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+    list.gate.complete();
+    await Future.wait([first, second]);
+
+    expect(list.writes, [1, 2], reason: 'serialised, so in order');
+    expect(list.progress, 2);
+  });
+
+  test('a queued report sees what the one before it wrote', () async {
+    // The other half of the same guard: serialising is only worth anything if
+    // the second report re-reads. Chapter 1 lands first, so chapter 2 must
+    // look up 1 — not the 0 it would have seen had they overlapped.
+    final list = _StatefulList(0);
+    final sync = AniListProgressSync(_Metadata(7), list);
+
+    await sync.reportChapter(entryId: 1, chapterNumber: 5);
+    final outcome = await sync.reportChapter(entryId: 1, chapterNumber: 5);
+
+    expect(outcome, AniListProgressOutcome.alreadyAhead);
+    expect(list.writes, [5]);
   });
 
   group('rule 2: it only updates a row that already exists', () {

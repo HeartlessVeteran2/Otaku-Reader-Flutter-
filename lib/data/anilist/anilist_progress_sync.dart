@@ -58,15 +58,45 @@ abstract interface class AniListProgressReporter {
 ///    network guess fired from the reader, and a wrong guess writes progress
 ///    onto somebody else's series.
 class AniListProgressSync implements AniListProgressReporter {
-  const AniListProgressSync(this._metadata, this._list);
+  AniListProgressSync(this._metadata, this._list);
 
   final AniListMetadataService _metadata;
   final AniListListService _list;
+
+  /// Reports run one at a time, and the lock spans **both** steps.
+  ///
+  /// [reportChapter] is a read-then-act: it asks AniList what it holds and
+  /// then writes a bigger number. The reader fires it *unawaited* from a page
+  /// turn, so finishing two chapters in quick succession — which `next()`
+  /// makes a single tap away — starts two of them overlapping. Both read the
+  /// same held value, both decide to write, and then the two writes race:
+  /// chapter 2's can land first and chapter 1's second, leaving AniList on 1.
+  ///
+  /// Rule 1 cannot catch that. Each call *was* correct about the value it
+  /// read; what went wrong is that the value stopped being true before the
+  /// write landed. Making each step individually atomic changes nothing — the
+  /// same lesson `ExtensionRepositoryImpl._withRepoLock` is here for, where
+  /// two `removeRepo` taps resurrected each other's repository.
+  Future<void> _queue = Future<void>.value();
 
   /// Never throws: this runs behind a page turn, and a tracker being down is
   /// not a reason for the reader to fail.
   @override
   Future<AniListProgressOutcome> reportChapter({
+    required int entryId,
+    required double? chapterNumber,
+  }) {
+    final result = _queue.then(
+      (_) => _report(entryId: entryId, chapterNumber: chapterNumber),
+    );
+    // The chain has to survive a failure, or one broken report would stop
+    // every later one for the life of the process. `_report` is documented
+    // never to throw; this is the belt to that braces.
+    _queue = result.then((_) {}, onError: (_) {});
+    return result;
+  }
+
+  Future<AniListProgressOutcome> _report({
     required int entryId,
     required double? chapterNumber,
   }) async {
