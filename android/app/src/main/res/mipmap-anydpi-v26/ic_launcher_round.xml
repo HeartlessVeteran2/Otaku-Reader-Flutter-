@@ -2,6 +2,21 @@
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@color/ic_launcher_background"/>
     <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
-    <!-- Android 13+ themed icons. Alpha only: the system supplies the colour. -->
+
+    <!-- Android 13+ themed icons. Alpha only: the system supplies the colour.
+
+         `monochrome` arrived in API 33 and this file is selected from API 26,
+         so it reaches platforms that predate the element. That is safe, and
+         it is the shape Android Studio's own Image Asset Studio emits — one
+         -v26 file carrying all three, with no -v33 variant.
+
+         AdaptiveIconDrawable.inflateLayers() matches each child tag against
+         "background" and "foreground" and ends the chain with a bare
+         `continue`, so an unrecognised child is skipped rather than rejected.
+         Verified in AOSP on the android12-release branch, which is API 31 and
+         therefore predates `monochrome` entirely.
+
+         Filed as a Major by `codeant-ai` on #40 and declined on those facts.
+         Splitting this into a -v33 file would double the resource for nothing. -->
     <monochrome android:drawable="@mipmap/ic_launcher_monochrome"/>
 </adaptive-icon>

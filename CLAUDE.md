@@ -491,6 +491,25 @@ the launcher icon so the icon and the UI cannot drift apart:
   themed icons use only the alpha channel, so a filled silhouette would be an
   anonymous blob. Keeping the navy as a *hole* means the tinted icon still
   reads as 才 in a sakura.
+- **`monochrome` in the `-v26` file is deliberate, and it is safe.** The element
+  arrived in API 33 while the file is selected from API 26, so it reaches
+  platforms that predate it. `AdaptiveIconDrawable.inflateLayers()` matches each
+  child against "background" and "foreground" and ends with a bare `continue`,
+  so an unrecognised child is skipped rather than rejected — verified in AOSP on
+  `android12-release`, which is API 31 and predates the element entirely. It is
+  also the shape Android Studio's own Image Asset Studio emits. Filed as a Major
+  by `codeant-ai` and declined on those facts; the reasoning is pinned in the
+  XML so the next reader does not re-raise it.
+- **The launch window cannot honour a *forced* theme, only the system's.**
+  Android picks `values-night` from system night mode, and the app's own
+  `themeMode` override is not knowable until Dart runs — long after the window
+  is drawn. So "system dark + app forced light" still flashes. The complete fix
+  is `UiModeManager.setApplicationNightMode` (API 31+), which tells the platform
+  the app's night mode so resource resolution follows it; that needs a platform
+  channel and only takes effect from the *next* launch, so it is tracked
+  separately. The split is still right: `themeMode` defaults to `system`, so the
+  two system-following rows are the default experience and both are now
+  flash-free, where before one of them always flashed white.
 
 ---
 
@@ -590,6 +609,7 @@ Kept because they repeat.
 | The star row overflowed a 320px phone by 89 pixels, and `flutter analyze` was clean | Five 48px targets plus a clear button need ~330px, which a narrow phone does not have between the sheet's gutters. **Seventh** instance of analyze being structurally blind to layout. A rendered test per *branch* was not enough here — the branch was rendered and passed at the default 800px test viewport. Rendered tests for anything with a fixed-width row need a **narrow width** too; the suite now parameterises the rating control over every format at 320px. |
 | A mutation that was really a no-op, reported as a passing guard | `sed` could not match `kDefaultSchemeVariant = DynamicSchemeVariant.fidelity` because `dart format` had wrapped the constant across two lines — so the "default variant" mutation edited nothing and every test passed, which reads exactly like a guard that is not pulling its weight. **Second** time a mutation was silently a no-op for this reason. After applying a mutation, `grep` the file and confirm the text actually changed before drawing any conclusion from the test result; a mutation that fails nothing is either a useless test or an unapplied patch, and those look identical from the output. |
 | An assertion was written from the shape of the palette rather than its measurements | "the three inks are three different hues" asserted every pair was more than 60 degrees apart. Petal-ink is 87 and ink-blossom is 136, but petal-blossom is **49**: the pink and the coral are neighbours on the wheel, which is *why* the coral reads as an accent rather than a third voice. The test failed on the artwork, not on a bug. The colours were measured an hour earlier and the bound still got guessed — measure, then assert the number you measured. |
+| Passing an RGBA image as its own paste mask, which squares the alpha | `mono.paste(art, at, art)` reads as the careful version of `mono.paste(art, at)` — name the mask explicitly rather than rely on a default. PIL composites **every** band through a mask, alpha included, so against a transparent canvas the result is `a*a`, not `a`. Measured: 12,772 antialiased edge pixels fell to 7,986, about 4,800 of them to fully transparent, and the survivors' mean alpha jumped 112 → 151 — a visibly harder, thinner edge. Found by `codeant-ai`, and confirmed by checking the output was *exactly* `round(a**2/255)` rather than by reasoning about the library. The general shape: an argument that looks like belt-and-braces is worth measuring, because the redundant version and the wrong version are the same call. |
 
 The general lesson, and the one that keeps recurring across both codebases:
 **a comment describing the goal is not evidence the code achieves it.** After
