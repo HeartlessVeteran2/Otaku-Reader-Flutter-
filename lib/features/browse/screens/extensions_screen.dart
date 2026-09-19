@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:iconsax/iconsax.dart';
 
+import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:otaku_reader/features/browse/controllers/extensions_controller.dart';
 import 'package:otaku_reader/features/browse/screens/source_browse_screen.dart';
 import 'package:otaku_reader/features/browse/widgets/source_tile.dart';
@@ -23,7 +24,25 @@ class _ExtensionsScreenState extends State<ExtensionsScreen>
   ExtensionsController get _c => Get.find<ExtensionsController>();
 
   @override
+  void initState() {
+    super.initState();
+    // The segmented control is not a `TabBar`, so nothing rebuilds it when the
+    // view is swiped rather than tapped. Without this the pill stays behind on
+    // a swipe, which reads as the tab not having changed.
+    _tabs.addListener(_onTabChanged);
+  }
+
+  void _onTabChanged() {
+    if (_tabs.indexIsChanging || _tabs.index != _lastIndex) {
+      setState(() => _lastIndex = _tabs.index);
+    }
+  }
+
+  int _lastIndex = 0;
+
+  @override
   void dispose() {
+    _tabs.removeListener(_onTabChanged);
     _tabs.dispose();
     _search.dispose();
     super.dispose();
@@ -31,202 +50,178 @@ class _ExtensionsScreenState extends State<ExtensionsScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Extensions'),
-        actions: [
-          IconButton(
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const GlobalSearchScreen(),
-              ),
-            ),
-            icon: const Icon(Iconsax.search_normal),
-            tooltip: 'Search all sources',
+    return ChromeScaffold(
+      title: 'Extensions',
+      enableSearch: true,
+      searchController: _search,
+      onSearchChanged: _c.setQuery,
+      searchHint: 'Search extensions',
+      actions: [
+        IconButton(
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const GlobalSearchScreen()),
           ),
-          IconButton(
-            onPressed: _showLanguageFilter,
-            icon: const Icon(Iconsax.language_square),
-            tooltip: 'Languages',
-          ),
-          IconButton(
-            onPressed: _showRepos,
-            icon: const Icon(Iconsax.link),
-            tooltip: 'Repositories',
-          ),
-        ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(104),
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                child: TextField(
-                  controller: _search,
-                  onChanged: _c.setQuery,
-                  decoration: InputDecoration(
-                    isDense: true,
-                    hintText: 'Search extensions',
-                    prefixIcon: const Icon(Iconsax.search_normal, size: 18),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-              ),
-              Obx(
-                () => TabBar(
-                  controller: _tabs,
-                  // Every label scales down rather than demanding its intrinsic
-                  // width.
-                  //
-                  // A non-scrollable `TabBar` divides the width equally, but
-                  // each tab still reports `label + 2 * kTabLabelPadding` as its
-                  // *minimum*, and three of these sum past a phone: measured,
-                  // the bar overflowed by 24px at 320, **11px at 360 and 2.7px
-                  // at 384**, and was clean only from 411 up. So this was not a
-                  // narrow-phone edge case — it drew an overflow stripe on
-                  // Pixel-class devices, and `flutter analyze` was clean
-                  // throughout. Found by the 320px test added with the repo
-                  // sheet; eighth instance of that blindness in CLAUDE.md.
-                  //
-                  // `scaleDown` only scales when it has to, so the filled
-                  // equal-thirds layout is untouched wherever it already fitted:
-                  // the three tab centres at 800px are identical before and
-                  // after (133.3 / 400.0 / 666.7), which is why this is
-                  // preferred over `isScrollable`, whose own measured fix moves
-                  // them to 255 / 414 / 559.
-                  tabs: [
-                    const Tab(
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text('Installed'),
-                      ),
-                    ),
-                    const Tab(
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text('Available'),
-                      ),
-                    ),
-                    Tab(
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Text('Updates'),
-                            if (_c.updateCount > 0) ...[
-                              const SizedBox(width: 6),
-                              Badge(label: Text('${_c.updateCount}')),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ),
+          icon: const Icon(Iconsax.search_favorite),
+          tooltip: 'Search all sources',
+        ),
+        IconButton(
+          onPressed: _showLanguageFilter,
+          icon: const Icon(Iconsax.language_square),
+          tooltip: 'Languages',
+        ),
+        IconButton(
+          onPressed: _showRepos,
+          icon: const Icon(Iconsax.link, size: 20),
+          tooltip: 'Repositories',
+        ),
+      ],
+      bottom: PreferredSize(
+        // The pill is the only thing in this slot, and its padding is
+        // horizontal, so the slot is exactly the bar. Stated as the token
+        // rather than as 46 so the header height cannot drift from the bar's.
+        preferredSize: const Size.fromHeight(Chrome.tabBarHeight),
+        child: Obx(
+          () => SegmentedTabs(
+            selectedIndex: _tabs.index,
+            onSelected: (i) => _tabs.animateTo(i),
+            tabs: [
+              const Text('Installed'),
+              const Text('Available'),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Flexible(child: Text('Updates')),
+                  if (_c.updateCount > 0) ...[
+                    const SizedBox(width: 6),
+                    Badge(label: Text('${_c.updateCount}')),
                   ],
-                ),
+                ],
               ),
             ],
           ),
         ),
       ),
-      body: Obx(() {
-        final error = _c.lastError.value;
-        final filter = _c.repoFilter.value;
-        return Column(
-          children: [
-            if (error != null) _ErrorBanner(message: error),
-            // Rendered only while a filter is on, so the screen -- which
-            // already spends 104px on search and tabs -- costs nothing extra
-            // in the ordinary case. It also has to exist: filtering from
-            // inside a sheet that then closes would otherwise leave a
-            // shortened list with nothing on screen saying why.
-            if (!filter.isAll)
-              _FilterBanner(
-                label: _c.filterLabel,
-                onClear: () => _c.setRepoFilter(RepoFilter.all),
-              ),
-            Expanded(
-              child: TabBarView(
-                controller: _tabs,
-                children: [for (final tab in ExtensionTab.values) _list(tab)],
-              ),
-            ),
-          ],
-        );
-      }),
+      body: TabBarView(
+        controller: _tabs,
+        children: [for (final tab in ExtensionTab.values) _list(tab)],
+      ),
     );
   }
 
+  /// The notices that sit above a tab's rows.
+  ///
+  /// They are list *content*, not header slots. Pinning them under the pills
+  /// would mean declaring their height to the scaffold, and neither one has a
+  /// height that can be declared -- an error message wraps, and a repository
+  /// label is as long as the repository's name. Riding in the scroll view
+  /// costs their visibility while scrolled down, and scrolling up brings them
+  /// back with the header they sit under.
+  List<Widget> _notices() {
+    final error = _c.lastError.value;
+    final filter = _c.repoFilter.value;
+    return [
+      if (error != null) _ErrorBanner(message: error),
+      // Rendered only while a filter is on. It also has to exist: filtering
+      // from inside a sheet that then closes would otherwise leave a shortened
+      // list with nothing on screen saying why.
+      if (!filter.isAll)
+        _FilterBanner(
+          label: _c.filterLabel,
+          onClear: () => _c.setRepoFilter(RepoFilter.all),
+        ),
+    ];
+  }
+
   Widget _list(ExtensionTab tab) {
-    return Obx(() {
-      if (_c.isLoading.value && _c.all.isEmpty) {
-        return const Center(child: CircularProgressIndicator());
-      }
-      final items = _c.visible(tab);
-      if (items.isEmpty) {
+    // A `Builder`, and not for tidiness: `ChromeHeaderScope` is published
+    // *inside* `ChromeScaffold`, so reading it from this `State`'s own context
+    // -- which sits above the scaffold -- finds nothing and answers 0. That
+    // answer is correct for a widget with no header above it and silently
+    // wrong here, and what it produces is a first row behind a translucent
+    // blurred pill, which reads as a design flourish.
+    return Builder(
+      builder: (context) => Obx(() {
+        // The body fills the screen and the pills float over it, so every
+        // scrollable here starts below the header and then scrolls under it.
+        final top = ChromeHeaderScope.of(context);
+        if (_c.isLoading.value && _c.all.isEmpty) {
+          return Padding(
+            padding: EdgeInsets.only(top: top),
+            child: const Center(child: CircularProgressIndicator()),
+          );
+        }
+        final notices = _notices();
+        final items = _c.visible(tab);
+        if (items.isEmpty) {
+          return RefreshIndicator(
+            // Without this the spinner drops out from behind the title pill.
+            edgeOffset: top,
+            onRefresh: _c.refreshRepos,
+            // A scrollable is required for pull-to-refresh to work at all, so the
+            // empty state is a list rather than a bare centred column.
+            child: ListView(
+              padding: EdgeInsets.only(top: top),
+              // Without this a short list cannot overscroll, so pull-to-refresh --
+              // the only way to fetch the catalogue in the first place -- does
+              // nothing on exactly the empty screen that needs it.
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [
+                ...notices,
+                SizedBox(height: MediaQuery.sizeOf(context).height * 0.2),
+                _EmptyState(
+                  tab: tab,
+                  // The repository filter counts as filtering too. Told only
+                  // about the query, an empty result under an active repo
+                  // filter claimed the *catalogue* was empty -- over a
+                  // catalogue that is in fact full.
+                  filtered:
+                      _c.query.value.isNotEmpty || !_c.repoFilter.value.isAll,
+                ),
+              ],
+            ),
+          );
+        }
         return RefreshIndicator(
+          edgeOffset: top,
           onRefresh: _c.refreshRepos,
-          // A scrollable is required for pull-to-refresh to work at all, so the
-          // empty state is a list rather than a bare centred column.
-          child: ListView(
-            // Without this a short list cannot overscroll, so pull-to-refresh --
-            // the only way to fetch the catalogue in the first place -- does
-            // nothing on exactly the empty screen that needs it.
+          child: ListView.builder(
+            padding: EdgeInsets.only(top: top, bottom: Chrome.sectionGap),
             physics: const AlwaysScrollableScrollPhysics(),
-            children: [
-              SizedBox(height: MediaQuery.sizeOf(context).height * 0.2),
-              _EmptyState(
-                tab: tab,
-                // The repository filter counts as filtering too. Told only
-                // about the query, an empty result under an active repo
-                // filter claimed the *catalogue* was empty -- over a
-                // catalogue that is in fact full.
-                filtered:
-                    _c.query.value.isNotEmpty || !_c.repoFilter.value.isAll,
-              ),
-            ],
+            itemCount: notices.length + items.length,
+            itemBuilder: (context, i) {
+              if (i < notices.length) return notices[i];
+              final source = items[i - notices.length];
+              return SourceTile(
+                source: source,
+                // Null for a detached source, which is what the tile renders as
+                // "No repository". A url the map does not know falls back to its
+                // host rather than to null, so an unknown repo is never mistaken
+                // for no repo at all.
+                repoLabel: source.repoUrl == null
+                    ? null
+                    : _c.repoLabels[source.repoUrl] ??
+                          Uri.tryParse(source.repoUrl!)?.host ??
+                          source.repoUrl,
+                busy: _c.busy.contains(source.sourceId),
+                onInstall: () => _c.install(source),
+                onUpdate: () => _c.updateSource(source),
+                onUninstall: () => _confirmUninstall(source),
+                // Only an installed source can be browsed; an uninstalled row has
+                // no code to run, and offering the tap would dead-end.
+                onTap: source.isInstalled
+                    ? () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              SourceBrowseScreen(sourceId: source.sourceId),
+                        ),
+                      )
+                    : null,
+              );
+            },
           ),
         );
-      }
-      return RefreshIndicator(
-        onRefresh: _c.refreshRepos,
-        child: ListView.builder(
-          physics: const AlwaysScrollableScrollPhysics(),
-          itemCount: items.length,
-          itemBuilder: (context, i) {
-            final source = items[i];
-            return SourceTile(
-              source: source,
-              // Null for a detached source, which is what the tile renders as
-              // "No repository". A url the map does not know falls back to its
-              // host rather than to null, so an unknown repo is never mistaken
-              // for no repo at all.
-              repoLabel: source.repoUrl == null
-                  ? null
-                  : _c.repoLabels[source.repoUrl] ??
-                        Uri.tryParse(source.repoUrl!)?.host ??
-                        source.repoUrl,
-              busy: _c.busy.contains(source.sourceId),
-              onInstall: () => _c.install(source),
-              onUpdate: () => _c.updateSource(source),
-              onUninstall: () => _confirmUninstall(source),
-              // Only an installed source can be browsed; an uninstalled row has
-              // no code to run, and offering the tap would dead-end.
-              onTap: source.isInstalled
-                  ? () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) =>
-                            SourceBrowseScreen(sourceId: source.sourceId),
-                      ),
-                    )
-                  : null,
-            );
-          },
-        ),
-      );
-    });
+      }),
+    );
   }
 
   Future<void> _confirmUninstall(Source source) async {

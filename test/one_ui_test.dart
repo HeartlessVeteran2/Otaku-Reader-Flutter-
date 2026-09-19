@@ -269,6 +269,11 @@ void main() {
   // behind one `Obx` — loading, empty, populated — and every one of them has
   // to be a sliver. The empty state is the one a fresh install sees and the
   // one most likely to be written as a bare box.
+  //
+  // Library has since moved to `ChromeScaffold.slivers` (see `chrome.dart`),
+  // which keeps the same contract: a body of slivers over one
+  // `CustomScrollView`. These rows still guard it, so they stay until the last
+  // screen converts and this file goes with the scaffold it is named after.
   final tabs = <String, Widget Function()>{
     'Library': () => const LibraryScreen(),
     'Updates': () => const UpdatesScreen(),
