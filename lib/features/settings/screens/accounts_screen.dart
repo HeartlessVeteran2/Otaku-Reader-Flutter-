@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:iconsax/iconsax.dart';
 
-import 'package:otaku_reader/core/theme/one_ui.dart';
+import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:otaku_reader/core/util/open_link.dart';
 import 'package:otaku_reader/data/anilist/anilist_auth.dart';
 
@@ -23,7 +23,7 @@ class AccountsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return OneUiScaffold(
+    return ChromeScaffold.slivers(
       title: 'Accounts',
       slivers: [
         Obx(() {
@@ -50,17 +50,16 @@ class _NotConfigured extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return SliverOneUiGroup(
+    return SliverChromeSection(
       label: 'AniList',
       children: [
-        const ListTile(
-          leading: Icon(Iconsax.info_circle),
-          title: Text('Not set up in this build'),
-          subtitle: Text(
-            'AniList needs a client id, which identifies this build of the '
-            'app to them. A fresh clone does not have one.',
-          ),
-          isThreeLine: true,
+        const ChromeTile(
+          icon: Iconsax.info_circle,
+          title: 'Not set up in this build',
+          subtitle:
+              'AniList needs a client id, which identifies this build of the '
+              'app to them. A fresh clone does not have one.',
+          showChevron: false,
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -101,15 +100,15 @@ class _SignedOut extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SliverOneUiGroup(
+    return SliverChromeSection(
       label: 'AniList',
       children: [
-        const ListTile(
-          leading: Icon(Iconsax.user),
-          title: Text('Not signed in'),
-          subtitle: Text(
-            'Sign in to sync reading progress and edit your list from here.',
-          ),
+        const ChromeTile(
+          icon: Iconsax.user,
+          title: 'Not signed in',
+          subtitle:
+              'Sign in to sync reading progress and edit your list from here.',
+          showChevron: false,
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -142,7 +141,9 @@ Future<void> _askForToken(BuildContext context, AniListAuth auth) async {
     isScrollControlled: true,
     showDragHandle: true,
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(OneUi.radius)),
+      borderRadius: BorderRadius.vertical(
+        top: Radius.circular(Chrome.cardRadius),
+      ),
     ),
     builder: (context) => const _TokenSheet(),
   );
@@ -208,10 +209,10 @@ class _TokenSheetState extends State<_TokenSheet> {
   Widget build(BuildContext context) {
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        OneUi.gutter,
+        Chrome.gutter,
         0,
-        OneUi.gutter,
-        MediaQuery.viewInsetsOf(context).bottom + OneUi.gutter,
+        Chrome.gutter,
+        MediaQuery.viewInsetsOf(context).bottom + Chrome.gutter,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -236,7 +237,7 @@ class _TokenSheetState extends State<_TokenSheet> {
             decoration: InputDecoration(
               hintText: 'Access token',
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(OneUi.radiusSmall),
+                borderRadius: BorderRadius.circular(Chrome.leadingRadius),
               ),
             ),
           ),
@@ -262,10 +263,10 @@ class _SignedIn extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final avatar = viewer.avatarUrl;
-    return SliverOneUiGroup(
+    return SliverChromeSection(
       label: 'AniList',
       children: [
-        ListTile(
+        ChromeTile(
           // `CachedNetworkImage`, as every other remote image in this app is:
           // a bare `NetworkImage` has no error branch, so an avatar that 404s
           // or a device that is offline throws out of the image resolver
@@ -273,7 +274,7 @@ class _SignedIn extends StatelessWidget {
           // build of a screen the user opens to check one line of text.
           leading: ClipOval(
             child: SizedBox.square(
-              dimension: 40,
+              dimension: Chrome.leadingSize,
               child: avatar == null
                   ? const _AvatarFallback()
                   : CachedNetworkImage(
@@ -284,8 +285,9 @@ class _SignedIn extends StatelessWidget {
                     ),
             ),
           ),
-          title: Text(viewer.name),
-          subtitle: Text('Scores shown as ${_formatLabel(viewer.scoreFormat)}'),
+          title: viewer.name,
+          subtitle: 'Scores shown as ${_formatLabel(viewer.scoreFormat)}',
+          showChevron: false,
           trailing: IconButton(
             icon: const Icon(Iconsax.export_3, size: 18),
             tooltip: 'Open profile',
@@ -293,9 +295,10 @@ class _SignedIn extends StatelessWidget {
                 openLink(context, 'https://anilist.co/user/${viewer.name}'),
           ),
         ),
-        ListTile(
-          leading: const Icon(Iconsax.logout),
-          title: const Text('Sign out'),
+        ChromeTile(
+          icon: Iconsax.logout,
+          title: 'Sign out',
+          showChevron: false,
           onTap: () => _confirmSignOut(context),
         ),
       ],

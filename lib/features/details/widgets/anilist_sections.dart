@@ -1,7 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
-import 'package:otaku_reader/core/theme/one_ui.dart';
+import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:iconsax/iconsax.dart';
 
 import 'package:otaku_reader/domain/model/anilist_media.dart';
@@ -35,7 +35,7 @@ class AniListStats extends StatelessWidget {
     final theme = Theme.of(context);
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: OneUi.gutter),
+      padding: const EdgeInsets.symmetric(horizontal: Chrome.gutter),
       child: Row(
         children: [
           for (final (icon, value, label) in items)
@@ -44,7 +44,7 @@ class AniListStats extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
                 color: theme.colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(OneUi.radiusSmall),
+                borderRadius: BorderRadius.circular(Chrome.leadingRadius),
               ),
               child: Column(
                 children: [
@@ -84,7 +84,7 @@ class AniListTags extends StatelessWidget {
     if (tags.isEmpty) return const SizedBox.shrink();
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: OneUi.gutter),
+      padding: const EdgeInsets.symmetric(horizontal: Chrome.gutter),
       child: Wrap(
         spacing: 6,
         runSpacing: 6,
@@ -132,7 +132,7 @@ class PersonCarousel extends StatelessWidget {
         height: 168,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: OneUi.gutter),
+          padding: const EdgeInsets.symmetric(horizontal: Chrome.gutter),
           itemCount: people.length,
           separatorBuilder: (_, _) => const SizedBox(width: 12),
           itemBuilder: (context, i) {
@@ -143,7 +143,7 @@ class PersonCarousel extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   ClipRRect(
-                    borderRadius: BorderRadius.circular(OneUi.radiusSmall),
+                    borderRadius: BorderRadius.circular(Chrome.leadingRadius),
                     child: AspectRatio(
                       aspectRatio: 3 / 4,
                       child: _Portrait(url: person.imageUrl),
@@ -203,7 +203,7 @@ class MediaCarousel extends StatelessWidget {
         height: 200,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: OneUi.gutter),
+          padding: const EdgeInsets.symmetric(horizontal: Chrome.gutter),
           itemCount: items.length,
           separatorBuilder: (_, _) => const SizedBox(width: 12),
           itemBuilder: (context, i) {
@@ -215,12 +215,12 @@ class MediaCarousel extends StatelessWidget {
                 // tapping searches sources for the title rather than opening
                 // something that does not exist here.
                 onTap: onTap == null ? null : () => onTap!(item.title),
-                borderRadius: BorderRadius.circular(OneUi.radiusSmall),
+                borderRadius: BorderRadius.circular(Chrome.leadingRadius),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     ClipRRect(
-                      borderRadius: BorderRadius.circular(OneUi.radiusSmall),
+                      borderRadius: BorderRadius.circular(Chrome.leadingRadius),
                       child: AspectRatio(
                         aspectRatio: 2 / 3,
                         child: _Portrait(url: item.coverUrl),
@@ -273,7 +273,7 @@ class AlternativeTitles extends StatelessWidget {
     return _Section(
       title: 'Alternative titles',
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: OneUi.gutter),
+        padding: const EdgeInsets.symmetric(horizontal: Chrome.gutter),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -316,7 +316,7 @@ class ExternalLinkChips extends StatelessWidget {
     return _Section(
       title: 'Links',
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: OneUi.gutter),
+        padding: const EdgeInsets.symmetric(horizontal: Chrome.gutter),
         child: Wrap(
           spacing: 6,
           runSpacing: 6,
@@ -357,7 +357,7 @@ class _Section extends StatelessWidget {
     children: [
       const SizedBox(height: 20),
       Padding(
-        padding: const EdgeInsets.symmetric(horizontal: OneUi.gutter),
+        padding: const EdgeInsets.symmetric(horizontal: Chrome.gutter),
         child: Text(title, style: Theme.of(context).textTheme.titleSmall),
       ),
       const SizedBox(height: 10),
@@ -432,7 +432,7 @@ class AniListListRow extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(top: 20),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(OneUi.radius),
+        borderRadius: BorderRadius.circular(Chrome.cardRadius),
         child: Material(
           color: theme.colorScheme.secondaryContainer,
           child: InkWell(

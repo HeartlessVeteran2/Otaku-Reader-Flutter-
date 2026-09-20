@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:iconsax/iconsax.dart';
 
-import 'package:otaku_reader/core/theme/one_ui.dart';
+import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/features/reader/screens/reader_screen.dart';
 import 'package:otaku_reader/features/updates/controllers/updates_controller.dart';
@@ -17,7 +17,7 @@ class UpdatesScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return OneUiScaffold(
+    return ChromeScaffold.slivers(
       title: 'Updates',
       onRefresh: _c.refreshLibrary,
       actions: [

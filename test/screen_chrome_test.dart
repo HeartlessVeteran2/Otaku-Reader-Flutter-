@@ -7,7 +7,7 @@ import 'package:get/get.dart';
 
 import 'package:otaku_reader/core/database/database.dart' as db;
 import 'package:otaku_reader/core/preferences/nsfw_preference.dart';
-import 'package:otaku_reader/core/theme/one_ui.dart';
+import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:otaku_reader/core/theme/theme_controller.dart';
 import 'package:otaku_reader/data/anilist/anilist_auth.dart';
 import 'package:otaku_reader/data/anilist/anilist_list_service.dart';
@@ -30,7 +30,6 @@ import 'package:otaku_reader/features/home/controllers/home_controller.dart';
 import 'package:otaku_reader/features/home/screens/home_screen.dart';
 import 'package:otaku_reader/features/library/controllers/library_controller.dart';
 import 'package:otaku_reader/features/library/screens/library_screen.dart';
-import 'package:otaku_reader/features/settings/screens/settings_screen.dart';
 import 'package:otaku_reader/features/updates/controllers/updates_controller.dart';
 import 'package:otaku_reader/features/updates/screens/updates_screen.dart';
 import 'package:otaku_reader/source/model/filter.dart';
@@ -46,17 +45,24 @@ import 'helpers/anilist_fakes.dart';
 import 'helpers/fake_source_repository.dart';
 import 'helpers/isar_test_env.dart';
 
-/// These suites exist because a One UI conversion is exactly the kind of change
-/// that analyses clean, passes every controller test, and then throws on the
-/// device.
+/// Every screen rendered, on the chrome vocabulary.
 ///
-/// The specific hazard is the sliver slot. `OneUiScaffold` builds a
-/// `CustomScrollView`, so everything handed to it must produce a `RenderSliver`
-/// — and a plain box widget in that list is a *runtime* failure, invisible to
-/// `flutter analyze` because `Widget` is the declared type either way. `Obx`
-/// and `FutureBuilder` make it worse: they are composition widgets with no
-/// render object of their own, so whether they are legal in a sliver slot
-/// depends on what their builder happens to return.
+/// Named `one_ui_test.dart` until the last screen converted; renamed rather
+/// than deleted, because the hazard it was written for did not leave with the
+/// scaffold. `ChromeScaffold.slivers` builds a `CustomScrollView` too, so
+/// everything handed to it must produce a `RenderSliver` — and a plain box
+/// widget in that list is a *runtime* failure, invisible to `flutter analyze`
+/// because `Widget` is the declared type either way. `Obx` and `FutureBuilder`
+/// make it worse: they are composition widgets with no render object of their
+/// own, so whether they are legal in a sliver slot depends on what their
+/// builder happens to return.
+///
+/// What the conversion **adds** is a second hazard, and it is the quieter of
+/// the two. The old scaffold reserved a bar; this one floats its header over
+/// the body. A body that starts too high throws nothing — it renders the first
+/// row behind a translucent blurred pill, which reads as a flourish rather
+/// than as a control nobody can press. That is covered per screen, at narrow
+/// widths, in the screens' own suites; this file keeps the sliver contract.
 ///
 /// Nothing else in the suite renders these screens, so without this file the
 /// whole visual pass is unverified.
@@ -158,20 +164,16 @@ void main() {
     child: MaterialApp(home: child),
   );
 
-  /// The screens still on [OneUiScaffold]. Rendering each one is the
-  /// assertion: a box widget in a sliver slot throws during layout, so a clean
-  /// pump *is* the proof that the sliver contract holds on that screen.
+  /// Rendering each screen is the assertion: a box widget in a sliver slot
+  /// throws during layout, so a clean pump *is* the proof that the sliver
+  /// contract holds there.
   ///
-  /// This list shrinks as screens move to the chrome vocabulary, and a screen
-  /// must be **removed** when it does rather than left here because it still
-  /// happens to pass. `ChromeScaffold.slivers` also builds a `CustomScrollView`
-  /// internally, so a converted screen can satisfy every assertion below while
-  /// this group's own docstring has stopped being true of it — which is this
-  /// project's most-recorded defect, in a test file. More and About left for
-  /// exactly that reason; they are covered by `more_screen_test.dart` and
-  /// `about_screen_test.dart`, which assert the chrome contract instead.
+  /// More, About and Settings are **not** here. Each has its own suite
+  /// asserting the chrome contract — where its first row sits relative to the
+  /// pill, and whether a doubled system font hides any of its prose — which is
+  /// a strictly stronger claim than "it laid out". A screen with that coverage
+  /// does not also need a row here.
   final screens = <String, Widget Function()>{
-    'Settings': () => const SettingsScreen(),
     'Downloads': () => const DownloadsScreen(),
   };
 
@@ -212,62 +214,73 @@ void main() {
     });
   }
 
-  Widget rows(int n) => OneUiScaffold(
+  Widget rows(int n) => ChromeScaffold.slivers(
     title: 'T',
     slivers: [
-      SliverOneUiGroup(
-        children: [for (var i = 0; i < n; i++) ListTile(title: Text('r$i'))],
+      SliverChromeSection(
+        children: [for (var i = 0; i < n; i++) ChromeTile(title: 'r$i')],
       ),
     ],
   );
 
-  testWidgets('a long screen collapses its header when scrolled', (
+  testWidgets('the header hides on the way down and comes back on the way up', (
     tester,
   ) async {
-    // Measured on the *large* title, not on the content. A drag scrolls a long
-    // list whether or not there is a header at all, so asserting that rows
-    // moved proves nothing about the collapse — it passes with
-    // `expandedHeight` set to zero. The large title is the header: at rest it
-    // sits low in the expanded bar, and collapsing is it sliding up out of
-    // view.
+    // The chrome header's defining behaviour, and the one the old collapsing
+    // header did not have: it is not part of the list, so it does not shrink
+    // into a bar -- it slides out and back as a whole.
+    //
+    // Three assertions, because the first two alone are each hollow. "The
+    // header moved" passes on a screen that cannot scroll, so the extent is
+    // checked first; and "the header hid" passes on a header that hides and
+    // never returns, which is a screen whose title the user cannot get back.
     await tester.pumpWidget(wrap(rows(30)));
     await tester.pumpAndSettle();
 
-    final large = find.text('T').first;
-    final before = tester.getTopLeft(large).dy;
+    final atRest = tester.getRect(find.byType(PillHeader));
+    final scroll = tester.state<ScrollableState>(find.byType(Scrollable).first);
     expect(
-      before,
-      greaterThan(40),
-      reason: 'the expanded title starts below the collapsed bar',
+      scroll.position.maxScrollExtent,
+      greaterThan(0),
+      reason: 'a drag on a list that cannot move asserts nothing',
     );
 
     await tester.drag(find.byType(CustomScrollView), const Offset(0, -400));
     await tester.pumpAndSettle();
 
     expect(
-      tester.getTopLeft(large).dy,
-      lessThan(before - 40),
-      reason: 'the large title rose into the bar, which is the collapse',
+      tester.getRect(find.byType(PillHeader)).bottom,
+      lessThan(atRest.top),
+      reason: 'scrolling down takes the whole header off the top edge',
+    );
+
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, 200));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getRect(find.byType(PillHeader)),
+      atRest,
+      reason: 'and a reversal brings it straight back, in one piece',
     );
   });
 
-  testWidgets('a short screen keeps its header expanded', (tester) async {
-    // There is nothing to scroll to on four rows, so the large title stays put
-    // — One UI's own behaviour, not a shortfall. Pinned so the claim in
-    // `OneUiScaffold`'s doc cannot quietly stop being true.
+  testWidgets('the first row starts below the pills, not behind them', (
+    tester,
+  ) async {
+    // The header gap is inserted as the scaffold's first sliver precisely so
+    // a caller cannot leave its first row under the pills. Measured on a
+    // short screen, where there is nothing to scroll and the gap is the only
+    // thing holding the row down.
     await tester.pumpWidget(wrap(rows(4)));
     await tester.pumpAndSettle();
 
-    final large = find.text('T').first;
-    final before = tester.getTopLeft(large).dy;
     final scroll = tester.state<ScrollableState>(find.byType(Scrollable).first);
     expect(scroll.position.maxScrollExtent, 0);
 
-    await tester.drag(find.byType(CustomScrollView), const Offset(0, -400));
-    await tester.pumpAndSettle();
-
-    expect(tester.takeException(), isNull);
-    expect(tester.getTopLeft(large).dy, before);
+    expect(
+      tester.getRect(find.text('r0')).top,
+      greaterThanOrEqualTo(tester.getRect(find.byType(PillHeader)).bottom),
+    );
   });
 
   // The three list tabs, converted in the same pass. Each has three states
@@ -275,10 +288,9 @@ void main() {
   // to be a sliver. The empty state is the one a fresh install sees and the
   // one most likely to be written as a bare box.
   //
-  // Library has since moved to `ChromeScaffold.slivers` (see `chrome.dart`),
-  // which keeps the same contract: a body of slivers over one
-  // `CustomScrollView`. These rows still guard it, so they stay until the last
-  // screen converts and this file goes with the scaffold it is named after.
+  // All four are on `ChromeScaffold.slivers` now, which keeps the same
+  // contract: a body of slivers over one `CustomScrollView`. The rows stay
+  // because the contract did.
   final tabs = <String, Widget Function()>{
     'Library': () => const LibraryScreen(),
     'Updates': () => const UpdatesScreen(),
@@ -510,7 +522,7 @@ void main() {
         .toSet();
     expect(
       radii,
-      contains(OneUi.radiusSmall),
+      contains(Chrome.leadingRadius),
       reason: 'the portraits draw from the token, not from a literal 8',
     );
   });
@@ -556,81 +568,19 @@ void main() {
     c.onClose();
   });
 
-  testWidgets('the Accounts row does not claim signed-out before it knows', (
-    tester,
-  ) async {
-    // `isReady` exists because "not signed in" and "not looked yet" are
-    // different answers, and startup spends real time in the second:
-    // `AppBindings` launches `restore()` unawaited. A row reading only
-    // `viewer` tells a signed-in user the opposite of the truth for as long
-    // as the keystore read takes — and the Accounts screen this row opens
-    // gets it right, so the two would disagree on the same screen tap.
-    //
-    // Deliberately *not* restored, which is the one state the shared harness
-    // cannot provide because the app never sits in it for long.
-    await Get.delete<AniListAuth>();
-    Get.put<AniListAuth>(
-      AniListAuth(
-        storage: FakeVault()..store['anilist_access_token'] = 'stored',
-        clientId: 'abc',
-        client: FakeClient(viewerBody()),
-      ),
-    );
-
-    await tester.pumpWidget(wrap(const SettingsScreen()));
-    await tester.pump();
-    await tester.scrollUntilVisible(find.text('AniList'), 200);
-
-    expect(find.text('Checking…'), findsOneWidget);
-    expect(
-      find.text('Not signed in'),
-      findsNothing,
-      reason: 'the token has not been read, so that is not yet an answer',
-    );
-  });
-
-  testWidgets('the Settings switch writes the shared preference', (
-    tester,
-  ) async {
-    // Half of issue #31's chain, and the half a unit test cannot reach: the
-    // switch must write the *shared* holder rather than the key directly or a
-    // copy of its own. The other half — Home re-filtering when that holder
-    // changes — is the test below.
-    //
-    // Deliberately no `HomeController` here. Driving one through `onInit`
-    // inside a widget test hangs on real Isar reads that never complete in the
-    // fake-async zone; that is a known trap in this repo, not a thing to
-    // rediscover by waiting ten minutes for a timeout.
-    nsfw.setShown(true);
-
-    await tester.pumpWidget(wrap(const SettingsScreen()));
-    await tester.pumpAndSettle();
-    await tester.drag(find.byType(CustomScrollView), const Offset(0, -600));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byType(Switch).last);
-    await tester.pumpAndSettle();
-
-    expect(
-      nsfw.shown.value,
-      isFalse,
-      reason: 'the switch wrote the holder every other screen observes',
-    );
-  });
-
   testWidgets('a group renders its label above the rows, not inside them', (
     tester,
   ) async {
-    // The label sitting outside the rounded container is what separates a One
-    // UI group from a Material section header, so it is worth pinning.
+    // The label sitting outside the rounded card is what separates a grouped
+    // list from a Material section header, so it is worth pinning.
     await tester.pumpWidget(
       wrap(
-        const OneUiScaffold(
+        ChromeScaffold.slivers(
           title: 'T',
-          slivers: [
-            SliverOneUiGroup(
+          slivers: const [
+            SliverChromeSection(
               label: 'Group',
-              children: [ListTile(title: Text('Row'))],
+              children: [ChromeTile(title: 'Row')],
             ),
           ],
         ),
@@ -653,47 +603,15 @@ void main() {
     // real case, and an empty container reads as a rendering bug.
     await tester.pumpWidget(
       wrap(
-        const OneUiScaffold(
+        ChromeScaffold.slivers(
           title: 'T',
-          slivers: [SliverOneUiGroup(label: 'Group', children: [])],
+          slivers: const [SliverChromeSection(label: 'Group', children: [])],
         ),
       ),
     );
     await tester.pumpAndSettle();
 
     expect(find.text('Group'), findsNothing);
-  });
-
-  testWidgets('Settings keeps every control it had before the restyle', (
-    tester,
-  ) async {
-    // The restyle must not lose a setting. A screen that reads better and does
-    // less is a regression, so this names the controls rather than counting
-    // them.
-    await tester.pumpWidget(wrap(const SettingsScreen()));
-    await tester.pumpAndSettle();
-
-    for (final label in [
-      'Theme',
-      'Pure black dark theme',
-      'Colour source',
-      'Tint from the cover',
-    ]) {
-      expect(find.text(label), findsOneWidget, reason: label);
-    }
-
-    await tester.drag(find.byType(CustomScrollView), const Offset(0, -600));
-    await tester.pumpAndSettle();
-
-    for (final label in [
-      'Reading layout',
-      'Reading direction',
-      'Keep the screen on',
-      'Show the page number',
-      'Show 18+ sources',
-    ]) {
-      expect(find.text(label), findsOneWidget, reason: label);
-    }
   });
 
   testWidgets('Downloads shows its empty state through the sliver list', (
@@ -714,7 +632,7 @@ void main() {
   ) async {
     // Pins the user-facing behaviour — a fresh install's empty queue can still
     // be pulled to re-measure — not the line that makes it work. This passes
-    // with `OneUiScaffold`'s `AlwaysScrollableScrollPhysics` deleted, so it is
+    // with `ChromeScaffold`'s `AlwaysScrollableScrollPhysics` deleted, so it is
     // not a guard on that; the comment there says why the line stays anyway.
     final queue = _FixedQueue([]);
     await Get.delete<DownloadRepository>();

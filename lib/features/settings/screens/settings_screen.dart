@@ -5,8 +5,8 @@ import 'package:iconsax/iconsax.dart';
 import 'package:otaku_reader/core/database/data_keys/keys.dart';
 import 'package:otaku_reader/core/database/kv_helper.dart';
 import 'package:otaku_reader/core/preferences/nsfw_preference.dart';
-import 'package:otaku_reader/core/theme/one_ui.dart';
 import 'package:otaku_reader/core/theme/theme_controller.dart';
+import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:otaku_reader/data/anilist/anilist_auth.dart';
 import 'package:otaku_reader/features/settings/screens/accounts_screen.dart';
 import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
@@ -16,6 +16,13 @@ import 'package:otaku_reader/features/reader/controllers/reader_controller.dart'
 /// Every control here writes through immediately. There is no Save button, so
 /// there is no state to lose and nothing to reconcile if the app is killed
 /// mid-change.
+///
+/// **Flat, not a hub.** AnymeX's `settings.dart` is 13 category tiles pushing
+/// to sub-screens, because its settings are ~12,000 lines across 19 screens.
+/// This is twelve controls, where a hub is an extra tap for nothing. The
+/// trigger for changing that is written down rather than left to taste: when
+/// backup, storage, logs and tap zones land, each wants a screen, and at that
+/// point AnymeX's hub — and its searchable registry — is simply correct.
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
@@ -43,117 +50,99 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return OneUiScaffold(
+    return ChromeScaffold.slivers(
       title: 'Settings',
       slivers: [
-        SliverOneUiGroup(
+        SliverChromeSection(
           label: 'Appearance',
           children: [
             Obx(
-              () => ListTile(
-                leading: const Icon(Iconsax.moon),
-                title: const Text('Theme'),
-                subtitle: Text(switch (_theme.themeMode.value) {
-                  ThemeMode.system => 'Follow the system',
-                  ThemeMode.light => 'Light',
-                  ThemeMode.dark => 'Dark',
-                }),
-                onTap: _pickThemeMode,
+              () => ChromeTile.choice(
+                icon: Iconsax.moon,
+                title: 'Theme',
+                subtitle: 'Which palette the app draws in',
+                labels: const ['System', 'Light', 'Dark'],
+                selectedIndex: ThemeMode.values.indexOf(_theme.themeMode.value),
+                onSelected: (i) => _theme.setThemeMode(ThemeMode.values[i]),
               ),
             ),
             Obx(
-              () => SwitchListTile(
-                secondary: const Icon(Iconsax.mobile),
-                title: const Text('Pure black dark theme'),
-                subtitle: const Text('Saves power on OLED screens'),
+              () => ChromeTile.toggle(
+                icon: Iconsax.mobile,
+                title: 'Pure black dark theme',
+                subtitle: 'Saves power on OLED screens',
                 value: _theme.isOled.value,
                 onChanged: _theme.setOled,
               ),
             ),
             Obx(
-              () => ListTile(
-                leading: const Icon(Iconsax.colorfilter),
-                title: const Text('Colour source'),
-                subtitle: Text(switch (_theme.source.value) {
-                  ThemeSource.standard => 'App default',
-                  ThemeSource.dynamicColor =>
-                    'Material You (from the wallpaper)',
-                  ThemeSource.custom => 'Custom',
-                }),
-                onTap: _pickColourSource,
+              () => ChromeTile.choice(
+                icon: Iconsax.colorfilter,
+                title: 'Colour source',
+                subtitle: 'Material You takes the palette from the wallpaper',
+                labels: const ['Default', 'Material You', 'Custom'],
+                selectedIndex: ThemeSource.values.indexOf(_theme.source.value),
+                onSelected: (i) => _theme.setSource(ThemeSource.values[i]),
               ),
             ),
             Obx(
-              () => SwitchListTile(
-                secondary: const Icon(Iconsax.brush_2),
-                title: const Text('Tint from the cover'),
-                subtitle: const Text('The manga you have open colours the app'),
+              () => ChromeTile.toggle(
+                icon: Iconsax.brush_2,
+                title: 'Tint from the cover',
+                subtitle: 'The manga you have open colours the app',
                 value: _theme.useCoverColor.value,
                 onChanged: _theme.setUseCoverColor,
               ),
             ),
           ],
         ),
-        SliverOneUiGroup(
+        SliverChromeSection(
           label: 'Reader defaults',
           children: [
-            ListTile(
-              leading: const Icon(Iconsax.book_1),
-              title: const Text('Reading layout'),
-              subtitle: Text(
-                _readerInt(ReaderKeys.readingLayout, 0) ==
-                        ReadingLayout.webtoon.index
-                    ? 'Webtoon (continuous)'
-                    : 'Paged',
-              ),
-              // A default, not an override: a manga already opened keeps whatever
-              // it was last read with, because that choice was made per series.
-              onTap: () => _pick<int>(
-                title: 'Reading layout',
-                current: _readerInt(ReaderKeys.readingLayout, 0),
-                options: const {0: 'Paged', 1: 'Webtoon (continuous)'},
-                onPicked: (v) => _setInt(ReaderKeys.readingLayout, v),
-              ),
+            // A default, not an override: a manga already opened keeps
+            // whatever it was last read with, because that choice was made
+            // per series.
+            ChromeTile.choice(
+              icon: Iconsax.book_1,
+              title: 'Reading layout',
+              subtitle: 'Webtoon scrolls continuously; paged turns a page',
+              labels: const ['Paged', 'Webtoon'],
+              selectedIndex: _readerInt(
+                ReaderKeys.readingLayout,
+                0,
+              ).clamp(0, ReadingLayout.values.length - 1),
+              onSelected: (i) => _setInt(ReaderKeys.readingLayout, i),
             ),
-            ListTile(
-              leading: const Icon(Iconsax.arrow_swap_horizontal),
-              title: const Text('Reading direction'),
-              subtitle: Text(switch (_readerInt(
+            ChromeTile.choice(
+              icon: Iconsax.arrow_swap_horizontal,
+              title: 'Reading direction',
+              subtitle: 'Most manga reads right to left',
+              labels: const ['Left to right', 'Right to left'],
+              selectedIndex: _readerInt(
                 ReaderKeys.readingDirection,
                 0,
-              )) {
-                1 => 'Right to left',
-                _ => 'Left to right',
-              }),
-              onTap: () => _pick<int>(
-                title: 'Reading direction',
-                current: _readerInt(ReaderKeys.readingDirection, 0),
-                options: const {
-                  0: 'Left to right',
-                  1: 'Right to left (most manga)',
-                },
-                onPicked: (v) => _setInt(ReaderKeys.readingDirection, v),
-              ),
+              ).clamp(0, ReadingDirection.values.length - 1),
+              onSelected: (i) => _setInt(ReaderKeys.readingDirection, i),
             ),
-            SwitchListTile(
-              secondary: const Icon(Iconsax.sun_1),
-              title: const Text('Keep the screen on'),
-              subtitle: const Text('While a chapter is open'),
-              // Taken when the reader opens and released when it closes, so
-              // the switch only decides what the *next* chapter does.
+            // Taken when the reader opens and released when it closes, so the
+            // switch only decides what the *next* chapter does.
+            ChromeTile.toggle(
+              icon: Iconsax.sun_1,
+              title: 'Keep the screen on',
+              subtitle: 'While a chapter is open',
               value: _readerBool(
                 ReaderKeys.keepScreenOn,
                 ReaderDefaults.keepScreenOn,
               ),
               onChanged: (v) => _setBool(ReaderKeys.keepScreenOn, v),
             ),
-            SwitchListTile(
-              secondary: const Icon(Iconsax.document),
-              title: const Text('Show the page number'),
-              subtitle: const Text('Stays on screen with the controls hidden'),
-              // Defaults to off, as AnymeX's does. The reader's own controls
-              // already carry the number one tap away, so a pill floating over
-              // the artwork is worth asking for rather than turning off.
+            // Defaults to off, as AnymeX's does. The reader's own controls
+            // already carry the number one tap away, so a pill floating over
+            // the artwork is worth asking for rather than turning off.
+            ChromeTile.toggle(
+              icon: Iconsax.document,
+              title: 'Show the page number',
+              subtitle: 'Stays on screen with the controls hidden',
               value: _readerBool(
                 ReaderKeys.showPageIndicator,
                 ReaderDefaults.showPageIndicator,
@@ -162,41 +151,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ],
         ),
-        SliverOneUiGroup(
+        SliverChromeSection(
           label: 'Sources',
           children: [
             Obx(
-              () => SwitchListTile(
-                secondary: const Icon(Iconsax.eye_slash),
-                title: const Text('Show 18+ sources'),
-                subtitle: const Text(
-                  'Also hides adult titles from the home page',
-                ),
-                // Reads and writes the shared holder, not the key directly.
-                // Writing the key alone flipped the stored value while the live
-                // Home and Browse controllers carried on with their own copies,
-                // so the setting appeared to do nothing until a restart.
+              // Reads and writes the shared holder, not the key directly.
+              // Writing the key alone flipped the stored value while the live
+              // Home and Browse controllers carried on with their own copies,
+              // so the setting appeared to do nothing until a restart.
+              () => ChromeTile.toggle(
+                icon: Iconsax.eye_slash,
+                title: 'Show 18+ sources',
+                subtitle: 'Also hides adult titles from the home page',
                 value: Get.find<NsfwPreference>().shown.value,
                 onChanged: Get.find<NsfwPreference>().setShown,
               ),
             ),
-            ListTile(
-              leading: const Icon(Iconsax.info_circle),
-              title: const Text('Extensions and repositories'),
-              subtitle: const Text('Manage these from the Browse tab'),
+            const ChromeTile(
+              icon: Iconsax.info_circle,
+              title: 'Extensions and repositories',
+              subtitle: 'Manage these from the Browse tab',
               enabled: false,
+              showChevron: false,
             ),
           ],
         ),
-        SliverOneUiGroup(
+        SliverChromeSection(
           label: 'Accounts',
           children: [
             Obx(() {
               final auth = Get.find<AniListAuth>();
               final viewer = auth.viewer.value;
-              return ListTile(
-                leading: const Icon(Iconsax.user_octagon),
-                title: const Text('AniList'),
+              return ChromeTile(
+                icon: Iconsax.user_octagon,
+                title: 'AniList',
                 // Four states, not two, and `isReady` is the one that is
                 // easy to miss. `AppBindings` launches `restore()` unawaited,
                 // so at startup there is a real interval where the token has
@@ -209,16 +197,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 // `isConfigured` is checked first because it is known without
                 // reading anything: a build with no client id has nothing to
                 // be ready for.
-                subtitle: Text(
-                  !auth.isConfigured
-                      ? 'Not set up in this build'
-                      : !auth.isReady.value
-                      ? 'Checking…'
-                      : viewer == null
-                      ? 'Not signed in'
-                      : 'Signed in as ${viewer.name}',
-                ),
-                trailing: const Icon(Icons.chevron_right),
+                subtitle: !auth.isConfigured
+                    ? 'Not set up in this build'
+                    : !auth.isReady.value
+                    ? 'Checking…'
+                    : viewer == null
+                    ? 'Not signed in'
+                    : 'Signed in as ${viewer.name}',
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => const AccountsScreen(),
@@ -230,62 +215,5 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ],
     );
-  }
-
-  Future<void> _pickThemeMode() => _pick<ThemeMode>(
-    title: 'Theme',
-    current: _theme.themeMode.value,
-    options: const {
-      ThemeMode.system: 'Follow the system',
-      ThemeMode.light: 'Light',
-      ThemeMode.dark: 'Dark',
-    },
-    onPicked: _theme.setThemeMode,
-  );
-
-  Future<void> _pickColourSource() => _pick<ThemeSource>(
-    title: 'Colour source',
-    current: _theme.source.value,
-    options: const {
-      ThemeSource.standard: 'App default',
-      ThemeSource.dynamicColor: 'Material You (from the wallpaper)',
-      ThemeSource.custom: 'Custom',
-    },
-    onPicked: _theme.setSource,
-  );
-
-  /// One radio dialog for every single-choice setting on this screen.
-  Future<void> _pick<T>({
-    required String title,
-    required T current,
-    required Map<T, String> options,
-    required void Function(T) onPicked,
-  }) async {
-    final picked = await showDialog<T>(
-      context: context,
-      builder: (context) => SimpleDialog(
-        title: Text(title),
-        children: [
-          // A RadioGroup ancestor rather than per-tile `groupValue`/`onChanged`:
-          // those are deprecated, and one selection handler for the whole set
-          // is also the only place a "which one is chosen" bug can live.
-          RadioGroup<T>(
-            groupValue: current,
-            onChanged: (value) => Navigator.pop(context, value),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (final option in options.entries)
-                  RadioListTile<T>(
-                    value: option.key,
-                    title: Text(option.value),
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-    if (picked != null) onPicked(picked);
   }
 }

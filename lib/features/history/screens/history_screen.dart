@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:iconsax/iconsax.dart';
 
-import 'package:otaku_reader/core/theme/one_ui.dart';
+import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/features/history/controllers/history_controller.dart';
@@ -89,8 +89,19 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return OneUiScaffold(
+    return ChromeScaffold.slivers(
       title: 'History',
+      // The search field used to sit permanently under the title, costing 56px
+      // on every screenful whether or not anyone was searching. The header
+      // swaps its split row for a search row instead -- AnymeX's shape, and
+      // the thing that buys back the height the old collapsing header spent.
+      enableSearch: true,
+      searchHint: 'Search history',
+      // No `onSearchClear`: the header already calls `onSearchChanged('')`
+      // when search closes, precisely so a filter cannot stay in force with
+      // nothing on screen naming it. Passing both would call `setQuery('')`
+      // twice under a comment claiming the second call was load-bearing.
+      onSearchChanged: _c.setQuery,
       actions: [
         Obx(
           () => IconButton(
@@ -100,23 +111,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
           ),
         ),
       ],
-      bottom: PreferredSize(
-        preferredSize: const Size.fromHeight(56),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-          child: TextField(
-            onChanged: _c.setQuery,
-            decoration: InputDecoration(
-              isDense: true,
-              hintText: 'Search history',
-              prefixIcon: const Icon(Iconsax.search_normal, size: 18),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(OneUi.radiusSmall),
-              ),
-            ),
-          ),
-        ),
-      ),
       slivers: [
         // One `Obx`, and every branch returns a sliver — the loading spinner
         // and the empty state are `SliverFillRemaining`, not bare widgets.

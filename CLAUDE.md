@@ -729,9 +729,18 @@ Ported from `/home/user/AnymeX-HV`, which is checked out in every session.
   radius through `multiplyRadius()` and every glow through `multiplyGlow()`, so
   the whole app's roundness is a setting. Worth adopting rather than hardcoding
   numbers in thirty widgets.
-- **A choice belongs inside its row.** AnymeX's tile embeds a segmented
-  selector, so a setting changes without leaving the row. This app opens radio
-  dialogs (`_pick<T>`), which is the pattern being moved away from.
+- **A choice belongs inside its row, and it is nearly free.** AnymeX's tile
+  embeds a segmented selector, so a setting changes without leaving the row —
+  and its selector *is* its tab bar reused, so `ChromeTile.choice` is
+  `SegmentedTabs` dropped into the tile's `content` slot. The radio dialogs
+  (`_pick<T>`) are gone. What it costs is measured: a segment is
+  `1 / options.length` of the row by construction, so at a doubled system font
+  the labels become stubs on every width. `FittedBox(fit: BoxFit.scaleDown)` is
+  **not** the fix here, though it is this repo's usual one — a `FittedBox` hands
+  its child unbounded width, so the ellipsis never fires and a long label
+  scales toward nothing, which is the "erased rather than clipped" defect
+  traded for a visible one. A choice with long labels wants a screen, not a
+  row.
 - **The header's height is *measured*, not computed.** The body fills the
   screen and the pills float over it, so a list has to start below them and
   then scroll under them — which means something has to say how tall the
@@ -743,6 +752,27 @@ Ported from `/home/user/AnymeX-HV`, which is checked out in every session.
   first-frame estimate and uses the header's real height from the next frame
   on. Removing the measurement fails exactly one test — searching at a doubled
   font size — which is the point: that is the state the estimate cannot reach.
+
+#### The conversion is finished, and what it cost
+
+All eleven screens are on this vocabulary and `lib/core/theme/one_ui.dart` is
+**deleted** — there is one set of shapes now, not two. Three things about that
+are worth keeping:
+
+- **The radii and the section gap changed, and that was the point.** `OneUi`
+  ran at radius 26 / small 14 / sectionGap 24; `Chrome` runs 18 / 10 / 20. A
+  swap of those constants is not a rename, so do not describe one as
+  mechanical.
+- **The Details screen keeps its cover hero.** AnymeX's own
+  `media_details_page.dart` builds an `AnymeXScaffold` with `showHeader` unset
+  and a `MediaHeader` as its first sliver — it has no pill header either — so
+  giving Details a pill would move away from the reference. What Details still
+  owes AnymeX is the Info / Read / Comments tab shape, which is a redesign.
+- **The header hides on scroll and comes back on a reversal.** It does not
+  collapse; it slides out whole. The first test written for it asserted the
+  pills "stay put", which is simply false — the assertion failed and the
+  behaviour was better than the claim. Read `_ChromeScaffoldState._onScroll`
+  before writing anything that depends on what the header does.
 
 #### Still from AnymeX, unchanged by any of this
 
