@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'package:otaku_reader/core/theme/one_ui.dart';
+import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:otaku_reader/data/anilist/anilist_auth.dart';
 import 'package:otaku_reader/data/anilist/anilist_list_service.dart';
 import 'package:otaku_reader/domain/model/anilist_list_entry.dart';
@@ -45,7 +45,9 @@ Future<AniListEdit?> showAniListEditSheet(
   isScrollControlled: true,
   showDragHandle: true,
   shape: const RoundedRectangleBorder(
-    borderRadius: BorderRadius.vertical(top: Radius.circular(OneUi.radius)),
+    borderRadius: BorderRadius.vertical(
+      top: Radius.circular(Chrome.cardRadius),
+    ),
   ),
   builder: (_) => _EditSheet(
     result: result,
@@ -138,10 +140,10 @@ class _EditSheetState extends State<_EditSheet> {
     return SingleChildScrollView(
       child: Padding(
         padding: EdgeInsets.fromLTRB(
-          OneUi.gutter,
+          Chrome.gutter,
           0,
-          OneUi.gutter,
-          MediaQuery.viewInsetsOf(context).bottom + OneUi.gutter,
+          Chrome.gutter,
+          MediaQuery.viewInsetsOf(context).bottom + Chrome.gutter,
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -151,7 +153,7 @@ class _EditSheetState extends State<_EditSheet> {
               _original == null ? 'Add to your AniList' : 'Edit your AniList',
               style: theme.textTheme.titleMedium,
             ),
-            const SizedBox(height: OneUi.sectionGap),
+            const SizedBox(height: Chrome.sectionGap),
             Text('Status', style: theme.textTheme.labelLarge),
             if (_status == null && _original != null) ...[
               const SizedBox(height: 4),
@@ -177,7 +179,7 @@ class _EditSheetState extends State<_EditSheet> {
                   ),
               ],
             ),
-            const SizedBox(height: OneUi.sectionGap),
+            const SizedBox(height: Chrome.sectionGap),
             Text('Chapters read', style: theme.textTheme.labelLarge),
             const SizedBox(height: 8),
             Row(
@@ -217,12 +219,12 @@ class _EditSheetState extends State<_EditSheet> {
             // neutral default to fall back on — every format writes a
             // different number for the same rating.
             if (format != null) ...[
-              const SizedBox(height: OneUi.sectionGap),
+              const SizedBox(height: Chrome.sectionGap),
               Text('Score', style: theme.textTheme.labelLarge),
               const SizedBox(height: 8),
               _ScoreField(format: format, score: _score, onChanged: _setScore),
             ],
-            const SizedBox(height: OneUi.sectionGap),
+            const SizedBox(height: Chrome.sectionGap),
             // Low, not top-right: the confirm on a sheet belongs where a thumb
             // already is.
             FilledButton(

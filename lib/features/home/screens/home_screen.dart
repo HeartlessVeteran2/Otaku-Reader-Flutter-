@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:iconsax/iconsax.dart';
 
-import 'package:otaku_reader/core/theme/one_ui.dart';
+import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:otaku_reader/data/isar/manga_entry.dart';
 import 'package:otaku_reader/domain/model/anilist_media.dart';
 import 'package:otaku_reader/features/details/screens/manga_details_screen.dart';
@@ -19,7 +19,7 @@ class HomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return OneUiScaffold(
+    return ChromeScaffold.slivers(
       title: 'Home',
       onRefresh: _c.load,
       actions: [

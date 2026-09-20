@@ -119,12 +119,23 @@ and *Show the page number*, each a shipped violation of this project's own
 "never stub live UI" rule. Both ported from AnymeX: `wakelock_plus` behind a
 `ScreenWakelock` seam, and `_buildPageInfo`'s pill.
 
-Nine screens still wear the old One UI chrome, so the app currently looks like
-two apps. Everything built after this is built in the final vocabulary instead
-of being reskinned later, which is why it goes first.
+**Done: the chrome conversion.** All seven remaining screens moved in one pass
+— Settings, Accounts, Updates, Downloads, History, Home and Details — and
+`lib/core/theme/one_ui.dart` is deleted, so the vocabulary is now one thing
+rather than two. `test/one_ui_test.dart` was renamed to
+`test/screen_chrome_test.dart` rather than removed: the sliver-slot hazard it
+guards did not leave with the scaffold.
 
-Settings + Accounts → History + Updates → Downloads → Search + Browse →
-Details → Home. Plus `FEATURES.md` rebuilt as the live contract.
+One deliberate exception, stated rather than assumed: **the Details screen
+keeps its cover hero.** AnymeX's own details page has no pill header either —
+`media_details_page.dart` builds an `AnymeXScaffold` with `showHeader` unset
+and a `MediaHeader` as its first sliver — so replacing the hero with a pill
+would move *away* from the reference, not toward it. What Details still owes
+AnymeX is its three-tab shape (Info / Read / Comments), and that is a
+redesign tracked with the AniList experience, not a chrome swap.
+
+Still on the old shell: **Search and Browse**, which were never on
+`OneUiScaffold` to begin with.
 
 ### Phase B — the catalogue
 
