@@ -49,8 +49,14 @@ The work is depth, not breadth.
 - **Source runtime** — 55/55 Mangayomi Dart extensions evaluate, 6 complete
   `getPopular → getDetail → getPageList` live
 - **AniList list editing** — all five score formats, read from the user's own
-  account settings, with the format travelling in the same response as the
-  score
+  account settings. The **read** asks for `score(format:)` and
+  `Viewer { mediaListOptions { scoreFormat } }` in one request, so the number
+  and its units cannot disagree, and adopts the live format into the cached
+  viewer. The **write** then sends that adopted format. What remains is a
+  seconds-wide window: change the format on another device between opening the
+  editor and saving, and the write uses the format the read adopted. Closing
+  it completely needs `scoreRaw`, which would mean inventing AniList's
+  undocumented POINT_3 mapping — see `CLAUDE.md`.
 
 ### Corrected 2026-09-20 — reader settings are NOT at parity
 
