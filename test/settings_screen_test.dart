@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
 
@@ -13,6 +12,7 @@ import 'package:otaku_reader/data/anilist/anilist_auth.dart';
 import 'package:otaku_reader/features/settings/screens/settings_screen.dart';
 
 import 'helpers/anilist_fakes.dart';
+import 'helpers/hidden_text.dart';
 import 'helpers/isar_test_env.dart';
 
 /// Settings on the chrome vocabulary.
@@ -244,10 +244,14 @@ void main() {
 
   group('a doubled system font hides nothing', () {
     // `takeException()` is blind to an ellipsis: the sentence is dropped
-    // silently. `didExceedMaxLines` is the question actually being asked.
+    // silently. What replaced the naive `didExceedMaxLines` loop, and why, is
+    // in `helpers/hidden_text.dart` -- the short version is that the loop
+    // could not fail, because since #48 there are no multi-line prose caps
+    // left for it to catch.
     for (final width in <double>[320, 360, 384]) {
       testWidgets('at ${width.toInt()}px', (tester) async {
-        await tester.binding.setSurfaceSize(Size(width, 900));
+        final screen = Size(width, 900);
+        await tester.binding.setSurfaceSize(screen);
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
         await tester.pumpWidget(
@@ -259,29 +263,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(tester.takeException(), isNull);
-
-        // Every subtitle on screen is prose in a row whose height is free.
-        var checked = 0;
-        for (final element in find.byType(RichText).evaluate()) {
-          final paragraph = element.renderObject! as RenderParagraph;
-          // The segment labels and the row titles are capped on purpose --
-          // those caps hold layout invariants (a segment is 1/n of the row;
-          // a long title must not shove its trailing control off screen).
-          if (paragraph.maxLines == 1) continue;
-          checked++;
-          expect(
-            paragraph.didExceedMaxLines,
-            isFalse,
-            reason: 'hidden text: "${paragraph.text.toPlainText()}"',
-          );
-        }
-        // Without this the loop is hollow: a filter that matches nothing
-        // passes every assertion it never makes.
-        expect(
-          checked,
-          greaterThan(0),
-          reason: 'no uncapped text was examined',
-        );
+        expectNoHiddenText(tester, screen: screen);
       });
     }
   });

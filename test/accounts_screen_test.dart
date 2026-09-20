@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
@@ -9,6 +8,7 @@ import 'package:otaku_reader/data/anilist/anilist_auth.dart';
 import 'package:otaku_reader/features/settings/screens/accounts_screen.dart';
 
 import 'helpers/anilist_fakes.dart';
+import 'helpers/hidden_text.dart';
 
 /// Every branch of the Accounts screen, rendered.
 ///
@@ -364,7 +364,8 @@ void main() {
       // with no client id, which is what a fresh clone renders. An ellipsis
       // throws nothing, so `takeException()` is blind to it and
       // `didExceedMaxLines` is the question actually being asked.
-      await tester.binding.setSurfaceSize(const Size(320, 1400));
+      const screen = Size(320, 1400);
+      await tester.binding.setSurfaceSize(screen);
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
       // Restored, or `isReady` stays false and the screen renders its
@@ -382,20 +383,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
-
-      var checked = 0;
-      for (final element in find.byType(RichText).evaluate()) {
-        final paragraph = element.renderObject! as RenderParagraph;
-        if (paragraph.maxLines == 1) continue;
-        checked++;
-        expect(
-          paragraph.didExceedMaxLines,
-          isFalse,
-          reason: 'hidden text: "${paragraph.text.toPlainText()}"',
-        );
-      }
-      // A filter that matches nothing passes every assertion it never makes.
-      expect(checked, greaterThan(0), reason: 'no uncapped text was examined');
+      expectNoHiddenText(tester, screen: screen);
     });
   });
 }
