@@ -61,6 +61,12 @@ dependencies:
     # handler until there was something to open them with.
     package_info_plus: ^8.1.1
     url_launcher: ^6.3.1
+    # Added with the reader's "Keep the screen on" switch, which had shipped as
+    # a live control with no implementation behind it. AnymeX uses this same
+    # package for the same setting; it is reached through `ScreenWakelock` so a
+    # host-VM test can observe it, because the plugin itself is a static
+    # platform channel.
+    wakelock_plus: ^1.3.3
 
 dev_dependencies:
     flutter_test:

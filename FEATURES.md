@@ -26,11 +26,12 @@ The audit corrected two things that had been stated as fact:
 1. **Reader settings are not at parity.** `ReaderKeys` declares 34 keys, and it
    is tempting to read that as 34 features. The reader honours **two**:
    `readingLayout` and `readingDirection`. The rest are declared and unused.
-2. **Two Settings controls do nothing.** "Keep the screen on" has no wakelock
+2. **Two Settings controls did nothing.** "Keep the screen on" had no wakelock
    dependency or implementation anywhere in `lib/`, and "Show the page number"
-   has no page indicator in the reader. Both write their key and are never
+   had no page indicator in the reader. Both wrote their key and were never
    read. That is live UI wired to nothing, which `CLAUDE.md` forbids, and it
-   shipped.
+   shipped. **Fixed 2026-09-20** — both are ticked below, and the reader now
+   honours four keys rather than two.
 
 A checklist that counts declarations rather than behaviour is how both got
 missed. Tick what renders, not what compiles.
@@ -42,7 +43,7 @@ missed. Tick what renders, not what compiles.
 - [x] **0 — Skeleton.** Isar + recovery ladder, `KvHelper`, typed enum keys, M3 theming, `LazyIndexedStack` shell, explicit DI.
 - [x] **1 — Source runtime.** Mangayomi Dart extensions via d4rt. 55/55 evaluate, 6 complete the full chain.
 - [~] **2 — Browse, details, library, home.** Browse, global search, details with AniList carousels and the list editor all ship. Library is a grid with 4 sorts and a search box — no filters, categories, display modes or badges.
-- [~] **3 — Reader.** Paged and webtoon, both directions, progress persistence and resume. Two of ~40 reader settings are honoured.
+- [~] **3 — Reader.** Paged and webtoon, both directions, progress persistence and resume, keep-screen-on and a persistent page indicator. Four of ~40 reader settings are honoured.
 - [~] **4 — Downloads, updates, history.** Queue with cancel/delete and storage usage; updates with mark-read and undo; history with search, remove, undo and resume. None of the depth below.
 - [ ] **5 — Smart Prefetch, Smart Panels.** AniList metadata shipped; the other two have not started.
 - [ ] **6 — Tracking fan-out, migration, stats, Komikku parity.**
@@ -66,12 +67,15 @@ missed. Tick what renders, not what compiles.
 
 The single most important surface. Combined list from both apps.
 
-> **Audited 2026-09-20.** The reader honours `readingLayout` and
-> `readingDirection` and nothing else. `ReaderKeys` declares 34 keys; 32 are
-> dead. Two Settings controls — *Keep the screen on* and *Show the page
-> number* — write a key the reader never reads, so they are inert UI. Fixing
-> those two is the first item of reader work, not a nice-to-have: `CLAUDE.md`
-> forbids live UI wired to nothing.
+> **Audited 2026-09-20.** The reader honoured `readingLayout` and
+> `readingDirection` and nothing else, and two Settings controls — *Keep the
+> screen on* and *Show the page number* — wrote a key the reader never read,
+> so they were inert UI. **Both are now wired**, so `ReaderKeys` stands at 4
+> honoured of 34; the other 30 have no control behind them and are ordinary
+> unbuilt features rather than dead UI. `ReaderDefaults` holds the fallback for
+> the two that have a switch, because the reader and the Settings row both need
+> it and a disagreeing pair renders a switch showing the opposite of what the
+> reader does.
 
 **Modes & layout** — [x] paged and continuous · [~] 4 directions — **LTR and RTL only**; `ReadingDirection` has exactly two members, and top-down / bottom-up do not exist · [ ] dual-page (off/auto-landscape/force) with **shift double pages** · [ ] auto webtoon mode (switches to vertical from page aspect ratios) · [ ] fit-to-screen-width · [ ] webtoon side padding and page gap · [ ] image width multiplier + desktop max-width clamp · [ ] spaced pages
 
@@ -79,9 +83,9 @@ The single most important surface. Combined list from both apps.
 
 **Navigation** — [ ] customisable tap zones, **four profiles** (paged/webtoon × horizontal/vertical) · [ ] navigation-mode presets (Default, L, Kindlish, Edge, Right-and-Left, Disabled) · [ ] invert tapping (none/horizontal/vertical/both) · [ ] volume keys + invert + **per-mode overrides** + hold-to-skip-5 · [ ] keyboard/DeX shortcuts · [ ] mouse wheel + trackpad · [ ] overscroll to prev/next chapter · [ ] **navigate by chapter number** (skips duplicate/scanlator dupes) · [ ] auto-scroll with speed, **pause-on-touch and auto-resume**
 
-**Display** — [ ] custom brightness (AnymeX goes to −75) · [ ] colour filter with **RGBA sliders and 16 blend modes**, plus named presets · [ ] custom tint + opacity · [ ] greyscale · [ ] invert · [ ] reader background (9 options) · [ ] **e-ink flash** with duration/interval/colour · [ ] keep screen on · [ ] fullscreen + cutout handling · [ ] orientation lock (7 modes) · [ ] secure screen (`FLAG_SECURE`)
+**Display** — [ ] custom brightness (AnymeX goes to −75) · [ ] colour filter with **RGBA sliders and 16 blend modes**, plus named presets · [ ] custom tint + opacity · [ ] greyscale · [ ] invert · [ ] reader background (9 options) · [ ] **e-ink flash** with duration/interval/colour · [x] keep screen on — `wakelock_plus`, taken when a chapter opens and released when it closes · [ ] fullscreen + cutout handling · [ ] orientation lock (7 modes) · [ ] secure screen (`FLAG_SECURE`)
 
-**Chrome** — [ ] reader control theme registry (default/iOS) · [ ] page indicator · [ ] page slider with haptic tick · [ ] **page thumbnail strip** (slider ⇄ filmstrip) · [ ] full-page gallery grid · [ ] in-reader chapter list with search + asc/desc + list/grid · [ ] chapter transition cards with **missing-chapter gap warning** · [ ] reading timer overlay · [ ] battery + clock overlay · [ ] zoom indicator
+**Chrome** — [ ] reader control theme registry (default/iOS) · [x] page indicator — a pill that stays on screen once the controls are hidden, off by default as AnymeX's is · [ ] page slider with haptic tick · [ ] **page thumbnail strip** (slider ⇄ filmstrip) · [ ] full-page gallery grid · [ ] in-reader chapter list with search + asc/desc + list/grid · [ ] chapter transition cards with **missing-chapter gap warning** · [ ] reading timer overlay · [ ] battery + clock overlay · [ ] zoom indicator
 
 **Actions** — [ ] long-press page: save / share / copy URL / set as cover · [ ] page bookmark toggle · [ ] in-chapter download button · [ ] reader comments + chapter note · [ ] reader presets (save/apply/delete) · [ ] per-manga reader overrides + reset-to-global · [ ] incognito mode
 

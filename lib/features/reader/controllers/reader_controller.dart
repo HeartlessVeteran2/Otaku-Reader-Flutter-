@@ -18,6 +18,7 @@ import 'package:otaku_reader/data/isar/manga_entry.dart';
 import 'package:otaku_reader/domain/repository/download_repository.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
+import 'package:otaku_reader/features/reader/screen_wakelock.dart';
 import 'package:otaku_reader/source/model/page_url.dart';
 
 /// How pages are laid out.
@@ -32,12 +33,14 @@ class ReaderController extends GetxController {
     required SourceRepository sources,
     required LibraryRepository library,
     required AniListProgressReporter anilistProgress,
+    required ScreenWakelock wakelock,
     required this.sourceId,
     required this.mangaUrl,
     required String chapterUrl,
   }) : _sources = sources,
        _library = library,
        _anilistProgress = anilistProgress,
+       _wakelock = wakelock,
        currentChapterUrl = chapterUrl.obs;
 
   final SourceRepository _sources;
@@ -47,6 +50,11 @@ class ReaderController extends GetxController {
   /// forgets to pass is how this app already shipped live UI wired to
   /// nothing; making it required means the wiring cannot be missing quietly.
   final AniListProgressReporter _anilistProgress;
+
+  /// Required for the same reason, and it is the same defect twice: "Keep the
+  /// screen on" shipped as a switch the user could press with nothing behind
+  /// it. An optional wakelock would let that happen again silently.
+  final ScreenWakelock _wakelock;
   final int sourceId;
   final String mangaUrl;
   final RxString currentChapterUrl;
@@ -62,6 +70,13 @@ class ReaderController extends GetxController {
   final error = RxnString();
   final layout = ReadingLayout.paged.obs;
   final direction = ReadingDirection.leftToRight.obs;
+
+  /// Whether a page counter stays on screen once the chrome is hidden.
+  ///
+  /// Seeded from [ReaderDefaults] rather than a literal, so the value the
+  /// reader holds before `onInit` runs cannot disagree with the one the
+  /// Settings switch renders.
+  final showPageIndicator = ReaderDefaults.showPageIndicator.obs;
   final chaptersInOrder = <Chapter>[].obs;
 
   /// Needed for the page requests, not for display: hotlink-protected CDNs
@@ -90,6 +105,15 @@ class ReaderController extends GetxController {
         ReadingLayout.values[ReaderKeys.readingLayout.get<int>(0).clamp(0, 1)];
     direction.value = ReadingDirection
         .values[ReaderKeys.readingDirection.get<int>(0).clamp(0, 1)];
+    showPageIndicator.value = ReaderKeys.showPageIndicator.get<bool>(
+      ReaderDefaults.showPageIndicator,
+    );
+    // Read the setting *first*. AnymeX enables unconditionally here and then
+    // corrects itself once preferences load, which holds the screen awake
+    // against the user's own choice for the width of that window.
+    if (ReaderKeys.keepScreenOn.get<bool>(ReaderDefaults.keepScreenOn)) {
+      unawaited(_wakelock.enable());
+    }
     load();
   }
 
@@ -100,6 +124,11 @@ class ReaderController extends GetxController {
     // is precisely when it matters most. `onClose` cannot be awaited, so the
     // awaitable form lives in [flush] -- which is also what tests call.
     unawaited(flush());
+    // Unconditional, deliberately. Keying the release on `keepScreenOn` reads
+    // as the tidy version and strands the lock whenever the switch is turned
+    // off while a chapter is open: the enable already happened, and the
+    // release would then be skipped on the way out.
+    unawaited(_wakelock.disable());
     super.onClose();
   }
 
