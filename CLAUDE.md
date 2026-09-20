@@ -746,19 +746,29 @@ Ported from `/home/user/AnymeX-HV`, which is checked out in every session.
   Consequence to remember: `ChromeCard.radius` had to become **nullable**,
   because a default parameter value must be `const` and `context.radius(...)`
   is not.
-- **One deliberate divergence: `glowScale` owns shadow *blur* here, where
-  AnymeX splits it.** AnymeX writes `blurRadius: 50.multiplyBlur()` beside
-  `spreadRadius: 2.multiplyGlow()`, so its blur slider moves drop shadows as
-  well as backdrop filters. Ours keeps `blurScale` for the `BackdropFilter`
-  alone and scales a shadow's blur and spread together off `glowScale`,
-  because the sliders are labelled *Glow* and *Blur*: a reader who sets Blur
-  to 0 is asking for the frosted glass to go, not for the pill's drop shadow
-  to go with it. Chosen, not overlooked.
-- **Every glow-scaled shadow goes through `glowShadow()`**, a free function
-  for the same reason AnymeX's `glowingShadow` is one: the *remove it at zero*
-  rule has to live in one place. Left to each call site, one of them
-  eventually scales to zero instead of dropping out, paints a hard rectangle,
-  and the difference is invisible in the diff.
+- **The two sliders split a shadow, as AnymeX's do: Blur owns its blur
+  radius, Glow owns its spread.** AnymeX writes `blurRadius: 50.multiplyBlur()`
+  beside `spreadRadius: 2.multiplyGlow()`. This app's first answer scaled both
+  off `glowScale` and kept `blurScale` for the `BackdropFilter` alone, on the
+  argument that a reader setting Blur to 0 wants the frosted glass gone and
+  not the drop shadows with it. **The developer chose the split**, so Blur at
+  0 now takes the shadows too — recorded because the reasoning for the other
+  answer is still sound and the next reader should know it was weighed rather
+  than missed.
+- **Every shadow goes through `glowShadow()`**, a free function for the same
+  reason AnymeX's `glowingShadow` is one: the *remove it at zero* rule has to
+  live in one place. Left to each call site, one of them eventually scales to
+  zero instead of dropping out, paints a hard rectangle, and the difference is
+  invisible in the diff.
+- **Either multiplier at zero removes the shadow, which is a correction to
+  AnymeX rather than a copy of it.** Splitting the inputs creates two cases
+  the arithmetic alone gets wrong. *Glow* at 0 would zero only the spread, and
+  a 50px blur with no spread is still a plainly visible bloom — so a slider
+  called Glow would not turn the glow off. *Blur* at 0 would leave blur radius
+  0 beside a positive spread, which is a **hard rectangle**, not a soft
+  shadow; `glowingShadow` guards only its glow multiplier, so that is exactly
+  what AnymeX paints when its blur slider bottoms out. Each slider at 0
+  removes the thing it names, and a shadow needs both to exist.
 - **A tab root leads with the account, and a leading costs one action slot.**
   AnymeX's tab roots open with `HeaderProfileAvatar` rather than with a title,
   and carry a greeting as their subtitle — the thing the developer asked for

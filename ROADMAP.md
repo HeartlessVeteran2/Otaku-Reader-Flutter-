@@ -205,6 +205,14 @@ Two things about it are measured rather than chosen:
 - **The greeting re-rolls only across a band boundary**, where AnymeX re-rolls
   on every 15-minute tick and visibly flickers between its two phrases.
 
+The blur/glow question that #54 left open is also settled, by the developer:
+the two sliders **split** a shadow as AnymeX's do — Blur scales its blur
+radius, Glow its spread — rather than Glow owning both while Blur stays with
+the `BackdropFilter`. One correction came with it: either slider at 0 removes
+the shadow, because Glow at 0 would otherwise leave a visible blur with no
+spread, and Blur at 0 would leave a hard rectangle. AnymeX guards only the
+first.
+
 **Not carried over: the badge.** AnymeX overlays an extension-update count on
 its avatar. This app has no such count yet, and inventing one to decorate a
 header would be a feature pretending to be a port.
