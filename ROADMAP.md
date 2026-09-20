@@ -44,14 +44,35 @@ The work is depth, not breadth.
 
 ### What is already at or ahead of parity
 
-- **Reader settings** — 34 keys against AnymeX's 35, and 4 it does not have
-  (`tapZonesEnabled`, `panelModeEnabled`, `prefetchStrategy`,
-  `prefetchOnWifiOnly`)
-- **Details AniList carousels** — characters, staff, relations, recommendations
 - **Extension repositories** — per-repo health and source counts; AnymeX has
   neither
 - **Source runtime** — 55/55 Mangayomi Dart extensions evaluate, 6 complete
   `getPopular → getDetail → getPageList` live
+- **AniList list editing** — all five score formats, read from the user's own
+  account settings. The **read** asks for `score(format:)` and
+  `Viewer { mediaListOptions { scoreFormat } }` in one request, so the number
+  and its units cannot disagree, and adopts the live format into the cached
+  viewer. The **write** then sends that adopted format. What remains is a
+  seconds-wide window: change the format on another device between opening the
+  editor and saving, and the write uses the format the read adopted. Closing
+  it completely needs `scoreRaw`, which would mean inventing AniList's
+  undocumented POINT_3 mapping — see `CLAUDE.md`.
+
+### Corrected 2026-09-20 — reader settings are NOT at parity
+
+The first version of this file claimed *"Reader settings — 34 keys against
+AnymeX's 35"* and counted that as parity. Audited against the code, the reader
+honours **two**: `readingLayout` and `readingDirection`. The other 32 keys are
+declared and never read.
+
+Worse, two Settings controls write a key nothing consumes — *Keep the screen
+on* (no wakelock dependency exists in `pubspec.yaml`) and *Show the page
+number* (no indicator exists in the reader). That is live UI wired to nothing,
+which `CLAUDE.md` forbids, and it shipped.
+
+**The lesson, which is this project's oldest:** an enum of keys is a
+declaration, not a behaviour. Counting declarations is how a checklist reports
+parity for a feature nobody built. Tick what renders.
 
 ---
 
@@ -87,7 +108,12 @@ would drag in:
 
 Each one ships on its own. Sizes are AnymeX's source, measured.
 
-### Phase A — finish the shell *(in flight)*
+### Phase A — finish the shell, and the inert controls *(in flight)*
+
+**First, two live controls that do nothing** — *Keep the screen on* and *Show
+the page number*. Small, and they are a shipped violation of this project's own
+"never stub live UI" rule, so they go before more shell work.
+
 
 Nine screens still wear the old One UI chrome, so the app currently looks like
 two apps. Everything built after this is built in the final vocabulary instead
@@ -167,8 +193,12 @@ they need, not by the original issue numbers.
   nav-tab reorder
 - **Downloads depth** — smart rules, auto-download by category, queue manager,
   CBZ encryption, storage analytics, data-usage budget
-- **Reader depth** — per-manga settings UI, presets, per-manga dynamic theme,
-  read-time estimation
+- **Reader depth** — the 32 declared-but-unread `ReaderKeys` (crop borders,
+  auto-webtoon, tap zones, colour filter and blend mode, e-ink refresh,
+  auto-scroll, volume keys, long-press page actions, dual page, …), plus
+  per-manga settings UI, presets, per-manga dynamic theme and read-time
+  estimation. **This is a phase of its own, not a bullet** — the audit moved it
+  here from "already at parity".
 - **Security + system** — biometric app lock with scheduling, crash reporting,
   notification batching, home-screen widget, QR library sharing
 - **Local source** — local manga folders (`lib/screens/local_source`, 2,359)
