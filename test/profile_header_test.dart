@@ -102,6 +102,80 @@ void main() {
     });
   });
 
+  group('the first frame reserves room for a live subtitle', () {
+    // Everything else in this file settles before asserting, which hides this
+    // entirely: `ChromeScaffold` estimates its own height for one frame and
+    // then uses the measured value forever after. Adding `subtitleWidget`
+    // without teaching the estimate about it made every tab root -- all of
+    // which use it -- reserve a subtitle-less header on that first frame, so
+    // the first row rendered *behind* the blurred pill until the next one.
+    // Found by `codeant-ai`; it is the ninth recorded instance of this
+    // repo's layout blindness, reintroduced by a new slot.
+    Widget scaffold({String? subtitle, Widget? subtitleWidget}) => MaterialApp(
+      home: ChromeScaffold.slivers(
+        title: 'Home',
+        subtitle: subtitle,
+        subtitleWidget: subtitleWidget,
+        slivers: [
+          SliverList.list(
+            children: [
+              SizedBox(key: const ValueKey('first'), height: 56),
+              for (var i = 0; i < 8; i++) const SizedBox(height: 56),
+            ],
+          ),
+        ],
+      ),
+    );
+
+    /// Where the first row starts **on the frame the estimate decides**, with
+    /// no settle -- that is the only frame the arithmetic is responsible for.
+    ///
+    /// The bare `pumpWidget` first is load-bearing. Two `pumpWidget` calls of
+    /// the same widget type reuse the same `State`, so the second render
+    /// inherits the first's already-`_measured` height and both answers come
+    /// back identical -- which made the sibling test below pass while the
+    /// estimate was still broken. Tearing the tree down forces a fresh State
+    /// and a real first frame.
+    Future<double> firstFrameTop(WidgetTester tester, Widget widget) async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpWidget(widget);
+      return tester.getTopLeft(find.byKey(const ValueKey('first'))).dy;
+    }
+
+    testWidgets('a widget subtitle reserves what a string subtitle does', (
+      tester,
+    ) async {
+      // Mechanism-independent: the two spellings render the same thing, so
+      // they have to cost the same on the first frame. Reading only
+      // `subtitle` makes the widget form cheaper, and the gap is exactly the
+      // row that lands under the pill.
+      final withString = await firstFrameTop(
+        tester,
+        scaffold(subtitle: 'Good evening'),
+      );
+      final withWidget = await firstFrameTop(
+        tester,
+        scaffold(subtitleWidget: const Text('Good evening')),
+      );
+
+      expect(withWidget, withString);
+    });
+
+    testWidgets('and both reserve more than no subtitle at all', (
+      tester,
+    ) async {
+      // The other half. Without it, an estimate that ignored *both* spellings
+      // would satisfy the test above by being equally wrong twice.
+      final bare = await firstFrameTop(tester, scaffold());
+      final withWidget = await firstFrameTop(
+        tester,
+        scaffold(subtitleWidget: const Text('Good evening')),
+      );
+
+      expect(withWidget, greaterThan(bare));
+    });
+  });
+
   group('a leading costs one action slot', () {
     // Measured, not reasoned about. With a leading, three actions plus search
     // overflows by 22px at 320 and **1.5px at 360** -- a Pixel-class width,

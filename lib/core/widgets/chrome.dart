@@ -412,7 +412,17 @@ class _ChromeScaffoldState extends State<ChromeScaffold> {
         _measured ??
         Chrome.headerHeight(
           context,
-          hasSubtitle: widget.subtitle != null && widget.subtitle!.isNotEmpty,
+          // `subtitleWidget` counts too. It is the form every tab root uses,
+          // so reading only `subtitle` here estimated a subtitle-less header
+          // for all of them and under-reserved the body on the **first
+          // frame** -- the first row rendered behind the blurred pill until
+          // measurement corrected it a frame later. That is the ninth
+          // instance of this repo's own layout blindness, reintroduced by
+          // adding the slot and missed by every test, because they all
+          // settle before asserting. Found by `codeant-ai`.
+          hasSubtitle:
+              widget.subtitleWidget != null ||
+              (widget.subtitle != null && widget.subtitle!.isNotEmpty),
           hasActions:
               widget.enableSearch || (widget.actions?.isNotEmpty ?? false),
           bottomHeight: bottomHeight,

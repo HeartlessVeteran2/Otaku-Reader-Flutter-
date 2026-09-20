@@ -198,8 +198,9 @@ over a time-of-day greeting.
 Two things about it are measured rather than chosen:
 
 - **A leading costs one action slot.** Three actions plus search overflows the
-  header by 22px at 320 and 1.5px at 360 with one, and is clean at every width
-  without. Browse carries exactly that load, so it takes the greeting and not
+  header by 22px at 320 and 1.5px at 360 with one, and is clean at 384 and 411;
+  without one it is clean at all four. Those are the widths measured — the
+  guard covers 320/360/384. Browse carries exactly that load, so it takes the greeting and not
   the avatar — which is also where AnymeX ends up, since it only leads with the
   avatar on single-action screens.
 - **The greeting re-rolls only across a band boundary**, where AnymeX re-rolls

@@ -775,10 +775,14 @@ Ported from `/home/user/AnymeX-HV`, which is checked out in every session.
   when they said they wanted the home page "interconnected with AniList".
   `ProfileAvatar` is the port, and it lives in `features/` rather than in
   `chrome.dart` so the chrome primitives stay DI-free.
-  **The budget is measured.** With a leading, three actions plus search
-  overflows the header by **22px at 320 and 1.5px at 360** — Pixel-class, the
-  same shape as the `TabBar` overflow below — and is clean at every width
-  without one. So four tab roots lead with the account and **Browse does
+  **The budget is measured, at the widths named and no others.** With a
+  leading, three actions plus search overflows the header by **22px at 320 and
+  1.5px at 360**, and is clean at 384 and 411 — Pixel-class, the same shape as
+  the `TabBar` overflow below. Without a leading the same row is clean at all
+  four. "Clean at every width" is what an earlier draft of this paragraph
+  said, and `codeant-ai` was right that four samples do not establish it: the
+  committed guard covers 320/360/384, and a narrower or differently-scaled
+  surface is simply untested. So four tab roots lead with the account and **Browse does
   not**, because it carries three actions plus search. AnymeX lands in the
   same place from the other side: it only leads with the avatar on
   single-action screens, and puts it in the *actions* pill on its one busy
