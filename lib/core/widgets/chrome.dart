@@ -1153,10 +1153,14 @@ class ChromeTile extends StatelessWidget {
                       subtitleWidget!
                     else if (subtitle != null && subtitle!.isNotEmpty) ...[
                       const SizedBox(height: 2),
+                      // Deliberately uncapped. This is prose in a row whose
+                      // height is free, so a cap here buys density and pays
+                      // for it by hiding the sentence -- and the reader who
+                      // enlarged their system font is exactly the one it
+                      // hides it from. The title above stays capped because
+                      // that cap holds a layout invariant, not a preference.
                       Text(
                         subtitle!,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: scheme.onSurface.withValues(alpha: 0.45),
                         ),
@@ -1317,10 +1321,13 @@ class ChromeFeatureCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
+          // Both uncapped, and the card's height is intrinsic so they can
+          // be. Ellipsising a one-or-two-word destination label is the worst
+          // version of this -- "Downloads" becoming "Down..." tells the
+          // reader nothing -- and the sentence underneath is the whole reason
+          // a hub uses cards instead of rows.
           Text(
             title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
             style: theme.textTheme.titleSmall?.copyWith(
               fontWeight: FontWeight.w700,
               color: scheme.onSurface,
@@ -1329,8 +1336,6 @@ class ChromeFeatureCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             description,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
             style: theme.textTheme.bodySmall?.copyWith(
               height: 1.3,
               color: scheme.onSurface.withValues(alpha: 0.55),

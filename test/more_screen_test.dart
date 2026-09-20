@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:otaku_reader/core/widgets/chrome.dart';
@@ -80,15 +81,53 @@ void main() {
     }
   });
 
-  // The state a fixed height cannot reach. At the default text scale a
-  // hardcoded 150px happens to fit the tallest card at 320px -- measured, and
-  // it is why a fixed-height mutation passes every other test here. Doubling
-  // the system font is the ordinary accessibility setting that ends that, and
-  // a card is one of the few things in this app whose height is entirely text.
-  testWidgets('a doubled system font does not clip or overflow a card', (
+  /// Every word of every card is on screen.
+  ///
+  /// `takeException()` is blind to this: an ellipsis overflow throws nothing,
+  /// it just silently drops the end of the sentence. `didExceedMaxLines` is
+  /// the question actually being asked -- *was anything hidden* -- and it is
+  /// the assertion the first version of this suite should have made.
+  ///
+  /// Note the widget-test font makes every glyph a full em square, so text
+  /// here is roughly twice the width it is on a device. That makes this
+  /// assertion strictly *harder* to satisfy than reality, which is the right
+  /// direction for a guard to err in.
+  void expectNothingHidden(WidgetTester tester) {
+    for (final destination in <String>[
+      ...destinations,
+      'What you have read, newest first',
+      'The queue, and what it is using on disk',
+      'Appearance, reader defaults, sources',
+      'Version, licences and credits',
+    ]) {
+      expect(
+        tester
+            .renderObject<RenderParagraph>(find.text(destination))
+            .didExceedMaxLines,
+        isFalse,
+        reason: '"$destination" is truncated',
+      );
+    }
+  }
+
+  testWidgets('no card hides a word of its label or its sentence', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(320, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(host(const MoreScreen()));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expectNothingHidden(tester);
+  });
+
+  testWidgets('nor at a doubled system font', (tester) async {
+    // A card's height is almost entirely text, so a large accessibility font
+    // is a layout change here rather than a cosmetic one -- and the reader who
+    // enlarged the font is exactly the one a cap would hide the sentence from.
+    await tester.binding.setSurfaceSize(const Size(320, 2400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     await tester.pumpWidget(
@@ -100,6 +139,48 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
+    expectNothingHidden(tester);
+  });
+
+  testWidgets('it scrolls, and the cards pass under the header', (
+    tester,
+  ) async {
+    // The scroll coverage More lost when it left `one_ui_test`'s matrix, with
+    // the hole that file's own docstring warns about closed: on a screen whose
+    // content fits, `maxScrollExtent` is 0 and a drag asserts *nothing*.
+    // Measured, More at 400x800 is exactly that case. So the extent is
+    // asserted first, and the doubled font is what guarantees one.
+    await tester.binding.setSurfaceSize(const Size(320, 500));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MediaQuery(
+        data: const MediaQueryData(textScaler: TextScaler.linear(2)),
+        child: host(const MoreScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final position = tester
+        .state<ScrollableState>(find.byType(Scrollable).first)
+        .position;
+    expect(
+      position.maxScrollExtent,
+      greaterThan(0),
+      reason: 'nothing to scroll -- the drag below would prove nothing',
+    );
+
+    final before = tester.getRect(find.byType(ChromeFeatureCard).first).top;
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -120));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(position.pixels, greaterThan(0));
+    expect(
+      tester.getRect(find.byType(ChromeFeatureCard).first).top,
+      lessThan(before),
+      reason: 'the content did not actually move',
+    );
   });
 
   testWidgets('paired cards are the same height', (tester) async {

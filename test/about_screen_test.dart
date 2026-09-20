@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:otaku_reader/core/widgets/chrome.dart';
@@ -63,12 +64,47 @@ void main() {
     }
   });
 
-  testWidgets('a doubled system font neither clips nor overflows', (
-    tester,
-  ) async {
+  /// The rows' *sentences*, which are prose and are uncapped.
+  ///
+  /// Not the rows' titles: `ChromeTile.title` stays `maxLines: 1` on purpose,
+  /// because a long title must ellipsise rather than shove its badge off the
+  /// screen -- pinned by `chrome_test.dart`. That cap holds a layout
+  /// invariant; these do not, and a cap on prose only hides the sentence.
+  const prose = <String>[
+    'Sources are published by the Mangayomi ecosystem and run '
+        'unmodified. Apache-2.0.',
+    'Metadata, recommendations and the home page shelves.',
+    'github.com/HeartlessVeteran2/Otaku-Reader-Flutter-',
+    'Open an issue',
+  ];
+
+  void expectNothingHidden(WidgetTester tester) {
+    // `takeException()` cannot see this: an ellipsis overflow throws nothing,
+    // it silently drops the end of the sentence. Note also that the
+    // widget-test font renders every glyph as a full em square -- roughly
+    // twice a device's width -- so this assertion is harder to satisfy here
+    // than in the app, which is the right direction for a guard to err.
+    for (final sentence in prose) {
+      expect(
+        tester
+            .renderObject<RenderParagraph>(find.text(sentence))
+            .didExceedMaxLines,
+        isFalse,
+        reason: '"$sentence" is truncated',
+      );
+    }
+  }
+
+  testWidgets('no row hides a word of its sentence', (tester) async {
+    await open(tester, size: const Size(320, 1400));
+    expect(tester.takeException(), isNull);
+    expectNothingHidden(tester);
+  });
+
+  testWidgets('nor at a doubled system font', (tester) async {
     // The hero card's height is entirely text, which is the one shape where a
     // large accessibility font is a layout change rather than a cosmetic one.
-    await tester.binding.setSurfaceSize(const Size(320, 1400));
+    await tester.binding.setSurfaceSize(const Size(320, 3000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     await tester.pumpWidget(
@@ -80,6 +116,40 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
+    expectNothingHidden(tester);
+  });
+
+  testWidgets('it scrolls, and the hero passes under the header', (
+    tester,
+  ) async {
+    // The scroll coverage About lost when it left `one_ui_test`'s matrix.
+    // The extent is asserted before the drag because that file's own
+    // docstring records the trap: on a screen whose content fits,
+    // `maxScrollExtent` is 0 and a drag proves nothing. Measured, About has
+    // 34px at 400x800 and 434px at 400x400 -- real, but small enough that
+    // asserting it is worth doing rather than assuming.
+    await open(tester, size: const Size(400, 500));
+
+    final position = tester
+        .state<ScrollableState>(find.byType(Scrollable).first)
+        .position;
+    expect(
+      position.maxScrollExtent,
+      greaterThan(0),
+      reason: 'nothing to scroll -- the drag below would prove nothing',
+    );
+
+    final before = tester.getRect(find.byType(ChromeCard).first).top;
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -120));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(position.pixels, greaterThan(0));
+    expect(
+      tester.getRect(find.byType(ChromeCard).first).top,
+      lessThan(before),
+      reason: 'the content did not actually move',
+    );
   });
 
   testWidgets('every row does something on tap', (tester) async {
