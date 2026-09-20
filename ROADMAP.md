@@ -166,11 +166,30 @@ The depth that separates "has the screens" from "is the app".
 | | AnymeX source | size |
 |---|---|---|
 | Profile-led header on tab roots — AniList avatar + badge + greeting | `lib/widgets/header/header.dart` | 1,012 |
-| Radius / glow **user multipliers** — roundness becomes a setting | `multiplyRadius()` / `multiplyGlow()` | — |
-| In-row segmented selectors, replacing radio dialogs | `anymex_tile.dart` | — |
+| ~~Radius / glow / blur **user multipliers** — roundness becomes a setting~~ | `multiplyRadius()` / `multiplyGlow()` | **shipped** |
+| ~~In-row segmented selectors, replacing radio dialogs~~ | `anymex_tile.dart` | **shipped** |
 | Searchable settings registry — relevance-scored, deep-links, highlights | `settings/search/*` | 659 |
 | Tap-zones editor — four profiles | `settings_tap_zones.dart` | 544 |
 | 5 missing reader settings | `readerControlTheme`, `chapterStyle`, `displayRefreshInterval`, `displayRefreshColor`, `navigateByNumber` | — |
+
+The two struck rows landed together, because the second is a consumer of the
+first. `ChromeMetrics` is a `ThemeExtension`, so every chrome widget reads the
+multipliers off the theme it is already under through `context.radius()` /
+`.glow()` / `.blur()` — rather than AnymeX's `Get.find`, which would make a
+DI registration a precondition for laying out a card. `test/chrome_test.dart`
+renders 35 chrome tests with no registrations at all, and that stays true.
+
+A third multiplier was added beyond AnymeX's two: **blur**. The pill header is
+this app's most expensive surface to composite, and a `BackdropFilter` at
+sigma 0 still saves and composites a layer, so the widget drops the filter
+entirely at zero rather than zeroing it — which makes the setting a real
+performance control on a slow device, not only a taste one. The same applies
+to the glow: at zero the whole `DecoratedBox` goes, because a `BoxShadow` with
+no blur and no spread paints a hard rectangle rather than nothing.
+
+`ChromeTile.choice` replaced the four radio dialogs (`_pick<T>`) on the
+Settings screen, and `ChromeTile.slider` is what the three multiplier rows are
+built from. Both are ports of `AnymeXTile`'s own factories.
 
 ### Phase D — the AniList experience
 

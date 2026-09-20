@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:iconsax/iconsax.dart';
 
+import 'package:otaku_reader/core/theme/chrome_metrics.dart';
 import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:otaku_reader/features/browse/controllers/extensions_controller.dart';
 
@@ -254,7 +255,9 @@ class _RepoCard extends StatelessWidget {
                 height: Chrome.leadingSize,
                 decoration: BoxDecoration(
                   color: scheme.primary.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(Chrome.leadingRadius),
+                  borderRadius: BorderRadius.circular(
+                    context.radius(Chrome.leadingRadius),
+                  ),
                 ),
                 child: Icon(Iconsax.link, size: 20, color: scheme.primary),
               ),

@@ -5,6 +5,7 @@ import 'package:iconsax/iconsax.dart';
 import 'package:otaku_reader/core/database/data_keys/keys.dart';
 import 'package:otaku_reader/core/database/kv_helper.dart';
 import 'package:otaku_reader/core/preferences/nsfw_preference.dart';
+import 'package:otaku_reader/core/theme/chrome_metrics.dart';
 import 'package:otaku_reader/core/theme/theme_controller.dart';
 import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:otaku_reader/data/anilist/anilist_auth.dart';
@@ -42,6 +43,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     key.set<int>(value);
     setState(() {});
   }
+
+  /// `1.0x`, not `100%`: the sliders are multipliers, and a percentage reads
+  /// as "how much of the maximum" rather than "how many times the default".
+  static String _scaleLabel(double value) => '${value.toStringAsFixed(1)}x';
 
   void _setBool(ReaderKeys key, bool value) {
     key.set<bool>(value);
@@ -92,6 +97,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 subtitle: 'The manga you have open colours the app',
                 value: _theme.useCoverColor.value,
                 onChanged: _theme.setUseCoverColor,
+              ),
+            ),
+          ],
+        ),
+        SliverChromeSection(
+          label: 'Shape',
+          children: [
+            // AnymeX's UI multipliers, and its own slider bounds so a value
+            // that works there works here. Every one of them reaches zero on
+            // purpose: square corners, no glow and no blur are real choices,
+            // and the last is the one that costs the least to draw.
+            Obx(
+              () => ChromeTile.slider(
+                icon: Iconsax.frame,
+                title: 'Corner roundness',
+                subtitle: 'Scales every rounded corner in the app',
+                value: _theme.radiusScale.value,
+                min: ChromeMetrics.minScale,
+                max: ChromeMetrics.maxRadiusScale,
+                divisions: 12,
+                valueLabel: _scaleLabel(_theme.radiusScale.value),
+                onChanged: _theme.setRadiusScale,
+              ),
+            ),
+            Obx(
+              () => ChromeTile.slider(
+                icon: Iconsax.flash,
+                title: 'Glow',
+                subtitle: 'How much cards bloom behind their edges',
+                value: _theme.glowScale.value,
+                min: ChromeMetrics.minScale,
+                max: ChromeMetrics.maxGlowScale,
+                divisions: 10,
+                valueLabel: _scaleLabel(_theme.glowScale.value),
+                onChanged: _theme.setGlowScale,
+              ),
+            ),
+            Obx(
+              () => ChromeTile.slider(
+                icon: Iconsax.blur,
+                title: 'Header blur',
+                subtitle: 'How hard the floating pills blur what is under them',
+                value: _theme.blurScale.value,
+                min: ChromeMetrics.minScale,
+                max: ChromeMetrics.maxBlurScale,
+                divisions: 10,
+                valueLabel: _scaleLabel(_theme.blurScale.value),
+                onChanged: _theme.setBlurScale,
               ),
             ),
           ],

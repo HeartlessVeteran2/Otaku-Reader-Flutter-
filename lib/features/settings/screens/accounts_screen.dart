@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:iconsax/iconsax.dart';
 
+import 'package:otaku_reader/core/theme/chrome_metrics.dart';
 import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:otaku_reader/core/util/open_link.dart';
 import 'package:otaku_reader/data/anilist/anilist_auth.dart';
@@ -140,9 +141,11 @@ Future<void> _askForToken(BuildContext context, AniListAuth auth) async {
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
-    shape: const RoundedRectangleBorder(
+    // Not `const`: the sheet's corner is the reader's radius setting now, and
+    // that is only knowable from a context.
+    shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(
-        top: Radius.circular(Chrome.cardRadius),
+        top: Radius.circular(context.radius(Chrome.cardRadius)),
       ),
     ),
     builder: (context) => const _TokenSheet(),
@@ -237,7 +240,9 @@ class _TokenSheetState extends State<_TokenSheet> {
             decoration: InputDecoration(
               hintText: 'Access token',
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(Chrome.leadingRadius),
+                borderRadius: BorderRadius.circular(
+                  context.radius(Chrome.leadingRadius),
+                ),
               ),
             ),
           ),

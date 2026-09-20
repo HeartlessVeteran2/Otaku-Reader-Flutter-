@@ -8,6 +8,7 @@ import 'package:iconsax/iconsax.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import 'package:otaku_reader/core/util/open_link.dart';
+import 'package:otaku_reader/core/theme/chrome_metrics.dart';
 import 'package:otaku_reader/core/widgets/chrome.dart';
 
 /// Version, licences and credits.
@@ -56,7 +57,9 @@ class _AboutScreenState extends State<AboutScreen> {
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       color: theme.colorScheme.primary.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(Chrome.cardRadius),
+                      borderRadius: BorderRadius.circular(
+                        context.radius(Chrome.cardRadius),
+                      ),
                     ),
                     child: FittedBox(
                       fit: BoxFit.scaleDown,

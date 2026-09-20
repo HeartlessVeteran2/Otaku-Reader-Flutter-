@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:otaku_reader/core/theme/chrome_metrics.dart';
 import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:otaku_reader/data/anilist/anilist_auth.dart';
 import 'package:otaku_reader/data/anilist/anilist_list_service.dart';
@@ -44,9 +45,11 @@ Future<AniListEdit?> showAniListEditSheet(
   context: context,
   isScrollControlled: true,
   showDragHandle: true,
-  shape: const RoundedRectangleBorder(
+  // Not `const`: the sheet's corner is the reader's radius setting now, and
+  // that is only knowable from a context.
+  shape: RoundedRectangleBorder(
     borderRadius: BorderRadius.vertical(
-      top: Radius.circular(Chrome.cardRadius),
+      top: Radius.circular(context.radius(Chrome.cardRadius)),
     ),
   ),
   builder: (_) => _EditSheet(
