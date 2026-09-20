@@ -515,6 +515,24 @@ identical from the outside.
   sources in place — a flaky network must not empty the extension list — which
   also means a dead repo is indistinguishable from a healthy one until you
   notice it never gains anything.
+- **The reader takes the wakelock from the setting and releases it
+  unconditionally.** AnymeX enables it in `onInit` and then corrects itself
+  once preferences load, which holds the screen awake against the user's own
+  choice for the width of that window — so the key is read first here. The
+  *release* is deliberately not keyed on anything: turning the switch off
+  mid-chapter would otherwise skip a release for a lock already taken. It
+  reaches the platform through `ScreenWakelock`, because `WakelockPlus` is a
+  static channel that a host-VM test can neither call nor observe — and a
+  setting a test cannot observe is exactly how this one shipped as a switch
+  with nothing behind it.
+- **A default that two files need lives in neither of them.**
+  `ReaderDefaults` holds the fallback for `keepScreenOn` and
+  `showPageIndicator` because the reader reads the key and the Settings switch
+  renders it. A pair that disagrees puts a switch on screen showing the
+  opposite of what the reader does, and nothing fails — each file is perfectly
+  self-consistent on its own. That is the same shape as the five times a rule
+  held in one file and not in its neighbour, except that here it can be closed
+  structurally instead of by remembering to grep.
 - **"Never checked" is a third state, not a failure.** A repo added before the
   record existed, or one whose refresh has never run, carries none — and that
   is something the user can act on, where "failed" is a claim about a request
@@ -959,6 +977,7 @@ Kept because they repeat.
 | Widget-test text metrics are not device text metrics | Measuring "at what font scale does this string stop fitting" returned **six truncated paragraphs at scale 1.0**, which read as a live bug on ordinary phones. It is not: `flutter test`'s default font renders **every glyph as a full em square** — measured, `i` and `M` are both exactly 14.0px at `fontSize: 14`, and a 9-character string is exactly 126px. That is roughly **twice** Roboto's width, so any test-measured line count, text width or truncation point is pessimistic by about 2x. It had been about to become a hardcoded threshold constant, which would have been a number with no meaning on a device. Two things follow: never derive a production constant from text measured in a widget test; and a `didExceedMaxLines` assertion is still a *good* guard precisely because it errs strict — if nothing is hidden in the test font, nothing is hidden on a device. |
 | The root Gradle hook said it pinned every subproject's `compileSdk`, and any plugin that set its own overwrote it | `plugins.withId("com.android.library") { android { compileSdk = 36 } }` runs at *apply* time — which is **before** the subproject's own `android { }` block, so a plugin that names a lower number simply wins. Measured with `file_picker`, which pins 34: `checkDebugAarMetadata` failed with "Dependency ':flutter_plugin_android_lifecycle' requires … version 36 or later. :file_picker is currently compiled against android-34." The comment above the hook asserted the opposite for its whole life, in the file whose closing lesson is that a comment asserting a property is not evidence the code has it. The two fixes that suggest themselves both fail: `afterEvaluate` is *too late* for `file_picker` ("It is too late to set compileSdk") and still too early for `install_plugin`, and swallowing that error just restores the original bug. `androidComponents.finalizeDsl` is the one hook after the script and before AGP reads the value. Found only because adding the bridge dragged in the first plugin that sets its own — nothing in this repo did, so the hook had never once been exercised on the case it was written for. |
 | Deciding a dependency question from the pin instead of the code | The bridge pins `d4rt 0.1.7` and this app carried `^0.2.4`, so the conclusion drawn — and written into this file, and into a PR — was that adopting the bridge means **deleting `lib/source/`**. Measured afterwards: the runtime compiles and runs on `0.1.7` with **one line** changed (`positionalArgs: [x]` → `args: x`; `0.1.7` wraps a single object itself), 512 tests pass, and the live sweep holds 55/55 ÷ 6/6 exactly. The real conflict was the *generator fork's* analyzer 8, not `d4rt` at all. A version constraint says what a package asks for, never what the code needs — and the difference between them was a subsystem. |
+| Two Settings switches wrote a key nothing read, and `flutter analyze` was clean | *Keep the screen on* had no wakelock dependency in `pubspec.yaml` at all, and *Show the page number* had no indicator in the reader — the only `*Indicator` match in `lib/` was `CircularProgressIndicator`. Both wrote their key on toggle and both round-tripped it perfectly, which is why nothing looked wrong: **a round-trip test is exactly what would have passed the whole time they were dead.** This is the second instance of the rule this file states outright (the first being the AniList link chips shipping with `onOpen: (_) {}`), and it was found by the `FEATURES.md` audit rather than by anything in the suite — because a checklist that counts *declared keys* reports parity for a feature nobody built. The fix that matters beyond the two controls: assert the **request** (a `ScreenWakelock` fake that records `enable`/`disable`) and the **rendered pill**, never the stored value. |
 | Building a screen without opening AnymeX's version of it | The repository sheet was designed from scratch while `/home/user/AnymeX-HV` sat on disk with a 911-line equivalent that is a screen rather than a sheet, splits the URL into monospace path over host, offers copy, dims and spins a row being deleted, and adds several URLs at once. Worse, the `TabBar` overflow two rows up was already designed out there: `AnymeXTabBar` gives each tab `1 / total` of the width with an ellipsised label, so it *cannot* overflow, while this app reached for Material's `TabBar` and then spent a long stretch measuring and patching it. The feature (per-repo health and counts) was genuinely net-new and AnymeX has nothing like it — but the shell around it was reinvented worse. Read the blueprint's version of a screen *before* designing one, not after a review finds the bug it had already avoided. |
 
 The general lesson, and the one that keeps recurring across both codebases:

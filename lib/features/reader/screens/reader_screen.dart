@@ -13,6 +13,8 @@ import 'package:otaku_reader/data/anilist/anilist_progress_sync.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
+import 'package:otaku_reader/features/reader/screen_wakelock.dart';
+import 'package:otaku_reader/features/reader/widgets/reader_page_indicator.dart';
 import 'package:otaku_reader/source/http/m_client.dart';
 import 'package:otaku_reader/source/model/page_url.dart';
 
@@ -45,6 +47,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
         Get.find<AniListMetadataService>(),
         Get.find<AniListListService>(),
       ),
+      wakelock: Get.find<ScreenWakelock>(),
       sourceId: widget.sourceId,
       mangaUrl: widget.mangaUrl,
       chapterUrl: widget.chapterUrl,
@@ -135,6 +138,21 @@ class _ReaderScreenState extends State<ReaderScreen> {
                   : _paged(),
             ),
             if (_chromeVisible) _chrome(),
+            // The chrome's bottom bar carries the counter while it is up, so
+            // this one fills the gap that actually exists: reading with the
+            // chrome hidden, where until now there was no page number at all.
+            Positioned(
+              top: MediaQuery.paddingOf(context).top + 8,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: ReaderPageIndicator(
+                  page: _c.page.value,
+                  total: _c.pages.length,
+                  visible: _c.showPageIndicator.value && !_chromeVisible,
+                ),
+              ),
+            ),
           ],
         );
       }),

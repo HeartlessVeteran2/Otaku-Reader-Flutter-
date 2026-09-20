@@ -62,6 +62,24 @@ enum ReaderKeys {
   prefetchOnWifiOnly,
 }
 
+/// What the reader falls back to for a key the user has never set.
+///
+/// Here rather than at either call site because there are two of them — the
+/// reader reads the key, and the Settings switch renders it — and a pair that
+/// disagrees puts a switch on screen showing the opposite of what the reader
+/// does. Nothing would fail: each file is perfectly self-consistent on its own,
+/// which is exactly the shape of defect this codebase keeps finding late.
+abstract final class ReaderDefaults {
+  /// A chapter is minutes of looking without touching the screen, so the
+  /// display timeout fires mid-page. AnymeX defaults this on too.
+  static const keepScreenOn = true;
+
+  /// Off, as AnymeX's is. The reader's own controls carry the number one tap
+  /// away, so a pill floating permanently over the artwork is something to ask
+  /// for rather than something to find and turn off.
+  static const showPageIndicator = false;
+}
+
 enum LibraryKeys {
   gridSize,
   sortType,

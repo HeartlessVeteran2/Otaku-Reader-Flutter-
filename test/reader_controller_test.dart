@@ -3,11 +3,14 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
+import 'package:otaku_reader/core/database/data_keys/keys.dart';
 import 'package:otaku_reader/core/database/database.dart' as db;
+import 'package:otaku_reader/core/database/kv_helper.dart';
 import 'package:otaku_reader/data/anilist/anilist_progress_sync.dart';
 import 'package:otaku_reader/data/repository/library_repository_impl.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
+import 'package:otaku_reader/features/reader/screen_wakelock.dart';
 import 'package:otaku_reader/source/model/filter.dart';
 import 'package:otaku_reader/source/model/m_chapter.dart';
 import 'package:otaku_reader/source/model/m_manga.dart';
@@ -18,6 +21,21 @@ import 'package:otaku_reader/source/model/source_preference.dart';
 import 'package:otaku_reader/source/source_methods.dart';
 
 import 'helpers/isar_test_env.dart';
+
+/// Records what the reader asked the platform for.
+///
+/// The point of the seam: `WakelockPlus` is static, so without this a test can
+/// assert only that the *key* round-trips -- which is exactly what was already
+/// passing while the switch did nothing at all.
+class _FakeWakelock implements ScreenWakelock {
+  int enables = 0;
+  int disables = 0;
+
+  @override
+  Future<void> enable() async => enables++;
+  @override
+  Future<void> disable() async => disables++;
+}
 
 const _sourceId = 9;
 const _manga = '/manga/example';
@@ -145,6 +163,8 @@ void main() {
 
   late _SpyReporter reporter;
 
+  late _FakeWakelock wakelock;
+
   Future<(ReaderController, _Methods)> open(
     String chapterUrl, {
     Map<String, List<PageUrl>>? pages,
@@ -153,10 +173,12 @@ void main() {
       ..pagesByChapter =
           pages ?? {'/c-1': _pages(3), '/c-2': _pages(4), '/c-3': _pages(2)};
     reporter = _SpyReporter();
+    wakelock = _FakeWakelock();
     final c = ReaderController(
       sources: _Sources(methods, _row()),
       library: library,
       anilistProgress: reporter,
+      wakelock: wakelock,
       sourceId: _sourceId,
       mangaUrl: _manga,
       chapterUrl: chapterUrl,
@@ -500,6 +522,7 @@ void main() {
       sources: _Sources(methods, _row()),
       library: library,
       anilistProgress: _SpyReporter(),
+      wakelock: _FakeWakelock(),
       sourceId: _sourceId,
       mangaUrl: _manga,
       chapterUrl: '/c-1',
@@ -592,6 +615,82 @@ void main() {
       final entry = await library.find(_sourceId, _manga);
       final chapter = entry!.chapters.firstWhere((x) => x.url == '/c-1');
       expect(chapter.localPath, isNull);
+    });
+  });
+
+  group('keep the screen on', () {
+    // The switch shipped writing `ReaderKeys.keepScreenOn` with nothing on the
+    // other side, so a round-trip test would have passed the whole time it was
+    // dead. These assert the *request*, which is the thing that was missing.
+
+    test('asks for the wakelock when the setting is on', () async {
+      await seed();
+      ReaderKeys.keepScreenOn.set<bool>(true);
+
+      await open('/c-1');
+
+      expect(wakelock.enables, 1);
+    });
+
+    test('an unset key defaults to on', () async {
+      // Absent is the state a fresh install is in, and it is a different state
+      // from a stored `true` -- the KV tier answers null for it, and the
+      // fallback is what decides.
+      await seed();
+
+      await open('/c-1');
+
+      expect(wakelock.enables, 1);
+    });
+
+    test('never asks when the setting is off', () async {
+      // The case AnymeX's shape gets wrong: it enables unconditionally in
+      // onInit and corrects itself once preferences load, which holds the
+      // screen awake against the user's choice for the width of that window.
+      await seed();
+      ReaderKeys.keepScreenOn.set<bool>(false);
+
+      await open('/c-1');
+
+      expect(wakelock.enables, 0);
+    });
+
+    test('releases it on close even when the setting is off', () async {
+      // Unconditional on the way out. If the release were keyed on the setting
+      // too, turning the switch off mid-chapter would strand a lock that had
+      // already been taken.
+      await seed();
+      ReaderKeys.keepScreenOn.set<bool>(true);
+      final (c, _) = await open('/c-1');
+      ReaderKeys.keepScreenOn.set<bool>(false);
+
+      c.onClose();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(wakelock.disables, 1);
+    });
+  });
+
+  group('show the page number', () {
+    // The controller half only. Whether the pill actually reaches the screen is
+    // asserted in reader_screen_test.dart, because a flag nothing renders is
+    // the same defect one layer up.
+
+    test('an unset key defaults to off, as AnymeX does', () async {
+      await seed();
+
+      final (c, _) = await open('/c-1');
+
+      expect(c.showPageIndicator.value, isFalse);
+    });
+
+    test('follows the stored setting', () async {
+      await seed();
+      ReaderKeys.showPageIndicator.set<bool>(true);
+
+      final (c, _) = await open('/c-1');
+
+      expect(c.showPageIndicator.value, isTrue);
     });
   });
 }

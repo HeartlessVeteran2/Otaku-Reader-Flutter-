@@ -138,13 +138,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
             SwitchListTile(
               secondary: const Icon(Iconsax.sun_1),
               title: const Text('Keep the screen on'),
-              value: _readerBool(ReaderKeys.keepScreenOn, true),
+              subtitle: const Text('While a chapter is open'),
+              // Taken when the reader opens and released when it closes, so
+              // the switch only decides what the *next* chapter does.
+              value: _readerBool(
+                ReaderKeys.keepScreenOn,
+                ReaderDefaults.keepScreenOn,
+              ),
               onChanged: (v) => _setBool(ReaderKeys.keepScreenOn, v),
             ),
             SwitchListTile(
               secondary: const Icon(Iconsax.document),
               title: const Text('Show the page number'),
-              value: _readerBool(ReaderKeys.showPageIndicator, true),
+              subtitle: const Text('Stays on screen with the controls hidden'),
+              // Defaults to off, as AnymeX's does. The reader's own controls
+              // already carry the number one tap away, so a pill floating over
+              // the artwork is worth asking for rather than turning off.
+              value: _readerBool(
+                ReaderKeys.showPageIndicator,
+                ReaderDefaults.showPageIndicator,
+              ),
               onChanged: (v) => _setBool(ReaderKeys.showPageIndicator, v),
             ),
           ],

@@ -19,6 +19,7 @@ import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/features/browse/controllers/extensions_controller.dart';
 import 'package:otaku_reader/features/home/controllers/home_controller.dart';
 import 'package:otaku_reader/features/library/controllers/library_controller.dart';
+import 'package:otaku_reader/features/reader/screen_wakelock.dart';
 import 'package:otaku_reader/features/updates/controllers/updates_controller.dart';
 import 'package:otaku_reader/data/repository/download_repository_impl.dart';
 import 'package:otaku_reader/domain/repository/download_repository.dart';
@@ -82,6 +83,10 @@ class AppBindings extends Bindings {
       AniListMetadataService(anilist: Get.find<AniListRepository>()),
       permanent: true,
     );
+    // Registered rather than constructed inside the reader, so a test can put a
+    // fake in its place -- the plugin behind it is a static platform channel
+    // that a host VM can neither call nor watch.
+    Get.put<ScreenWakelock>(const WakelockPlusScreen(), permanent: true);
 
     // lazyPut, so the catalogue is not read until the Browse tab is first
     // opened. The shell builds its tabs lazily for the same reason.

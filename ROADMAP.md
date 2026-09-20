@@ -65,10 +65,14 @@ AnymeX's 35"* and counted that as parity. Audited against the code, the reader
 honours **two**: `readingLayout` and `readingDirection`. The other 32 keys are
 declared and never read.
 
-Worse, two Settings controls write a key nothing consumes — *Keep the screen
-on* (no wakelock dependency exists in `pubspec.yaml`) and *Show the page
-number* (no indicator exists in the reader). That is live UI wired to nothing,
+Worse, two Settings controls wrote a key nothing consumed — *Keep the screen
+on* (no wakelock dependency existed in `pubspec.yaml`) and *Show the page
+number* (no indicator existed in the reader). That is live UI wired to nothing,
 which `CLAUDE.md` forbids, and it shipped.
+
+**Both were fixed on 2026-09-20**, which takes the count to **four of 34**. The
+30 that remain have no control behind them, so they are ordinary unbuilt
+features rather than dead UI — see *Reader depth* below.
 
 **The lesson, which is this project's oldest:** an enum of keys is a
 declaration, not a behaviour. Counting declarations is how a checklist reports
@@ -108,12 +112,12 @@ would drag in:
 
 Each one ships on its own. Sizes are AnymeX's source, measured.
 
-### Phase A — finish the shell, and the inert controls *(in flight)*
+### Phase A — finish the shell *(in flight)*
 
-**First, two live controls that do nothing** — *Keep the screen on* and *Show
-the page number*. Small, and they are a shipped violation of this project's own
-"never stub live UI" rule, so they go before more shell work.
-
+**Done first: the two live controls that did nothing** — *Keep the screen on*
+and *Show the page number*, each a shipped violation of this project's own
+"never stub live UI" rule. Both ported from AnymeX: `wakelock_plus` behind a
+`ScreenWakelock` seam, and `_buildPageInfo`'s pill.
 
 Nine screens still wear the old One UI chrome, so the app currently looks like
 two apps. Everything built after this is built in the final vocabulary instead
@@ -193,7 +197,7 @@ they need, not by the original issue numbers.
   nav-tab reorder
 - **Downloads depth** — smart rules, auto-download by category, queue manager,
   CBZ encryption, storage analytics, data-usage budget
-- **Reader depth** — the 32 declared-but-unread `ReaderKeys` (crop borders,
+- **Reader depth** — the 30 declared-but-unread `ReaderKeys` (crop borders,
   auto-webtoon, tap zones, colour filter and blend mode, e-ink refresh,
   auto-scroll, volume keys, long-press page actions, dual page, …), plus
   per-manga settings UI, presets, per-manga dynamic theme and read-time
