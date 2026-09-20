@@ -580,13 +580,15 @@ class PillHeaderState extends State<PillHeader> {
               color: scheme.onSurface.withValues(alpha: 0.08),
               width: 0.5,
             ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.08),
-                blurRadius: 24,
-                offset: const Offset(0, 4),
-              ),
-            ],
+            // The one shadow on screen on every route, so this is where a
+            // glow multiplier is actually felt. AnymeX scales its scaffold's
+            // shadow the same way, through `glowingShadow`.
+            boxShadow: glowShadow(
+              context,
+              color: Colors.black.withValues(alpha: 0.08),
+              blurRadius: 24,
+              offset: const Offset(0, 4),
+            ),
           ),
           child: child,
         ),
@@ -887,13 +889,12 @@ class SegmentedTabs extends StatelessWidget implements PreferredSizeWidget {
                     borderRadius: BorderRadius.circular(
                       context.radius(Chrome.segmentRadius),
                     ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: scheme.secondary.withValues(alpha: 0.3),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
+                    boxShadow: glowShadow(
+                      context,
+                      color: scheme.secondary.withValues(alpha: 0.3),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
                   ),
                 ),
               ),
@@ -1035,26 +1036,21 @@ class ChromeCard extends StatelessWidget {
               ),
       ),
     );
-    if (border != null || (glow && context.glow(1) > 0)) {
+    final shadow = glow
+        ? glowShadow(
+            context,
+            color: scheme.primary.withValues(alpha: 0.05),
+            blurRadius: 50,
+            spreadRadius: 2,
+            offset: const Offset(-1, 1),
+          )
+        : null;
+    if (border != null || shadow != null) {
       content = DecoratedBox(
         decoration: BoxDecoration(
           borderRadius: shape,
           border: border,
-          // The glow is the one thing `glowScale` exists for, so it is scaled
-          // rather than the radius. At 0 the shadow goes away entirely --
-          // a `BoxShadow` with no blur and no spread still paints a hard
-          // rectangle behind the card, which is not "no glow", it is a
-          // different and worse decoration.
-          boxShadow: glow && context.glow(1) > 0
-              ? [
-                  BoxShadow(
-                    color: scheme.primary.withValues(alpha: 0.05),
-                    offset: const Offset(-1, 1),
-                    blurRadius: context.glow(50),
-                    spreadRadius: context.glow(2),
-                  ),
-                ]
-              : null,
+          boxShadow: shadow,
         ),
         child: content,
       );

@@ -122,3 +122,33 @@ extension ChromeMetricsX on BuildContext {
   double blur(double base) =>
       (base * chromeMetrics.blurScale).clamp(0.0, double.infinity);
 }
+
+/// A shadow that honours the reader's glow multiplier, or no shadow at all.
+///
+/// A free function for the same reason AnymeX's `glowingShadow` /
+/// `lightGlowingShadow` are: the *remove it at zero* rule has to live in one
+/// place. A `BoxShadow` whose blur and spread have been scaled to 0 is not
+/// "no glow" — it paints a hard rectangle behind the surface, which is a
+/// different and worse decoration than none. Left to each call site, one of
+/// them eventually scales to zero instead of dropping out, and the defect is
+/// invisible in the diff.
+///
+/// Returns `null` rather than an empty list so it drops straight into
+/// `BoxDecoration.boxShadow`, whose own "none" is null.
+List<BoxShadow>? glowShadow(
+  BuildContext context, {
+  required Color color,
+  required double blurRadius,
+  double spreadRadius = 0,
+  Offset offset = Offset.zero,
+}) {
+  if (context.glow(1) <= 0) return null;
+  return [
+    BoxShadow(
+      color: color,
+      blurRadius: context.glow(blurRadius),
+      spreadRadius: context.glow(spreadRadius),
+      offset: offset,
+    ),
+  ];
+}

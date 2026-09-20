@@ -76,6 +76,121 @@ void main() {
     expect(paintedCardRadius(tester), 0);
   });
 
+  // ---------------------------------------------------------------------
+  // The live surfaces.
+  //
+  // Everything above builds a `ChromeCard(glow: true)` by hand, and all of it
+  // passed while the app rendered **no glow at all**: `ChromeCard.glow`
+  // defaults to false and not one caller in `lib/` ever set it, so the slider
+  // wrote a key that reached nothing on screen. Found by `codeant-ai` on #54,
+  // and it is the third time this project has shipped a control wired to
+  // nothing.
+  //
+  // So these render what the app actually renders. The rule they encode: a
+  // multiplier is only live if it changes a surface no test had to opt into.
+  // ---------------------------------------------------------------------
+
+  /// Every `BoxShadow` painted anywhere under [root].
+  ///
+  /// Deliberately not scoped to one widget type: the pill decorates a
+  /// `Container` and `ChromeCard` a `DecoratedBox`, and a guard that knew
+  /// which was which would stop seeing the shadow the day one of them is
+  /// refactored into the other.
+  List<BoxShadow> shadowsUnder(WidgetTester tester, Finder root) {
+    final found = <BoxShadow>[];
+    final candidates = find.descendant(
+      of: root,
+      matching: find.byWidgetPredicate(
+        (w) => w is Container || w is DecoratedBox,
+      ),
+    );
+    for (final widget in tester.widgetList(candidates)) {
+      final decoration = widget is Container
+          ? widget.decoration
+          : (widget as DecoratedBox).decoration;
+      if (decoration is BoxDecoration && decoration.boxShadow != null) {
+        found.addAll(decoration.boxShadow!);
+      }
+    }
+    return found;
+  }
+
+  Widget scaffold({ChromeMetrics? metrics}) => MaterialApp(
+    theme: ThemeData(extensions: metrics == null ? const [] : [metrics]),
+    home: ChromeScaffold.slivers(
+      title: 'Title',
+      slivers: [
+        SliverList.builder(
+          itemCount: 6,
+          itemBuilder: (context, i) => SizedBox(height: 56, child: Text('$i')),
+        ),
+      ],
+    ),
+  );
+
+  testWidgets('the glow multiplier reaches a surface the app really paints', (
+    tester,
+  ) async {
+    // The regression guard for the defect above, and the only test here that
+    // would have failed on the shipped code. It opts into nothing: a plain
+    // scaffold, exactly as every screen builds one. If the sole consumer of
+    // `glowScale` goes back to being an opt-in flag nobody sets, turning the
+    // slider to 0 stops changing anything and this fails.
+    await tester.pumpWidget(scaffold());
+    await tester.pumpAndSettle();
+    final lit = shadowsUnder(tester, find.byType(ChromeScaffold));
+
+    await tester.pumpWidget(
+      scaffold(metrics: ChromeMetrics.standard.copyWith(glowScale: 0)),
+    );
+    await tester.pumpAndSettle();
+    final dark = shadowsUnder(tester, find.byType(ChromeScaffold));
+
+    expect(lit, isNotEmpty, reason: 'the default app paints a shadow at all');
+    expect(
+      dark,
+      isEmpty,
+      reason: 'and the slider at 0 takes every one of them away',
+    );
+  });
+
+  testWidgets('the header pill scales its shadow rather than swapping it', (
+    tester,
+  ) async {
+    // Scaled, not merely present: a shadow that ignores the number is the
+    // same defect one step further in.
+    await tester.pumpWidget(
+      scaffold(metrics: ChromeMetrics.standard.copyWith(glowScale: 2)),
+    );
+    await tester.pumpAndSettle();
+
+    final blurs = shadowsUnder(
+      tester,
+      find.byType(ChromeScaffold),
+    ).map((s) => s.blurRadius);
+
+    expect(blurs, contains(48.0), reason: 'the pill 24 doubled');
+  });
+
+  testWidgets('the selected segment honours it too', (tester) async {
+    // The second live shadow, and the reason `glowShadow` is a free function:
+    // two call sites had to agree about what zero means, and left to
+    // themselves one of them scales to zero and paints a hard rectangle.
+    await tester.pumpWidget(
+      host(
+        SegmentedTabs(
+          tabs: const [Text('A'), Text('B')],
+          selectedIndex: 0,
+          onSelected: (_) {},
+        ),
+        metrics: ChromeMetrics.standard.copyWith(glowScale: 0),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(shadowsUnder(tester, find.byType(SegmentedTabs)), isEmpty);
+  });
+
   testWidgets('glow at zero draws no shadow at all', (tester) async {
     // Not a zero-blur shadow: a `BoxShadow` with no blur and no spread paints
     // a hard rectangle behind the card, which is a different decoration
