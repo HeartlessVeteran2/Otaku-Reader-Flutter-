@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
 
+import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:otaku_reader/data/anilist/anilist_auth.dart';
 import 'package:otaku_reader/features/settings/screens/accounts_screen.dart';
 
@@ -324,5 +326,76 @@ void main() {
     expect(find.text('Sign out of AniList?'), findsNothing);
     expect(auth.isSignedIn, isTrue);
     expect(find.text('Reader'), findsOneWidget);
+  });
+
+  group('the chrome contract holds on every branch', () {
+    // Converted from `OneUiScaffold` to `ChromeScaffold`, which floats its
+    // header over the body instead of reserving a bar for it. That swaps one
+    // failure mode for another: a body that starts too high is not an
+    // exception, it is a row rendered behind a translucent blurred pill --
+    // which reads as a design flourish rather than as a control nobody can
+    // press, and `flutter analyze` is clean throughout.
+    for (final width in <double>[320, 360, 384]) {
+      testWidgets('the sign-in row clears the pill at ${width.toInt()}px', (
+        tester,
+      ) async {
+        await tester.binding.setSurfaceSize(Size(width, 720));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final auth = AniListAuth(
+          storage: FakeVault(),
+          clientId: 'abc',
+          client: FakeClient(viewerBody()),
+        );
+        await auth.restore();
+        await show(tester, auth);
+        await tester.pumpAndSettle();
+
+        final header = tester.getRect(find.byType(PillHeader));
+        final row = tester.getRect(find.text('Not signed in'));
+        expect(row.top, greaterThanOrEqualTo(header.bottom));
+      });
+    }
+
+    testWidgets('the setup instruction is not truncated at a doubled font', (
+      tester,
+    ) async {
+      // The longest prose in the app: a four-step shell recipe in a build
+      // with no client id, which is what a fresh clone renders. An ellipsis
+      // throws nothing, so `takeException()` is blind to it and
+      // `didExceedMaxLines` is the question actually being asked.
+      await tester.binding.setSurfaceSize(const Size(320, 1400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      // Restored, or `isReady` stays false and the screen renders its
+      // spinner -- which never settles, so `pumpAndSettle` times out on an
+      // animation rather than failing on anything this test is about.
+      final auth = AniListAuth(storage: FakeVault(), clientId: '');
+      await auth.restore();
+      Get.put<AniListAuth>(auth);
+      await tester.pumpWidget(
+        MediaQuery(
+          data: const MediaQueryData(textScaler: TextScaler.linear(2)),
+          child: const GetMaterialApp(home: AccountsScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+
+      var checked = 0;
+      for (final element in find.byType(RichText).evaluate()) {
+        final paragraph = element.renderObject! as RenderParagraph;
+        if (paragraph.maxLines == 1) continue;
+        checked++;
+        expect(
+          paragraph.didExceedMaxLines,
+          isFalse,
+          reason: 'hidden text: "${paragraph.text.toPlainText()}"',
+        );
+      }
+      // A filter that matches nothing passes every assertion it never makes.
+      expect(checked, greaterThan(0), reason: 'no uncapped text was examined');
+    });
   });
 }
