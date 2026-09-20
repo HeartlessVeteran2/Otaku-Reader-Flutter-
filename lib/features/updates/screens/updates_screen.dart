@@ -8,6 +8,8 @@ import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/features/reader/screens/reader_screen.dart';
 import 'package:otaku_reader/features/updates/controllers/updates_controller.dart';
 import 'package:otaku_reader/source/http/m_client.dart';
+import 'package:otaku_reader/core/ui/greeting_text.dart';
+import 'package:otaku_reader/features/settings/widgets/profile_avatar.dart';
 
 /// New chapters, newest first, grouped by the day they were found.
 class UpdatesScreen extends StatelessWidget {
@@ -19,6 +21,13 @@ class UpdatesScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return ChromeScaffold.slivers(
       title: 'Updates',
+      // The account leads the header, and the greeting sits under the
+      // title -- AnymeX's shape for a tab root. Both degrade on their
+      // own: the avatar has a state for every answer `AniListAuth` can
+      // give, and the leading is dropped entirely on a route that can
+      // pop, where the back button needs that slot.
+      leading: const ProfileAvatar(),
+      subtitleWidget: const GreetingText(),
       onRefresh: _c.refreshLibrary,
       actions: [
         Obx(

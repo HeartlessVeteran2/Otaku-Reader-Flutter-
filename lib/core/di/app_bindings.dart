@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:get/get.dart';
 
 import 'package:otaku_reader/core/preferences/nsfw_preference.dart';
+import 'package:otaku_reader/core/ui/greeting_controller.dart';
 import 'package:otaku_reader/core/theme/theme_controller.dart';
 import 'package:otaku_reader/data/anilist/anilist_auth.dart';
 import 'package:otaku_reader/data/anilist/anilist_list_service.dart';
@@ -45,6 +46,10 @@ class AppBindings extends Bindings {
     // Settings. Each used to keep its own copy, so a write from one reached
     // none of the others.
     Get.put<NsfwPreference>(NsfwPreference(), permanent: true);
+
+    // Eager and permanent, not lazy: every tab root renders it, its timer has
+    // to be running before the first one is built, and it costs one string.
+    Get.put<GreetingController>(GreetingController(), permanent: true);
     // Permanent, because the signed-in account is app-wide state and the
     // stored token is read once at startup rather than per screen.
     final anilistAuth = Get.put<AniListAuth>(AniListAuth(), permanent: true);
