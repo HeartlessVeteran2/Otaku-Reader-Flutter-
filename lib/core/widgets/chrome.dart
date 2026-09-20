@@ -1157,11 +1157,27 @@ class ChromeTile extends StatelessWidget {
       showChevron: false,
       content: Padding(
         padding: const EdgeInsets.only(top: 10),
-        child: SegmentedTabs(
-          tabs: [for (final label in labels) Text(label)],
-          selectedIndex: selectedIndex,
-          onSelected: live ? onSelected : (_) {},
-          padding: EdgeInsets.zero,
+        // `IgnorePointer`, not a no-op callback. A disabled row that keeps a
+        // live `GestureDetector` still fires `HapticFeedback.lightImpact()`
+        // and still runs the selection animation, so the control buzzes and
+        // moves while changing nothing -- live UI wired to nothing, which is
+        // the defect this project has now shipped twice. Found by
+        // `codeant-ai`.
+        //
+        // Dimmed to match, because a control that looks live and silently
+        // refuses is worse than one that looks unavailable. `ChromeTile`
+        // already greys a disabled title; this is the same 0.4 on its body.
+        child: IgnorePointer(
+          ignoring: !live,
+          child: Opacity(
+            opacity: live ? 1 : 0.4,
+            child: SegmentedTabs(
+              tabs: [for (final label in labels) Text(label)],
+              selectedIndex: selectedIndex,
+              onSelected: onSelected ?? (_) {},
+              padding: EdgeInsets.zero,
+            ),
+          ),
         ),
       ),
     );

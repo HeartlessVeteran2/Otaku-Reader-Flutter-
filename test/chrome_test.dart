@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:otaku_reader/core/widgets/chrome.dart';
@@ -706,5 +707,97 @@ void main() {
       ),
     );
     expect(height, 0);
+  });
+
+  group('a disabled choice row is inert, not merely ineffective', () {
+    // `ChromeTile.choice` used to pass `(_) {}` when disabled, which left
+    // `_Segment`'s GestureDetector fully live: a tap still fired
+    // `HapticFeedback.lightImpact()` and still ran the selection animation,
+    // so the control buzzed and moved while changing nothing. That is live UI
+    // wired to nothing -- the defect this project has shipped twice -- and it
+    // is invisible to every assertion about the callback, because the
+    // callback genuinely was not called. Found by `codeant-ai`.
+
+    /// Counts the haptics the platform was actually asked for.
+    ///
+    /// The haptic is the tell. Asserting `onSelected` was not called passes on
+    /// the broken version too, since a no-op callback is still not the real
+    /// one; what separates them is whether the gesture ran at all.
+    List<String> hapticsDuring(WidgetTester tester) {
+      final calls = <String>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'HapticFeedback.vibrate') {
+            calls.add(call.arguments as String? ?? '');
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+      return calls;
+    }
+
+    Future<void> pump(
+      WidgetTester tester, {
+      required bool enabled,
+      required ValueChanged<int>? onSelected,
+    }) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ChromeSection(
+              children: [
+                ChromeTile.choice(
+                  title: 'Reading direction',
+                  labels: const ['Left to right', 'Right to left'],
+                  selectedIndex: 0,
+                  enabled: enabled,
+                  onSelected: onSelected,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('disabled: no callback and no haptic', (tester) async {
+      final haptics = hapticsDuring(tester);
+      var selected = -1;
+      await pump(tester, enabled: false, onSelected: (i) => selected = i);
+
+      await tester.tap(find.text('Right to left'), warnIfMissed: false);
+      await tester.pumpAndSettle();
+
+      expect(selected, -1, reason: 'the setting did not change');
+      expect(
+        haptics,
+        isEmpty,
+        reason: 'and the control did not pretend it had',
+      );
+    });
+
+    testWidgets('enabled: the callback fires, and so does the haptic', (
+      tester,
+    ) async {
+      // The other half. Without it, `IgnorePointer(ignoring: true)` would
+      // satisfy the test above and break every working selector in the app.
+      final haptics = hapticsDuring(tester);
+      var selected = -1;
+      await pump(tester, enabled: true, onSelected: (i) => selected = i);
+
+      await tester.tap(find.text('Right to left'));
+      await tester.pumpAndSettle();
+
+      expect(selected, 1);
+      expect(haptics, isNotEmpty);
+    });
   });
 }
