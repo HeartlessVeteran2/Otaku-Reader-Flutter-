@@ -1,3 +1,8 @@
+// Derived from AnymeX (https://github.com/RyanYuuki/AnymeX),
+// MIT License, Copyright (c) 2024 Ryan _.
+// See NOTICE and licenses/AnymeX-MIT.txt for the permission notice that
+// licence requires to travel with these portions.
+
 import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 
