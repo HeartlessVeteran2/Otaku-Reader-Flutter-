@@ -1087,6 +1087,86 @@ class ChromeTile extends StatelessWidget {
   /// behind a radio dialog, and that is the direction this app is moving.
   final Widget? content;
 
+  /// A row whose control is a switch.
+  ///
+  /// Ported from `AnymeXTile.toggle`. Two things carry over and one does not:
+  /// the whole row is the tap target (a 36px switch is a poor one, and the
+  /// label is what the user is aiming at), and the chevron goes, because the
+  /// row does not lead anywhere. What is *not* carried over is AnymeX's
+  /// hand-resolved `thumbColor`/`trackColor`: this app's scheme generates
+  /// every on-colour against the colour it sits on, and re-deriving them by
+  /// hand is the same move as the `ColorScheme.fromSeed` override trap
+  /// recorded in `CLAUDE.md` — it replaces the finished role colour and keeps
+  /// the contrast that was computed for a different one.
+  factory ChromeTile.toggle({
+    Key? key,
+    required String title,
+    String? subtitle,
+    required bool value,
+    required ValueChanged<bool>? onChanged,
+    IconData? icon,
+    Widget? leading,
+    bool enabled = true,
+  }) {
+    final live = enabled && onChanged != null;
+    return ChromeTile(
+      key: key,
+      title: title,
+      subtitle: subtitle,
+      icon: icon,
+      leading: leading,
+      enabled: enabled,
+      showChevron: false,
+      onTap: live ? () => onChanged(!value) : null,
+      trailing: Switch(value: value, onChanged: live ? onChanged : null),
+    );
+  }
+
+  /// A row whose control is a segmented pill under the label.
+  ///
+  /// Ported from `AnymeXTile.segmented`, and the port is nearly free because
+  /// AnymeX's in-row selector *is* its tab bar reused — so this is
+  /// [SegmentedTabs], the same widget the tab strips use, dropped into
+  /// [content].
+  ///
+  /// Replaces the radio dialog (`_pick<T>`) this app opened for every
+  /// single-choice setting. The labels are the short form and the sentence
+  /// belongs in [subtitle]: a segment is `1 / options.length` of the row by
+  /// construction, so a long one ellipsises rather than overflowing — the
+  /// same cap that fixed the `TabBar` overflow, and the reason a choice with
+  /// many options still wants a screen rather than a row.
+  factory ChromeTile.choice({
+    Key? key,
+    required String title,
+    String? subtitle,
+    required int selectedIndex,
+    required List<String> labels,
+    required ValueChanged<int>? onSelected,
+    IconData? icon,
+    Widget? leading,
+    bool enabled = true,
+  }) {
+    final live = enabled && onSelected != null;
+    return ChromeTile(
+      key: key,
+      title: title,
+      subtitle: subtitle,
+      icon: icon,
+      leading: leading,
+      enabled: enabled,
+      showChevron: false,
+      content: Padding(
+        padding: const EdgeInsets.only(top: 10),
+        child: SegmentedTabs(
+          tabs: [for (final label in labels) Text(label)],
+          selectedIndex: selectedIndex,
+          onSelected: live ? onSelected : (_) {},
+          padding: EdgeInsets.zero,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;

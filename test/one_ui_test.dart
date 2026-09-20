@@ -30,7 +30,6 @@ import 'package:otaku_reader/features/home/controllers/home_controller.dart';
 import 'package:otaku_reader/features/home/screens/home_screen.dart';
 import 'package:otaku_reader/features/library/controllers/library_controller.dart';
 import 'package:otaku_reader/features/library/screens/library_screen.dart';
-import 'package:otaku_reader/features/settings/screens/settings_screen.dart';
 import 'package:otaku_reader/features/updates/controllers/updates_controller.dart';
 import 'package:otaku_reader/features/updates/screens/updates_screen.dart';
 import 'package:otaku_reader/source/model/filter.dart';
@@ -167,11 +166,11 @@ void main() {
   /// happens to pass. `ChromeScaffold.slivers` also builds a `CustomScrollView`
   /// internally, so a converted screen can satisfy every assertion below while
   /// this group's own docstring has stopped being true of it — which is this
-  /// project's most-recorded defect, in a test file. More and About left for
-  /// exactly that reason; they are covered by `more_screen_test.dart` and
-  /// `about_screen_test.dart`, which assert the chrome contract instead.
+  /// project's most-recorded defect, in a test file. More, About and Settings
+  /// left for exactly that reason; they are covered by `more_screen_test.dart`,
+  /// `about_screen_test.dart` and `settings_screen_test.dart`, which assert the
+  /// chrome contract instead.
   final screens = <String, Widget Function()>{
-    'Settings': () => const SettingsScreen(),
     'Downloads': () => const DownloadsScreen(),
   };
 
@@ -556,68 +555,6 @@ void main() {
     c.onClose();
   });
 
-  testWidgets('the Accounts row does not claim signed-out before it knows', (
-    tester,
-  ) async {
-    // `isReady` exists because "not signed in" and "not looked yet" are
-    // different answers, and startup spends real time in the second:
-    // `AppBindings` launches `restore()` unawaited. A row reading only
-    // `viewer` tells a signed-in user the opposite of the truth for as long
-    // as the keystore read takes — and the Accounts screen this row opens
-    // gets it right, so the two would disagree on the same screen tap.
-    //
-    // Deliberately *not* restored, which is the one state the shared harness
-    // cannot provide because the app never sits in it for long.
-    await Get.delete<AniListAuth>();
-    Get.put<AniListAuth>(
-      AniListAuth(
-        storage: FakeVault()..store['anilist_access_token'] = 'stored',
-        clientId: 'abc',
-        client: FakeClient(viewerBody()),
-      ),
-    );
-
-    await tester.pumpWidget(wrap(const SettingsScreen()));
-    await tester.pump();
-    await tester.scrollUntilVisible(find.text('AniList'), 200);
-
-    expect(find.text('Checking…'), findsOneWidget);
-    expect(
-      find.text('Not signed in'),
-      findsNothing,
-      reason: 'the token has not been read, so that is not yet an answer',
-    );
-  });
-
-  testWidgets('the Settings switch writes the shared preference', (
-    tester,
-  ) async {
-    // Half of issue #31's chain, and the half a unit test cannot reach: the
-    // switch must write the *shared* holder rather than the key directly or a
-    // copy of its own. The other half — Home re-filtering when that holder
-    // changes — is the test below.
-    //
-    // Deliberately no `HomeController` here. Driving one through `onInit`
-    // inside a widget test hangs on real Isar reads that never complete in the
-    // fake-async zone; that is a known trap in this repo, not a thing to
-    // rediscover by waiting ten minutes for a timeout.
-    nsfw.setShown(true);
-
-    await tester.pumpWidget(wrap(const SettingsScreen()));
-    await tester.pumpAndSettle();
-    await tester.drag(find.byType(CustomScrollView), const Offset(0, -600));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byType(Switch).last);
-    await tester.pumpAndSettle();
-
-    expect(
-      nsfw.shown.value,
-      isFalse,
-      reason: 'the switch wrote the holder every other screen observes',
-    );
-  });
-
   testWidgets('a group renders its label above the rows, not inside them', (
     tester,
   ) async {
@@ -662,38 +599,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Group'), findsNothing);
-  });
-
-  testWidgets('Settings keeps every control it had before the restyle', (
-    tester,
-  ) async {
-    // The restyle must not lose a setting. A screen that reads better and does
-    // less is a regression, so this names the controls rather than counting
-    // them.
-    await tester.pumpWidget(wrap(const SettingsScreen()));
-    await tester.pumpAndSettle();
-
-    for (final label in [
-      'Theme',
-      'Pure black dark theme',
-      'Colour source',
-      'Tint from the cover',
-    ]) {
-      expect(find.text(label), findsOneWidget, reason: label);
-    }
-
-    await tester.drag(find.byType(CustomScrollView), const Offset(0, -600));
-    await tester.pumpAndSettle();
-
-    for (final label in [
-      'Reading layout',
-      'Reading direction',
-      'Keep the screen on',
-      'Show the page number',
-      'Show 18+ sources',
-    ]) {
-      expect(find.text(label), findsOneWidget, reason: label);
-    }
   });
 
   testWidgets('Downloads shows its empty state through the sliver list', (
