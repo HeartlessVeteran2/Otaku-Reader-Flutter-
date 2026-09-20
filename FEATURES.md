@@ -73,7 +73,7 @@ The single most important surface. Combined list from both apps.
 > those two is the first item of reader work, not a nice-to-have: `CLAUDE.md`
 > forbids live UI wired to nothing.
 
-**Modes & layout** — [x] paged and continuous · [~] 4 directions (LTR/RTL/top-down/bottom-up) · [ ] dual-page (off/auto-landscape/force) with **shift double pages** · [ ] auto webtoon mode (switches to vertical from page aspect ratios) · [ ] fit-to-screen-width · [ ] webtoon side padding and page gap · [ ] image width multiplier + desktop max-width clamp · [ ] spaced pages
+**Modes & layout** — [x] paged and continuous · [~] 4 directions — **LTR and RTL only**; `ReadingDirection` has exactly two members, and top-down / bottom-up do not exist · [ ] dual-page (off/auto-landscape/force) with **shift double pages** · [ ] auto webtoon mode (switches to vertical from page aspect ratios) · [ ] fit-to-screen-width · [ ] webtoon side padding and page gap · [ ] image width multiplier + desktop max-width clamp · [ ] spaced pages
 
 **Rendering** — [ ] tiled/subsampled decoding for tall strips (AnymeX's `subsampling_scale_image_view/` + FFI decoder) · [ ] crop borders (white/black margin removal) · [ ] image filter quality incl. Lanczos pre-scale · [ ] image quality / data-saver downscaling · [ ] pinch + double-tap zoom, disable-zoom-out option
 
@@ -83,7 +83,7 @@ The single most important surface. Combined list from both apps.
 
 **Chrome** — [ ] reader control theme registry (default/iOS) · [ ] page indicator · [ ] page slider with haptic tick · [ ] **page thumbnail strip** (slider ⇄ filmstrip) · [ ] full-page gallery grid · [ ] in-reader chapter list with search + asc/desc + list/grid · [ ] chapter transition cards with **missing-chapter gap warning** · [ ] reading timer overlay · [ ] battery + clock overlay · [ ] zoom indicator
 
-**Actions** — [x] in-chapter download button (details-screen per-chapter download ships; in-reader does not) · [ ] long-press page: save / share / copy URL / set as cover · [ ] page bookmark toggle · [ ] in-chapter download button · [ ] reader comments + chapter note · [ ] reader presets (save/apply/delete) · [ ] per-manga reader overrides + reset-to-global · [ ] incognito mode
+**Actions** — [ ] long-press page: save / share / copy URL / set as cover · [ ] page bookmark toggle · [ ] in-chapter download button · [ ] reader comments + chapter note · [ ] reader presets (save/apply/delete) · [ ] per-manga reader overrides + reset-to-global · [ ] incognito mode
 
 **Exclusive to the Kotlin app** — [ ] Smart Prefetch (4 strategies, behaviour tracking, telemetry) · [ ] Smart Panels (**net-new: the Kotlin app has no detector**, only auto-crop + a UI shell) · [ ] SFX translator · [ ] OCR page translation · [ ] OCR text search across pages
 
@@ -114,7 +114,7 @@ The single most important surface. Combined list from both apps.
 > Related, Recommended) and the list editor. The chapter list sorts both ways,
 > filters read/unread, multi-selects, and downloads or deletes per chapter.
 
-[~] Header: cover (tap = **panorama toggle**), title, author/artist, status, expandable description, genre chips (tap = search, long-press = global search), stats row, **read-time estimate** · [ ] custom cover set/remove · [ ] **Edit Info** sheet writing `user*` override columns + reset-to-source · [ ] content type toggle (manga/manhwa) · [ ] cover theme override cycle · [ ] AI summary
+[~] Header — cover, title, author/artist, status, expandable description and genre chips ship; the chips are **not** tappable, and there is no panorama toggle, stats row or **read-time estimate** · [ ] custom cover set/remove · [ ] **Edit Info** sheet writing `user*` override columns + reset-to-source · [ ] content type toggle (manga/manhwa) · [ ] cover theme override cycle · [ ] AI summary
 
 [ ] Action row: library toggle, tracking, WebView, share, refresh · [ ] overflow: migrate, mark completed/dropped, download all/unread, open download folder, clear downloads, add to reading list, link to AniList, notify toggle, delete-after-read override · [ ] category picker on first favourite
 
@@ -159,15 +159,15 @@ The single most important surface. Combined list from both apps.
 
 [~] Queue with pause/resume/cancel/retry/move-to-front *(cancel only)* · [ ] **survives restart** (persisted queue) · [ ] foreground notification with progress · [ ] concurrency + chunk settings · [ ] download location picker · [ ] **CBZ export + AES-256 encryption** · [ ] auto-download new chapters + per-category include/exclude · [ ] download-ahead · [ ] **smart downloads** (trigger at % through a chapter, wifi/favourites/free-space gates) · [ ] delete-after-read + **keep-last-N** · [ ] data saver · [ ] storage analytics with per-entry delete · [ ] data usage dashboard + monthly budget
 
-[~] Updates: list, multi-select, mark read, undo · [ ] group by manga/date · [ ] date filters · [ ] **to-be-updated sheet** · [ ] **last-run summary** (checked/new/skipped/failed) · [ ] multi-select · [ ] undo · [ ] **update errors screen** (sticky headers, migrate-selected)
+[x] Updates: list, mark read · [x] undo · [ ] group by manga/date · [ ] date filters · [ ] **to-be-updated sheet** · [ ] **last-run summary** (checked/new/skipped/failed) · [ ] multi-select · [ ] **update errors screen** (sticky headers, migrate-selected)
 
-[x] History: search, swipe-to-delete with undo, resume · [ ] date-range filter · [ ] **date section headers** · [ ] swipe-to-delete + undo · [ ] multi-select · [ ] resume
+[x] History: search · [x] swipe-to-delete + undo · [x] resume · [ ] date-range filter · [ ] **date section headers** · [ ] multi-select
 
 ---
 
 ## Everything else
 
-**Sources/extensions** — [x] repo management *(with per-repo health and source counts — AnymeX has neither)* · [x] install/update/uninstall from a repo index · [x] NSFW gate · [ ] auto-update · [ ] language filter · [ ] NSFW gate · [ ] **pin + hide + categorise sources** · [ ] saved source searches · [ ] **persisted per-source filter state** · [ ] source health diagnostics · [ ] extension detail screen · [ ] **signer hash provenance** · [ ] blocklist · [ ] install from URL/file · [ ] Cloudflare WebView session bridge
+**Sources/extensions** — [x] repo management *(with per-repo health and source counts — AnymeX has neither)* · [x] install/update/uninstall from a repo index · [x] NSFW gate · [ ] auto-update · [ ] language filter · [ ] **pin + hide + categorise sources** · [ ] saved source searches · [ ] **persisted per-source filter state** · [ ] source health diagnostics · [ ] extension detail screen · [ ] **signer hash provenance** · [ ] blocklist · [ ] install from URL/file · [ ] Cloudflare WebView session bridge
 
 **Tracking** — [~] AniList ships; MAL, Kitsu, MangaUpdates and Shikimori do not · [ ] **bind one manga to N trackers and fan out** · [ ] 95%-read threshold with **progress-regression guard** · [ ] per-tracker sync-on-read toggle · [ ] batch sync · [ ] tracking health page
 
