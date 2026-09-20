@@ -1,3 +1,8 @@
+// Derived from AnymeX (https://github.com/RyanYuuki/AnymeX),
+// MIT License, Copyright (c) 2024 Ryan _.
+// See NOTICE and licenses/AnymeX-MIT.txt for the permission notice that
+// licence requires to travel with these portions.
+
 import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 
@@ -1153,10 +1158,14 @@ class ChromeTile extends StatelessWidget {
                       subtitleWidget!
                     else if (subtitle != null && subtitle!.isNotEmpty) ...[
                       const SizedBox(height: 2),
+                      // Deliberately uncapped. This is prose in a row whose
+                      // height is free, so a cap here buys density and pays
+                      // for it by hiding the sentence -- and the reader who
+                      // enlarged their system font is exactly the one it
+                      // hides it from. The title above stays capped because
+                      // that cap holds a layout invariant, not a preference.
                       Text(
                         subtitle!,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: scheme.onSurface.withValues(alpha: 0.45),
                         ),
@@ -1179,6 +1188,166 @@ class ChromeTile extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(onTap: onTap, onLongPress: onLongPress, child: row),
+    );
+  }
+}
+
+/// A labelled group of rows: a `primary` label over one clipped card.
+///
+/// The chrome-vocabulary replacement for `OneUiGroup`. It exists as a
+/// primitive rather than as a local helper per screen because nine screens
+/// are converting onto it, and the previous vocabulary's group was the one
+/// piece every one of them used.
+///
+/// The children are clipped by the card rather than shaped individually, so a
+/// row can be a [ChromeTile], a switch, a slider or a whole sub-list and still
+/// get the group's corners without knowing it is in a group.
+class ChromeSection extends StatelessWidget {
+  const ChromeSection({
+    super.key,
+    this.label,
+    required this.children,
+    this.padding,
+  });
+
+  final String? label;
+  final List<Widget> children;
+  final EdgeInsetsGeometry? padding;
+
+  @override
+  Widget build(BuildContext context) {
+    if (children.isEmpty) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    return Padding(
+      padding:
+          padding ??
+          const EdgeInsets.fromLTRB(
+            Chrome.gutter,
+            Chrome.sectionGap,
+            Chrome.gutter,
+            0,
+          ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (label != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                Chrome.gutter,
+                0,
+                Chrome.gutter,
+                Chrome.gap,
+              ),
+              child: Text(
+                label!,
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ChromeCard(child: Column(children: children)),
+        ],
+      ),
+    );
+  }
+}
+
+/// [ChromeSection] as a sliver, for [ChromeScaffold.slivers].
+class SliverChromeSection extends StatelessWidget {
+  const SliverChromeSection({super.key, this.label, required this.children});
+
+  final String? label;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => SliverToBoxAdapter(
+    child: ChromeSection(label: label, children: children),
+  );
+}
+
+/// A destination card: a tinted icon tile over a title and a description.
+///
+/// AnymeX's shape for a *hub* of destinations
+/// (`lib/screens/other_features.dart`), as distinct from a list of settings.
+/// A hub has few entries and each deserves a sentence, so the description gets
+/// its own line rather than being squeezed under a row's title.
+///
+/// The icon tile is deliberately larger than [ChromeTile]'s 36x36 motif — 12px
+/// of padding around a 24px icon — because it is the card's subject rather
+/// than its bullet.
+class ChromeFeatureCard extends StatelessWidget {
+  const ChromeFeatureCard({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.description,
+    required this.onTap,
+    this.accent,
+  });
+
+  final IconData icon;
+  final String title;
+  final String description;
+  final VoidCallback onTap;
+
+  /// Defaults to `primary`. AnymeX tints a hub's sections differently so the
+  /// groups read apart at a glance.
+  final Color? accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final tint = accent ?? scheme.primary;
+
+    return ChromeCard(
+      onTap: onTap,
+      padding: const EdgeInsets.all(Chrome.gutter),
+      border: Border.all(
+        color: scheme.outline.withValues(alpha: 0.12),
+        width: 1,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: tint.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(Chrome.segmentRadius),
+            ),
+            // The same reason every action in the header carries one: a parent
+            // that forces a size erases a child that cannot meet it, silently.
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Icon(icon, size: 24, color: tint),
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Both uncapped, and the card's height is intrinsic so they can
+          // be. Ellipsising a one-or-two-word destination label is the worst
+          // version of this -- "Downloads" becoming "Down..." tells the
+          // reader nothing -- and the sentence underneath is the whole reason
+          // a hub uses cards instead of rows.
+          Text(
+            title,
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: scheme.onSurface,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            description,
+            style: theme.textTheme.bodySmall?.copyWith(
+              height: 1.3,
+              color: scheme.onSurface.withValues(alpha: 0.55),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

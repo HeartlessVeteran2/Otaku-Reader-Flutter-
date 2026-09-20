@@ -9,7 +9,8 @@ A manga and manhwa reader for Android, built in Flutter on the
 > is being adopted for **Tachiyomi/Mihon** extensions, which is where the other
 > ~1,400 extension packages are. An earlier plan replaced the runtime instead;
 > measuring the two against each other reversed that. See `CLAUDE.md`,
-> "The extension bridge". [`FEATURES.md`](FEATURES.md) tracks the rest.
+> "The extension bridge". [`ROADMAP.md`](ROADMAP.md) is the plan and
+> [`FEATURES.md`](FEATURES.md) is the checklist.
 
 ## Why this exists
 

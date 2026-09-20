@@ -1,16 +1,78 @@
 Otaku Reader (Flutter)
 Copyright 2026 HeartlessVeteran2
 
-This product includes software developed by third parties:
+Licensed under the Apache License, Version 2.0. See LICENSE.
 
-- AnymeX (https://github.com/RyanYuuki/AnymeX) — MIT License.
-  Architectural patterns, reader design and UI primitives are derived from
-  this project.
+================================================================================
+Third-party software
+================================================================================
 
-- Mangayomi (https://github.com/kodjodevf/mangayomi) — Apache License 2.0.
-  The extension runtime (d4rt and QuickJS evaluation, the source bridge and
-  its models) is derived from this project.
+This product contains code derived from, and in places ported verbatim from,
+the projects below. Their licence texts are reproduced in `licenses/`.
 
-- Otaku Reader (https://github.com/HeartlessVeteran2/Otaku-Reader) —
-  Apache License 2.0. Feature behaviour and data models are derived from this
-  project.
+--------------------------------------------------------------------------------
+Mangayomi — https://github.com/kodjodevf/mangayomi
+Apache License 2.0 — full text in licenses/Mangayomi-Apache-2.0.txt
+
+  Most of `lib/source/` is the Mangayomi extension runtime: the d4rt bridge and
+  its registered classes, the source models (`MManga`, `MChapter`, `MPages`,
+  `MSource`, filters, documents, elements), the HTTP client, the DOM and
+  regular-expression helpers, and the crypto utilities.
+
+  MODIFICATIONS. Per section 4(b) of the Apache License, this is notice that
+  files in `lib/source/` have been changed from their upstream originals. The
+  changes are deliberately few, because published extensions are written
+  against upstream behaviour. They are:
+
+    - `kBridgeLibraryUri` is a named constant rather than a literal. It still
+      resolves to `package:mangayomi/bridge_lib.dart`, which is the URI every
+      published extension imports, and must not be renamed.
+    - Quote style, to satisfy this project's formatter.
+    - Date-locale data is initialised before the first parse
+      (`MBridge._ensureDateFormatting`), where upstream initialises only
+      inside its fallback loop.
+    - Relative links are resolved once, in `DartSourceRuntime._absolute`.
+    - Source preferences are read lazily and never seeded, where upstream
+      writes a copy on first read.
+
+  Several files — `m_manga.dart` among them — are byte-identical to upstream.
+  `CLAUDE.md` records which, and why diffing against upstream must precede any
+  change to this tree.
+
+--------------------------------------------------------------------------------
+AnymeX — https://github.com/RyanYuuki/AnymeX
+MIT License, Copyright (c) 2024 Ryan _ — full text in licenses/AnymeX-MIT.txt
+
+  The house style and much of the user interface derive from AnymeX, and parts
+  are ported from it rather than reimplemented: the chrome vocabulary
+  (`lib/core/widgets/chrome.dart` — the floating pill header, the segmented
+  tab strip, the card row and the feature card), the extensions and repository
+  screens, the source tile, the More hub, the About screen, and the shape of
+  the AniList integration.
+
+  The MIT permission notice in licenses/AnymeX-MIT.txt applies to those
+  portions and is included here as that licence requires.
+
+--------------------------------------------------------------------------------
+Otaku Reader (Kotlin) — https://github.com/HeartlessVeteran2/Otaku-Reader
+Apache License 2.0
+
+  Feature behaviour and data models derive from this project, by the same
+  author as this one.
+
+================================================================================
+A licence change is coming, and has not happened yet
+================================================================================
+
+`anymex_extension_runtime_bridge` is published under the Unabandon Public
+License, which incorporates the GNU General Public License Version 3 and adds
+a requirement that derivative works' source be publicly available.
+
+GPLv3 is copyleft. Apache-2.0 code may be combined into a GPLv3 work; the
+reverse is not permitted. So a build that links that bridge is a GPLv3
+derivative work, and this file and LICENSE must change to match.
+
+That has NOT happened. The bridge is not a dependency of this project today,
+and until it is, the Apache-2.0 statement above is the accurate one. The flip
+belongs in the same commit that adds the dependency — not before it, or the
+claim would be false.
