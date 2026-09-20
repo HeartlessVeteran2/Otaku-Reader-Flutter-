@@ -59,7 +59,7 @@ dependencies:
     # Added in phase 5, with the two screens that need them: About shows the
     # build's own version, and AniList's external-link chips had a no-op tap
     # handler until there was something to open them with.
-    package_info_plus: ^8.1.1
+    package_info_plus: ^9.0.1
     url_launcher: ^6.3.1
     # Added with the reader's "Keep the screen on" switch, which had shipped as
     # a live control with no implementation behind it. AnymeX uses this same
