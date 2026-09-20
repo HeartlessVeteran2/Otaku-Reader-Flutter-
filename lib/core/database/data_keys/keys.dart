@@ -23,6 +23,13 @@ enum ThemeKeys {
   customColorIndex,
   customHexColor,
   useCoverColor,
+
+  /// How round, how glowing and how blurred the chrome is — AnymeX's
+  /// multipliers, so the whole app's shape is a setting rather than thirty
+  /// hardcoded numbers. See `ChromeMetrics`.
+  radiusScale,
+  glowScale,
+  blurScale,
 }
 
 enum ReaderKeys {

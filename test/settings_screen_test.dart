@@ -63,9 +63,18 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  /// Drags the list far enough to bring the reader and source rows up.
-  Future<void> scrollDown(WidgetTester tester) async {
-    await tester.drag(find.byType(CustomScrollView), const Offset(0, -600));
+  /// Scrolls until [label] is on screen.
+  ///
+  /// Deliberately not a fixed drag. A fixed -600 broke the moment the Shape
+  /// section was inserted above the reader rows, and the failure looked like
+  /// "the control is gone" rather than "the list is longer" — the same shape
+  /// as waiting on a turn count instead of on the condition.
+  Future<void> scrollTo(WidgetTester tester, String label) async {
+    await tester.scrollUntilVisible(
+      find.text(label),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.pumpAndSettle();
   }
 
@@ -85,7 +94,7 @@ void main() {
       expect(find.text(label), findsOneWidget, reason: label);
     }
 
-    await scrollDown(tester);
+    await scrollTo(tester, 'Reading layout');
 
     for (final label in [
       'Reading layout',
@@ -130,7 +139,7 @@ void main() {
       tester,
     ) async {
       await open(tester);
-      await scrollDown(tester);
+      await scrollTo(tester, 'Webtoon');
 
       await tester.tap(find.text('Webtoon'));
       await tester.pumpAndSettle();
@@ -144,7 +153,7 @@ void main() {
       tester,
     ) async {
       await open(tester);
-      await scrollDown(tester);
+      await scrollTo(tester, 'Right to left');
 
       await tester.tap(find.text('Right to left'));
       await tester.pumpAndSettle();
@@ -161,7 +170,7 @@ void main() {
       ReaderKeys.readingDirection.set<int>(1);
 
       await open(tester);
-      await scrollDown(tester);
+      await scrollTo(tester, 'Right to left');
 
       final tabs = tester.widget<SegmentedTabs>(
         find.ancestor(
@@ -179,7 +188,7 @@ void main() {
     // restart.
     nsfw.setShown(true);
     await open(tester);
-    await scrollDown(tester);
+    await scrollTo(tester, 'Show 18+ sources');
 
     await tester.tap(find.text('Show 18+ sources'));
     await tester.pumpAndSettle();

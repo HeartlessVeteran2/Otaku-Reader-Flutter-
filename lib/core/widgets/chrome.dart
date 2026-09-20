@@ -11,6 +11,8 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
+import 'package:otaku_reader/core/theme/chrome_metrics.dart';
+
 /// AnymeX's chrome: floating pills, segmented tabs and card rows.
 ///
 /// Ported from `/home/user/AnymeX-HV`, which is checked out in every session
@@ -551,13 +553,22 @@ class PillHeaderState extends State<PillHeader> {
     EdgeInsetsGeometry? padding,
   }) {
     final scheme = Theme.of(context).colorScheme;
-    final radius = BorderRadius.circular(Chrome.pillRadius);
+    final radius = BorderRadius.circular(context.radius(Chrome.pillRadius));
+    final sigma = context.blur(Chrome.blur);
+    // A `BackdropFilter` with sigma 0 is not free -- it still saves a layer
+    // and composites it. A reader who turned blur off should pay nothing, so
+    // the filter goes away rather than going to zero.
+    Widget blurred(Widget child) => sigma <= 0
+        ? child
+        : BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
+            child: child,
+          );
     return ClipRRect(
       key: key,
       borderRadius: radius,
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: Chrome.blur, sigmaY: Chrome.blur),
-        child: Container(
+      child: blurred(
+        Container(
           padding:
               padding ?? const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
@@ -569,13 +580,15 @@ class PillHeaderState extends State<PillHeader> {
               color: scheme.onSurface.withValues(alpha: 0.08),
               width: 0.5,
             ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.08),
-                blurRadius: 24,
-                offset: const Offset(0, 4),
-              ),
-            ],
+            // The one shadow on screen on every route, so this is where a
+            // glow multiplier is actually felt. AnymeX scales its scaffold's
+            // shadow the same way, through `glowingShadow`.
+            boxShadow: glowShadow(
+              context,
+              color: Colors.black.withValues(alpha: 0.08),
+              blurRadius: 24,
+              offset: const Offset(0, 4),
+            ),
           ),
           child: child,
         ),
@@ -856,7 +869,9 @@ class SegmentedTabs extends StatelessWidget implements PreferredSizeWidget {
         padding: const EdgeInsets.all(4),
         decoration: BoxDecoration(
           color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
-          borderRadius: BorderRadius.circular(Chrome.tabBarRadius),
+          borderRadius: BorderRadius.circular(
+            context.radius(Chrome.tabBarRadius),
+          ),
           border: Border.all(color: scheme.outline.withValues(alpha: 0.1)),
         ),
         child: Stack(
@@ -871,14 +886,15 @@ class SegmentedTabs extends StatelessWidget implements PreferredSizeWidget {
                 child: Container(
                   decoration: BoxDecoration(
                     color: scheme.secondary,
-                    borderRadius: BorderRadius.circular(Chrome.segmentRadius),
-                    boxShadow: [
-                      BoxShadow(
-                        color: scheme.secondary.withValues(alpha: 0.3),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
+                    borderRadius: BorderRadius.circular(
+                      context.radius(Chrome.segmentRadius),
+                    ),
+                    boxShadow: glowShadow(
+                      context,
+                      color: scheme.secondary.withValues(alpha: 0.3),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
                   ),
                 ),
               ),
@@ -973,7 +989,7 @@ class ChromeCard extends StatelessWidget {
     this.padding,
     this.margin,
     this.color,
-    this.radius = Chrome.cardRadius,
+    this.radius,
     this.border,
     this.glow = false,
     this.onTap,
@@ -984,7 +1000,11 @@ class ChromeCard extends StatelessWidget {
   final EdgeInsetsGeometry? padding;
   final EdgeInsetsGeometry? margin;
   final Color? color;
-  final double radius;
+
+  /// Null means [Chrome.cardRadius], scaled by the reader's own multiplier.
+  /// It cannot default to the token directly: a default parameter value has
+  /// to be const, and the multiplier is only knowable from a `BuildContext`.
+  final double? radius;
   final BoxBorder? border;
 
   /// A soft primary-tinted bloom instead of a drop shadow. Elevation as
@@ -997,7 +1017,9 @@ class ChromeCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final shape = BorderRadius.circular(radius);
+    final shape = BorderRadius.circular(
+      context.radius(radius ?? Chrome.cardRadius),
+    );
     Widget content = ClipRRect(
       borderRadius: shape,
       child: Material(
@@ -1014,21 +1036,21 @@ class ChromeCard extends StatelessWidget {
               ),
       ),
     );
-    if (border != null || glow) {
+    final shadow = glow
+        ? glowShadow(
+            context,
+            color: scheme.primary.withValues(alpha: 0.05),
+            blurRadius: 50,
+            spreadRadius: 2,
+            offset: const Offset(-1, 1),
+          )
+        : null;
+    if (border != null || shadow != null) {
       content = DecoratedBox(
         decoration: BoxDecoration(
           borderRadius: shape,
           border: border,
-          boxShadow: glow
-              ? [
-                  BoxShadow(
-                    color: scheme.primary.withValues(alpha: 0.05),
-                    offset: const Offset(-1, 1),
-                    blurRadius: 50,
-                    spreadRadius: 2,
-                  ),
-                ]
-              : null,
+          boxShadow: shadow,
         ),
         child: content,
       );
@@ -1122,6 +1144,71 @@ class ChromeTile extends StatelessWidget {
     );
   }
 
+  /// A row whose control is a slider under the label.
+  ///
+  /// Ported from `AnymeXTile.slider`, the third member of the same family as
+  /// [ChromeTile.toggle] and [ChromeTile.choice] — the control lives in the
+  /// row rather than behind a dialog.
+  ///
+  /// [valueLabel] is shown beside the title rather than under the slider,
+  /// because a number that moves while the thumb moves needs to be where the
+  /// eye already is, and the thumb is under the finger.
+  factory ChromeTile.slider({
+    Key? key,
+    required String title,
+    required double value,
+    required double min,
+    required double max,
+    required ValueChanged<double>? onChanged,
+    String? subtitle,
+    String? valueLabel,
+    int? divisions,
+    IconData? icon,
+    Widget? leading,
+    bool enabled = true,
+  }) {
+    final live = enabled && onChanged != null;
+    return ChromeTile(
+      key: key,
+      title: title,
+      subtitle: subtitle,
+      icon: icon,
+      leading: leading,
+      enabled: enabled,
+      showChevron: false,
+      titleSuffix: valueLabel == null
+          ? null
+          : Builder(
+              builder: (context) {
+                final theme = Theme.of(context);
+                return Text(
+                  valueLabel,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: theme.colorScheme.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                );
+              },
+            ),
+      // Same reasoning as `ChromeTile.choice`: a disabled slider that keeps a
+      // live gesture recogniser still drags its thumb and still buzzes while
+      // changing nothing.
+      content: IgnorePointer(
+        ignoring: !live,
+        child: Opacity(
+          opacity: live ? 1 : 0.4,
+          child: Slider(
+            value: value.clamp(min, max),
+            min: min,
+            max: max,
+            divisions: divisions,
+            onChanged: onChanged ?? (_) {},
+          ),
+        ),
+      ),
+    );
+  }
+
   /// A row whose control is a segmented pill under the label.
   ///
   /// Ported from `AnymeXTile.segmented`, and the port is nearly free because
@@ -1198,7 +1285,9 @@ class ChromeTile extends StatelessWidget {
                 decoration: BoxDecoration(
                   color:
                       iconBackground ?? scheme.primary.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(Chrome.leadingRadius),
+                  borderRadius: BorderRadius.circular(
+                    context.radius(Chrome.leadingRadius),
+                  ),
                 ),
                 child: Icon(icon, size: 20, color: iconColor ?? scheme.primary),
               ));
@@ -1412,7 +1501,9 @@ class ChromeFeatureCard extends StatelessWidget {
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: tint.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(Chrome.segmentRadius),
+              borderRadius: BorderRadius.circular(
+                context.radius(Chrome.segmentRadius),
+              ),
             ),
             // The same reason every action in the header carries one: a parent
             // that forces a size erases a child that cannot meet it, silently.

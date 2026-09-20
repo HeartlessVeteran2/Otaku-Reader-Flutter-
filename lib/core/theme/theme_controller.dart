@@ -2,6 +2,8 @@ import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
+import 'package:otaku_reader/core/theme/chrome_metrics.dart';
+
 import 'package:otaku_reader/core/database/data_keys/keys.dart';
 import 'package:otaku_reader/core/database/kv_helper.dart';
 import 'package:otaku_reader/core/theme/brand.dart';
@@ -37,6 +39,12 @@ class ThemeController extends GetxController {
   final coverSeed = Rxn<Color>();
   final useCoverColor = false.obs;
 
+  /// AnymeX's UI multipliers. See `ChromeMetrics` for why they ride the theme
+  /// rather than being resolved through `Get.find` at every call site.
+  final radiusScale = ChromeMetrics.standard.radiusScale.obs;
+  final glowScale = ChromeMetrics.standard.glowScale.obs;
+  final blurScale = ChromeMetrics.standard.blurScale.obs;
+
   Color? _platformSeed;
 
   @override
@@ -53,6 +61,22 @@ class ThemeController extends GetxController {
     final hex = ThemeKeys.customHexColor.get<int>(_defaultSeed.toARGB32());
     customColor.value = Color(hex);
     useCoverColor.value = ThemeKeys.useCoverColor.get<bool>(false);
+    // Clamped on the way in as well as on the way out. A value that came from
+    // a backup, a hand-edited row or an older build with different bounds is
+    // not the user's choice, and an unclamped 40x radius is an app nobody can
+    // read.
+    radiusScale.value = _clampScale(
+      ThemeKeys.radiusScale.get<double>(ChromeMetrics.standard.radiusScale),
+      ChromeMetrics.maxRadiusScale,
+    );
+    glowScale.value = _clampScale(
+      ThemeKeys.glowScale.get<double>(ChromeMetrics.standard.glowScale),
+      ChromeMetrics.maxGlowScale,
+    );
+    blurScale.value = _clampScale(
+      ThemeKeys.blurScale.get<double>(ChromeMetrics.standard.blurScale),
+      ChromeMetrics.maxBlurScale,
+    );
     if (source.value == ThemeSource.dynamicColor) loadPlatformPalette();
   }
 
@@ -165,7 +189,51 @@ class ThemeController extends GetxController {
           TargetPlatform.android: PredictiveBackPageTransitionsBuilder(),
         },
       ),
+      // Read through `context.radius` / `.glow` / `.blur`, so every chrome
+      // widget picks the multipliers up from the theme it is already under
+      // and a bare `MaterialApp` in a test gets `ChromeMetrics.standard`.
+      extensions: [
+        ChromeMetrics(
+          radiusScale: radiusScale.value,
+          glowScale: glowScale.value,
+          blurScale: blurScale.value,
+        ),
+      ],
     );
+  }
+
+  /// Brings a multiplier inside the slider's own bounds.
+  ///
+  /// There is deliberately **no `isNaN` guard**, which is the check that
+  /// suggests itself. Two measured facts remove the need for one, and both
+  /// contradict the reasoning that would put it back:
+  ///
+  /// - **A non-finite value cannot come from disk.** The KV tier stores
+  ///   `jsonEncode({'val': ...})`, and `dart:convert` refuses NaN and both
+  ///   infinities outright — so there is no row to read back.
+  /// - **`clamp` does not preserve NaN.** It compares through `compareTo`,
+  ///   whose total order sorts NaN *above* every other double, so a NaN input
+  ///   returns `max` rather than NaN. Measured on Dart 3.13.3:
+  ///   `double.nan.clamp(0.0, 3.0) == 3.0`.
+  ///
+  /// So every input leaves here finite and inside `[minScale, max]`, which is
+  /// the property the callers actually need and the one the test asserts.
+  static double _clampScale(double value, double max) =>
+      value.clamp(ChromeMetrics.minScale, max);
+
+  void setRadiusScale(double value) {
+    radiusScale.value = _clampScale(value, ChromeMetrics.maxRadiusScale);
+    ThemeKeys.radiusScale.set<double>(radiusScale.value);
+  }
+
+  void setGlowScale(double value) {
+    glowScale.value = _clampScale(value, ChromeMetrics.maxGlowScale);
+    ThemeKeys.glowScale.set<double>(glowScale.value);
+  }
+
+  void setBlurScale(double value) {
+    blurScale.value = _clampScale(value, ChromeMetrics.maxBlurScale);
+    ThemeKeys.blurScale.set<double>(blurScale.value);
   }
 
   /// GetX rebuilds `GetMaterialApp` from `Get.changeTheme`, but the app reads

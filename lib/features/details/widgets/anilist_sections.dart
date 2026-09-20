@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
+import 'package:otaku_reader/core/theme/chrome_metrics.dart';
 import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:iconsax/iconsax.dart';
 
@@ -44,7 +45,9 @@ class AniListStats extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
                 color: theme.colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(Chrome.leadingRadius),
+                borderRadius: BorderRadius.circular(
+                  context.radius(Chrome.leadingRadius),
+                ),
               ),
               child: Column(
                 children: [
@@ -143,7 +146,9 @@ class PersonCarousel extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   ClipRRect(
-                    borderRadius: BorderRadius.circular(Chrome.leadingRadius),
+                    borderRadius: BorderRadius.circular(
+                      context.radius(Chrome.leadingRadius),
+                    ),
                     child: AspectRatio(
                       aspectRatio: 3 / 4,
                       child: _Portrait(url: person.imageUrl),
@@ -215,12 +220,16 @@ class MediaCarousel extends StatelessWidget {
                 // tapping searches sources for the title rather than opening
                 // something that does not exist here.
                 onTap: onTap == null ? null : () => onTap!(item.title),
-                borderRadius: BorderRadius.circular(Chrome.leadingRadius),
+                borderRadius: BorderRadius.circular(
+                  context.radius(Chrome.leadingRadius),
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     ClipRRect(
-                      borderRadius: BorderRadius.circular(Chrome.leadingRadius),
+                      borderRadius: BorderRadius.circular(
+                        context.radius(Chrome.leadingRadius),
+                      ),
                       child: AspectRatio(
                         aspectRatio: 2 / 3,
                         child: _Portrait(url: item.coverUrl),
@@ -432,7 +441,7 @@ class AniListListRow extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(top: 20),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(Chrome.cardRadius),
+        borderRadius: BorderRadius.circular(context.radius(Chrome.cardRadius)),
         child: Material(
           color: theme.colorScheme.secondaryContainer,
           child: InkWell(

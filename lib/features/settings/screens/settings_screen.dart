@@ -5,11 +5,38 @@ import 'package:iconsax/iconsax.dart';
 import 'package:otaku_reader/core/database/data_keys/keys.dart';
 import 'package:otaku_reader/core/database/kv_helper.dart';
 import 'package:otaku_reader/core/preferences/nsfw_preference.dart';
+import 'package:otaku_reader/core/theme/chrome_metrics.dart';
 import 'package:otaku_reader/core/theme/theme_controller.dart';
 import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:otaku_reader/data/anilist/anilist_auth.dart';
 import 'package:otaku_reader/features/settings/screens/accounts_screen.dart';
 import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
+
+/// How a multiplier is written on its row: `1.0x`, `0.25x`, `2.5x`.
+///
+/// `1.0x` rather than `100%` because the sliders are multipliers, and a
+/// percentage reads as "how much of the maximum" instead of "how many times
+/// the default".
+///
+/// Two decimals, trimmed to one when the second is a zero. It was
+/// `toStringAsFixed(1)`, which **lied about six of the roundness slider's
+/// thirteen stops**: that slider steps by 3.0 / 12 = 0.25, so a reader sitting
+/// on 0.25 saw "0.3x" and one on 2.75 saw "2.8x" — a row reporting a number
+/// the app is not set to. Found by `codeant-ai` on #54.
+///
+/// Fixed in the formatter rather than by widening the step, because the
+/// formatter is what was wrong: one that cannot express its own slider's stops
+/// is a bug whichever step it is handed, and the next person to change
+/// `divisions` should not have to remember this.
+///
+/// Top-level and public for the test, which walks **every stop of every
+/// slider** and parses the label back — the only shape that catches a step
+/// the formatter cannot say. A test pinned to the one value on screen would
+/// have passed throughout.
+String scaleLabel(double value) {
+  final two = value.toStringAsFixed(2);
+  return '${two.endsWith('0') ? two.substring(0, two.length - 1) : two}x';
+}
 
 /// Appearance, reader defaults and source behaviour.
 ///
@@ -92,6 +119,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 subtitle: 'The manga you have open colours the app',
                 value: _theme.useCoverColor.value,
                 onChanged: _theme.setUseCoverColor,
+              ),
+            ),
+          ],
+        ),
+        SliverChromeSection(
+          label: 'Shape',
+          children: [
+            // AnymeX's UI multipliers, and its own slider bounds so a value
+            // that works there works here. Every one of them reaches zero on
+            // purpose: square corners, no glow and no blur are real choices,
+            // and the last is the one that costs the least to draw.
+            Obx(
+              () => ChromeTile.slider(
+                icon: Iconsax.frame,
+                title: 'Corner roundness',
+                subtitle: 'Scales every rounded corner in the app',
+                value: _theme.radiusScale.value,
+                min: ChromeMetrics.minScale,
+                max: ChromeMetrics.maxRadiusScale,
+                divisions: 12,
+                valueLabel: scaleLabel(_theme.radiusScale.value),
+                onChanged: _theme.setRadiusScale,
+              ),
+            ),
+            Obx(
+              () => ChromeTile.slider(
+                icon: Iconsax.flash,
+                title: 'Glow',
+                subtitle: 'How much cards bloom behind their edges',
+                value: _theme.glowScale.value,
+                min: ChromeMetrics.minScale,
+                max: ChromeMetrics.maxGlowScale,
+                divisions: 10,
+                valueLabel: scaleLabel(_theme.glowScale.value),
+                onChanged: _theme.setGlowScale,
+              ),
+            ),
+            Obx(
+              () => ChromeTile.slider(
+                icon: Iconsax.blur,
+                title: 'Header blur',
+                subtitle: 'How hard the floating pills blur what is under them',
+                value: _theme.blurScale.value,
+                min: ChromeMetrics.minScale,
+                max: ChromeMetrics.maxBlurScale,
+                divisions: 10,
+                valueLabel: scaleLabel(_theme.blurScale.value),
+                onChanged: _theme.setBlurScale,
               ),
             ),
           ],

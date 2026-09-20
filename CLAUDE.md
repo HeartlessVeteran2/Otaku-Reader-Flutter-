@@ -725,10 +725,40 @@ Ported from `/home/user/AnymeX-HV`, which is checked out in every session.
 
 #### Two things to carry that are easy to miss
 
-- **Radius, glow and blur are scaled by user multipliers.** AnymeX runs every
-  radius through `multiplyRadius()` and every glow through `multiplyGlow()`, so
-  the whole app's roundness is a setting. Worth adopting rather than hardcoding
-  numbers in thirty widgets.
+- **Radius, glow and blur are scaled by user multipliers, and they ride the
+  theme.** AnymeX runs every radius through `multiplyRadius()` and every glow
+  through `multiplyGlow()`, resolving a controller with `Get.find` at each call
+  site. This app carries the same three numbers on a `ThemeExtension`
+  (`ChromeMetrics`), read through `context.radius()` / `.glow()` / `.blur()`.
+  The reason is not taste: `test/chrome_test.dart` renders 35 tests of the
+  chrome primitives with **zero DI registrations**, and `Get.find` would make
+  registering a controller a precondition for laying out a card. The two
+  alternatives are both worse — registering a controller in every layout test,
+  or a silent 1.0 fallback that makes a missing registration invisible. A bare
+  `MaterialApp` in a test gets `ChromeMetrics.standard` by construction.
+- **At zero a multiplier removes the effect rather than scaling it to zero.**
+  Not the same thing, and both halves were measured. A `BackdropFilter` with
+  sigma 0 still saves and composites a layer, so `ChromeCard` drops the filter
+  from the tree entirely; a `BoxShadow` with no blur and no spread paints a
+  **hard rectangle** rather than nothing, so the whole `DecoratedBox` goes.
+  That is what makes blur — a third multiplier AnymeX does not have — a real
+  performance control on a slow device rather than only a taste one.
+  Consequence to remember: `ChromeCard.radius` had to become **nullable**,
+  because a default parameter value must be `const` and `context.radius(...)`
+  is not.
+- **One deliberate divergence: `glowScale` owns shadow *blur* here, where
+  AnymeX splits it.** AnymeX writes `blurRadius: 50.multiplyBlur()` beside
+  `spreadRadius: 2.multiplyGlow()`, so its blur slider moves drop shadows as
+  well as backdrop filters. Ours keeps `blurScale` for the `BackdropFilter`
+  alone and scales a shadow's blur and spread together off `glowScale`,
+  because the sliders are labelled *Glow* and *Blur*: a reader who sets Blur
+  to 0 is asking for the frosted glass to go, not for the pill's drop shadow
+  to go with it. Chosen, not overlooked.
+- **Every glow-scaled shadow goes through `glowShadow()`**, a free function
+  for the same reason AnymeX's `glowingShadow` is one: the *remove it at zero*
+  rule has to live in one place. Left to each call site, one of them
+  eventually scales to zero instead of dropping out, paints a hard rectangle,
+  and the difference is invisible in the diff.
 - **A choice belongs inside its row, and it is nearly free.** AnymeX's tile
   embeds a segmented selector, so a setting changes without leaving the row —
   and its selector *is* its tab bar reused, so `ChromeTile.choice` is
@@ -1009,6 +1039,8 @@ Kept because they repeat.
 | Deciding a dependency question from the pin instead of the code | The bridge pins `d4rt 0.1.7` and this app carried `^0.2.4`, so the conclusion drawn — and written into this file, and into a PR — was that adopting the bridge means **deleting `lib/source/`**. Measured afterwards: the runtime compiles and runs on `0.1.7` with **one line** changed (`positionalArgs: [x]` → `args: x`; `0.1.7` wraps a single object itself), 512 tests pass, and the live sweep holds 55/55 ÷ 6/6 exactly. The real conflict was the *generator fork's* analyzer 8, not `d4rt` at all. A version constraint says what a package asks for, never what the code needs — and the difference between them was a subsystem. |
 | Two Settings switches wrote a key nothing read, and `flutter analyze` was clean | *Keep the screen on* had no wakelock dependency in `pubspec.yaml` at all, and *Show the page number* had no indicator in the reader — the only `*Indicator` match in `lib/` was `CircularProgressIndicator`. Both wrote their key on toggle and both round-tripped it perfectly, which is why nothing looked wrong: **a round-trip test is exactly what would have passed the whole time they were dead.** This is the second instance of the rule this file states outright (the first being the AniList link chips shipping with `onOpen: (_) {}`), and it was found by the `FEATURES.md` audit rather than by anything in the suite — because a checklist that counts *declared keys* reports parity for a feature nobody built. The fix that matters beyond the two controls: assert the **request** (a `ScreenWakelock` fake that records `enable`/`disable`) and the **rendered pill**, never the stored value. |
 | Building a screen without opening AnymeX's version of it | The repository sheet was designed from scratch while `/home/user/AnymeX-HV` sat on disk with a 911-line equivalent that is a screen rather than a sheet, splits the URL into monospace path over host, offers copy, dims and spins a row being deleted, and adds several URLs at once. Worse, the `TabBar` overflow two rows up was already designed out there: `AnymeXTabBar` gives each tab `1 / total` of the width with an ellipsised label, so it *cannot* overflow, while this app reached for Material's `TabBar` and then spent a long stretch measuring and patching it. The feature (per-repo health and counts) was genuinely net-new and AnymeX has nothing like it — but the shell around it was reinvented worse. Read the blueprint's version of a screen *before* designing one, not after a review finds the bug it had already avoided. |
+| A guard against a state that cannot happen, justified by a claim about `clamp` that is false | `ThemeController._clampScale` carried `if (value.isNaN) return 1;` above a comment reading *"NaN survives a `clamp`"*, and a test asserting a stored NaN is refused. Both halves are wrong, and measuring either one alone would have left the other standing. **NaN cannot reach it from disk**: the KV tier stores `jsonEncode({'val': ...})`, and `dart:convert` refuses NaN and both infinities outright, so there is no row to read back — the test failed on its own premise, throwing at the `set` rather than at the `expect`. And **`clamp` does not preserve NaN**: it compares through `compareTo`, whose total order sorts NaN *above* every double, so `double.nan.clamp(0.0, 3.0)` is **`3.0`**. So the guard changed one finite answer into another finite answer for an input that could not arrive, while its comment promised to prevent an app of square boxes that was never possible. Deleted. What replaced it asserts the **property** the callers need — whatever goes in, what reaches a radius is finite and in range — which is mechanism-independent and fails (`+13 -1`, confirmed applied by `grep`) when the clamp is mutated to pass NaN through. Two rules of this table met in one line: a reproduction that fails may only be disproving your guess about how to provoke it, and a comment asserting a property is not evidence the code has it. The third, new one: **before writing a guard, check that the language primitive under it behaves the way the guard assumes** — five lines of `dart run` settled both facts. |
+| A slider shipped wired to nothing, and its own test suite proved the plumbing instead of the app | The glow multiplier reached `ChromeCard.glow`, which **defaults to false and had zero callers in all of `lib/`** — measured, `grep -rn "glow:" lib/` returned nothing. So the Settings slider wrote a key that changed no pixel on any screen, while the PR body and commit message both asserted the multipliers were live. **Third** instance of the rule this file states outright, after the AniList link chips' `onOpen: (_) {}` and the two dead reader switches. What makes this one worse is the test suite: eight passing tests covered the glow, and every one of them built `ChromeCard(glow: true)` **by hand**. They proved a multiplier multiplies; they could not see that nothing asks it to. Found by `codeant-ai`, flagged Major, and correct. Two live shadows existed the whole time and ignored the setting — the header pill (on screen on **every** route) and the selected segment behind the tabs — so the fix is to route those through the multiplier, which is exactly what AnymeX does (`glowingShadow`/`lightGlowingShadow` in `anymex_scaffold.dart`, used by chapter rows, chips, buttons, sliders and an enabled switch tile). The rule for the guard that replaced them: **a multiplier is only live if it changes a surface no test had to opt into.** The regression test renders a plain `ChromeScaffold` exactly as every screen builds one, and asserts the slider at 0 removes every shadow under it — mutating the pill back to its hardcoded shadow fails it (`+15 -2`, grep-confirmed). The general shape, and the reason the previous two rows did not prevent this one: a test that constructs the feature's *enabled* state is testing the mechanism, and the defect lives in whether any caller ever enables it. Grep the call sites before believing a feature is wired. |
 
 The general lesson, and the one that keeps recurring across both codebases:
 **a comment describing the goal is not evidence the code achieves it.** After
