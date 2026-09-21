@@ -515,6 +515,38 @@ identical from the outside.
   sources in place — a flaky network must not empty the extension list — which
   also means a dead repo is indistinguishable from a healthy one until you
   notice it never gains anything.
+- **Paged and continuous keep *separate* reading directions.** AnymeX stores
+  one `MangaPageViewDirection` for both and then force-overrides it to `down`
+  whenever `_applyAutoWebtoonMode` fires — a special case that is itself the
+  admission that a shared value is wrong for a long strip. Sharing it here
+  would have been worse than in the reference, because this app's stored
+  default is `leftToRight`: every existing webtoon reader would have come back
+  from the upgrade scrolling sideways, from a change whose diff never mentions
+  webtoons. Two keys, and `activeDirection` is the only thing that decides
+  which one is in force — the reader's own control asks it rather than
+  re-deriving the answer, because that knowledge split across a button and a
+  controller is how the two come to edit different keys.
+- **An enum persisted as `index` may only be appended to.** `ReadingDirection`
+  deliberately does **not** take AnymeX's `{up, down, left, right}` order: a
+  `0` on disk here already means left-to-right, so adopting the reference's
+  spelling wholesale would re-point every stored value in place. The rename
+  looks free in a diff and is not.
+- **A page in a continuous reader is pinned on the cross axis only.** Vertical
+  is the easy case and hides the rule: width is already tight, so the page
+  takes the height its aspect ratio asks for. Turned on its side that reverses,
+  and an image with an unbounded *main* axis falls back to its intrinsic pixel
+  width — whatever the scan was encoded at, with no relation to the screen and
+  no exception thrown. Pinning both axes is the over-eager fix and turns a
+  continuous reader into a paged one wearing a `ListView`; only a main-axis
+  assertion tells the two apart, because a cross-axis pin is a no-op in the
+  direction most likely to be tested.
+- **Only a change of *axis* invalidates a scroll controller, and it must be
+  rebuilt.** A change of sign does not: `reverse` flips the whole coordinate
+  system, so offset 0 is the first page either way. An axis change makes the
+  stored `pixels` a measurement down a strip applied across one. The page
+  *index* is what survives, so that is what is restored — paged reopens on it
+  and continuous scrolls to that page's laid-out child once there is a layout
+  to measure.
 - **The reader takes the wakelock from the setting and releases it
   unconditionally.** AnymeX enables it in `onInit` and then corrects itself
   once preferences load, which holds the screen awake against the user's own
@@ -1101,6 +1133,9 @@ Kept because they repeat.
 | A guard against a state that cannot happen, justified by a claim about `clamp` that is false | `ThemeController._clampScale` carried `if (value.isNaN) return 1;` above a comment reading *"NaN survives a `clamp`"*, and a test asserting a stored NaN is refused. Both halves are wrong, and measuring either one alone would have left the other standing. **NaN cannot reach it from disk**: the KV tier stores `jsonEncode({'val': ...})`, and `dart:convert` refuses NaN and both infinities outright, so there is no row to read back — the test failed on its own premise, throwing at the `set` rather than at the `expect`. And **`clamp` does not preserve NaN**: it compares through `compareTo`, whose total order sorts NaN *above* every double, so `double.nan.clamp(0.0, 3.0)` is **`3.0`**. So the guard changed one finite answer into another finite answer for an input that could not arrive, while its comment promised to prevent an app of square boxes that was never possible. Deleted. What replaced it asserts the **property** the callers need — whatever goes in, what reaches a radius is finite and in range — which is mechanism-independent and fails (`+13 -1`, confirmed applied by `grep`) when the clamp is mutated to pass NaN through. Two rules of this table met in one line: a reproduction that fails may only be disproving your guess about how to provoke it, and a comment asserting a property is not evidence the code has it. The third, new one: **before writing a guard, check that the language primitive under it behaves the way the guard assumes** — five lines of `dart run` settled both facts. |
 | A slider shipped wired to nothing, and its own test suite proved the plumbing instead of the app | The glow multiplier reached `ChromeCard.glow`, which **defaults to false and had zero callers in all of `lib/`** — measured, `grep -rn "glow:" lib/` returned nothing. So the Settings slider wrote a key that changed no pixel on any screen, while the PR body and commit message both asserted the multipliers were live. **Third** instance of the rule this file states outright, after the AniList link chips' `onOpen: (_) {}` and the two dead reader switches. What makes this one worse is the test suite: eight passing tests covered the glow, and every one of them built `ChromeCard(glow: true)` **by hand**. They proved a multiplier multiplies; they could not see that nothing asks it to. Found by `codeant-ai`, flagged Major, and correct. Two live shadows existed the whole time and ignored the setting — the header pill (on screen on **every** route) and the selected segment behind the tabs — so the fix is to route those through the multiplier, which is exactly what AnymeX does (`glowingShadow`/`lightGlowingShadow` in `anymex_scaffold.dart`, used by chapter rows, chips, buttons, sliders and an enabled switch tile). The rule for the guard that replaced them: **a multiplier is only live if it changes a surface no test had to opt into.** The regression test renders a plain `ChromeScaffold` exactly as every screen builds one, and asserts the slider at 0 removes every shadow under it — mutating the pill back to its hardcoded shadow fails it (`+15 -2`, grep-confirmed). The general shape, and the reason the previous two rows did not prevent this one: a test that constructs the feature's *enabled* state is testing the mechanism, and the defect lives in whether any caller ever enables it. Grep the call sites before believing a feature is wired. |
 | A stability test that compared only the end state, and passed under the mutation it existed to catch | The greeting is meant to re-roll **only** across a time band, where AnymeX re-rolls on every 15-minute tick. The test ticked 20 times inside one evening and asserted `c.text.value == first`. Restoring AnymeX's per-tick roll left it **green** — because the fake `Random` walks 0,1,0,1… and after an even number of ticks lands back on the phrase it started from. The greeting flipped twenty times and the assertion saw none of it. Collecting **every** observed value into a set and asserting `hasLength(1)` fails the mutation (`+15 -1`) and passes the real code. This is the cancel-test row of this table in a new costume, and the general shape is the same: **when a property is "it never changes", the test has to watch every step, because the end state can agree with the start by arithmetic.** Worth noting how it was found — the mutation was run *because* the guard was new, not because anything looked wrong. |
+| A literal where an enum property belongs, two files from the neighbour that got it right | `ReaderController.onInit` clamped its stored reading direction with `clamp(0, 1)`. The Settings row already clamped with `.clamp(0, ReadingDirection.values.length - 1)` — so the moment the enum gained a member, that row offered it, the user picked it, the key stored it, and the reader silently pinned it back to left-to-right. Nothing throws, nothing fails, and each file reads as correct on its own. Same shape as `int status = 5`, and the **seventh** instance of a rule holding in one file and not in its neighbour. Found by grepping for the other readers of the value *before* appending to the enum, which is the habit that closes this class rather than the fix. |
+| Two mutation patches that would not apply, for the same reason as the two before them | `dart format` had rewrapped both anchors across lines — the clamp into a three-line chain, the strip pin into a ternary — so the `python` replace raised rather than silently editing nothing. The assertion is what saved it: an earlier `sed` in this repo matched nothing, reported every test passing, and was read as a hollow guard. **Confirm the patch applied before reading any count**, and prefer a tool that fails loudly on a missed anchor over one that reports success for a no-op. |
+| A rendered assertion that measured the harness rather than the widget | The strip-sizing guard asserted a page's painted `Rect`. Under `flutter test` the page's image never resolves, so every page lays out at zero extent and the finder reports it **offstage** — the test failed with `Bad state: No element`, which reads exactly like the page not being built. Two lessons, and the second is the durable one: `find.descendant` filters by its **own** `skipOffstage`, so setting it on the inner finder alone changes nothing; and when a widget's size depends on an asset the test environment cannot load, assert the **constraints it is handed** instead, which is what the code under test actually decides and is true whether or not a byte ever arrives. |
 
 The general lesson, and the one that keeps recurring across both codebases:
 **a comment describing the goal is not evidence the code achieves it.** After

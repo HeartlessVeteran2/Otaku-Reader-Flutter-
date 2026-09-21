@@ -9,6 +9,7 @@ import 'package:otaku_reader/core/preferences/nsfw_preference.dart';
 import 'package:otaku_reader/core/theme/theme_controller.dart';
 import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:otaku_reader/data/anilist/anilist_auth.dart';
+import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
 import 'package:otaku_reader/features/settings/screens/settings_screen.dart';
 
 import 'helpers/anilist_fakes.dart';
@@ -94,16 +95,21 @@ void main() {
       expect(find.text(label), findsOneWidget, reason: label);
     }
 
-    await scrollTo(tester, 'Reading layout');
-
+    // Scrolled to one at a time rather than after a single jump to the top of
+    // the section. The one-jump version asserted that everything below
+    // "Reading layout" happened to fit on one screen, so adding a row pushed
+    // the last label out of the viewport and failed a test about nothing
+    // having been *removed*.
     for (final label in [
       'Reading layout',
-      'Reading direction',
+      'Paged direction',
+      'Continuous direction',
       'Keep the screen on',
       'Show the page number',
       'Show 18+ sources',
       'AniList',
     ]) {
+      await scrollTo(tester, label);
       expect(find.text(label), findsOneWidget, reason: label);
     }
   });
@@ -149,16 +155,94 @@ void main() {
       expect(ReaderKeys.readingLayout.get<int>(0), 1);
     });
 
-    testWidgets('reading direction writes the key the reader reads', (
+    /// The `SegmentedTabs` under a named row.
+    ///
+    /// Found through the row's *title*, not through a label. Both direction
+    /// rows now render the same four labels, so `find.text('R → L')` matches
+    /// twice and would tap whichever the tree happened to order first -- a test
+    /// that passes while writing the wrong key.
+    SegmentedTabs tabsUnder(WidgetTester tester, String title) =>
+        tester.widget<SegmentedTabs>(
+          find.descendant(
+            of: find.ancestor(
+              of: find.text(title),
+              matching: find.byType(ChromeTile),
+            ),
+            matching: find.byType(SegmentedTabs),
+          ),
+        );
+
+    Future<void> tapSegment(
+      WidgetTester tester,
+      String title,
+      String label,
+    ) async {
+      await tester.tap(
+        find.descendant(
+          of: find.ancestor(
+            of: find.text(title),
+            matching: find.byType(ChromeTile),
+          ),
+          matching: find.text(label),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('paged direction writes the key the reader reads', (
       tester,
     ) async {
       await open(tester);
-      await scrollTo(tester, 'Right to left');
+      await scrollTo(tester, 'Paged direction');
 
-      await tester.tap(find.text('Right to left'));
-      await tester.pumpAndSettle();
+      await tapSegment(tester, 'Paged direction', 'R → L');
 
-      expect(ReaderKeys.readingDirection.get<int>(0), 1);
+      expect(
+        ReaderKeys.readingDirection.get<int>(0),
+        ReadingDirection.rightToLeft.index,
+      );
+    });
+
+    testWidgets('continuous direction writes its own key, not the paged one', (
+      tester,
+    ) async {
+      // The whole reason there are two rows. One shared value would mean a
+      // reader coming off a right-to-left manga found their next webtoon
+      // scrolling sideways -- so a write here must not reach the paged key,
+      // and collapsing them has to fail this.
+      await open(tester);
+      await scrollTo(tester, 'Continuous direction');
+
+      await tapSegment(tester, 'Continuous direction', 'B → T');
+
+      expect(
+        ReaderKeys.webtoonDirection.get<int>(0),
+        ReadingDirection.bottomToTop.index,
+      );
+      expect(
+        ReaderKeys.readingDirection.get<int?>(),
+        isNull,
+        reason: 'the paged direction was never touched',
+      );
+    });
+
+    testWidgets('each row defaults to the direction its layout reads in', (
+      tester,
+    ) async {
+      // With nothing stored, which is a fresh install. A shared default would
+      // put both rows on the same segment, and vertical is wrong for paged
+      // exactly as horizontal is wrong for a long strip.
+      await open(tester);
+      await scrollTo(tester, 'Continuous direction');
+
+      expect(
+        tabsUnder(tester, 'Paged direction').selectedIndex,
+        ReadingDirection.leftToRight.index,
+      );
+      expect(
+        tabsUnder(tester, 'Continuous direction').selectedIndex,
+        ReadingDirection.topToBottom.index,
+      );
     });
 
     testWidgets('the selected segment follows the stored value', (
@@ -167,18 +251,15 @@ void main() {
       // The other direction: a selector that writes but never reads back
       // shows the wrong choice after a restart, and the write test above
       // cannot see that.
-      ReaderKeys.readingDirection.set<int>(1);
+      ReaderKeys.readingDirection.set<int>(ReadingDirection.bottomToTop.index);
 
       await open(tester);
-      await scrollTo(tester, 'Right to left');
+      await scrollTo(tester, 'Paged direction');
 
-      final tabs = tester.widget<SegmentedTabs>(
-        find.ancestor(
-          of: find.text('Right to left'),
-          matching: find.byType(SegmentedTabs),
-        ),
+      expect(
+        tabsUnder(tester, 'Paged direction').selectedIndex,
+        ReadingDirection.bottomToTop.index,
       );
-      expect(tabs.selectedIndex, 1);
     });
   });
 

@@ -14,6 +14,7 @@ import 'package:otaku_reader/domain/repository/anilist_repository.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/data/anilist/title_matcher.dart';
+import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
 import 'package:otaku_reader/features/reader/screen_wakelock.dart';
 import 'package:otaku_reader/features/reader/screens/reader_screen.dart';
 import 'package:otaku_reader/features/reader/widgets/reader_page_indicator.dart';
@@ -345,5 +346,153 @@ void main() {
         expect(tapsBehind, 1);
       });
     }
+  });
+
+  group('the reader reads along the direction it was given', () {
+    // The controller tests prove the stored value reaches the controller. They
+    // say nothing about whether anything on screen moved, and that gap is this
+    // repo's most-repeated defect -- a key that round-trips perfectly while no
+    // widget reads it is exactly what shipped as two dead Settings switches.
+    // So these assert the laid-out scroll view.
+
+    Future<void> openWith(
+      WidgetTester tester, {
+      required ReadingLayout layout,
+      required ReadingDirection direction,
+    }) async {
+      ReaderKeys.readingLayout.set<int>(layout.index);
+      ReaderKeys.readingDirection.set<int>(direction.index);
+      ReaderKeys.webtoonDirection.set<int>(direction.index);
+      await openReader(tester);
+    }
+
+    for (final direction in ReadingDirection.values) {
+      testWidgets('paged lays out ${direction.name}', (tester) async {
+        await openWith(
+          tester,
+          layout: ReadingLayout.paged,
+          direction: direction,
+        );
+
+        final view = tester.widget<PageView>(find.byType(PageView));
+        expect(view.scrollDirection, direction.axis, reason: direction.name);
+        expect(view.reverse, direction.reversed, reason: direction.name);
+      });
+
+      testWidgets('continuous lays out ${direction.name}', (tester) async {
+        await openWith(
+          tester,
+          layout: ReadingLayout.webtoon,
+          direction: direction,
+        );
+
+        final view = tester.widget<ListView>(find.byType(ListView));
+        expect(view.scrollDirection, direction.axis, reason: direction.name);
+        expect(view.reverse, direction.reversed, reason: direction.name);
+      });
+    }
+
+    /// The constraints the first page is handed inside the strip.
+    ///
+    /// Constraints rather than a painted rect, and that is not a stylistic
+    /// choice. `_Page` is private, so the image it builds is the handle — and
+    /// under `flutter test` that image never resolves, so every page lays out
+    /// at zero extent and the finder reports it **offstage**. A rect would be
+    /// measuring the harness. What the viewport hands down is the thing the
+    /// pin actually changes, and it is true whether or not a byte ever loads.
+    BoxConstraints firstPageConstraints(WidgetTester tester) => tester
+        .renderObject<RenderBox>(
+          find
+              .descendant(
+                of: find.byType(ListView),
+                // `skipOffstage: false` on **both**. `find.descendant`
+                // filters by its own flag, which defaults to true, so setting
+                // it on the inner finder alone changes nothing and the match
+                // comes back empty -- which reads exactly like the page not
+                // being there.
+                matching: find.byType(Image, skipOffstage: false),
+                skipOffstage: false,
+              )
+              .first,
+        )
+        .constraints;
+
+    for (final width in [320.0, 411.0]) {
+      testWidgets('a horizontal strip pins each page to the $width viewport', (
+        tester,
+      ) async {
+        // Turned on its side, a page has an unbounded *main* axis, and an
+        // image with one falls back to its intrinsic width — whatever the scan
+        // was encoded at, which has nothing to do with the screen. Nothing
+        // throws either way, which is why this is asserted rather than
+        // assumed.
+        //
+        // Two widths, because a pin hardcoded to one phone satisfies a single
+        // sample, and that is the fix that suggests itself.
+        await tester.binding.setSurfaceSize(Size(width, 720));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        await openWith(
+          tester,
+          layout: ReadingLayout.webtoon,
+          direction: ReadingDirection.leftToRight,
+        );
+
+        final constraints = firstPageConstraints(tester);
+        expect(constraints.maxWidth, width, reason: 'pinned to the viewport');
+        expect(constraints.minWidth, width, reason: 'tightly, not loosely');
+      });
+    }
+
+    testWidgets('a vertical strip leaves each page its own main axis', (
+      tester,
+    ) async {
+      // The other half, and the one that catches an over-eager fix: pinning
+      // the *cross* axis is a no-op in a vertical list, so only the main axis
+      // can tell the two apart. A page given the viewport's height here would
+      // be a paged reader wearing a ListView, and the width assertions above
+      // cannot see that.
+      await tester.binding.setSurfaceSize(const Size(360, 720));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await openWith(
+        tester,
+        layout: ReadingLayout.webtoon,
+        direction: ReadingDirection.topToBottom,
+      );
+
+      final constraints = firstPageConstraints(tester);
+      expect(constraints.maxWidth, 360, reason: 'the cross axis is the screen');
+      expect(
+        constraints.maxHeight,
+        double.infinity,
+        reason: 'the main axis belongs to the page, not the screen',
+      );
+    });
+
+    testWidgets('the quick control edits the layout on screen, not the other', (
+      tester,
+    ) async {
+      // The reader's direction button used to be paged-only and toggled two
+      // values. It now cycles four and has to write whichever key the layout
+      // in force reads -- a button that edited the paged key while a webtoon
+      // was on screen would look completely inert.
+      await openWith(
+        tester,
+        layout: ReadingLayout.webtoon,
+        direction: ReadingDirection.topToBottom,
+      );
+
+      await tester.tap(find.byTooltip(ReadingDirection.topToBottom.label));
+      await tester.pumpAndSettle();
+
+      expect(
+        ReaderKeys.webtoonDirection.get<int>(0),
+        ReadingDirection.topToBottom.next.index,
+      );
+      expect(
+        ReaderKeys.readingDirection.get<int>(0),
+        ReadingDirection.topToBottom.index,
+        reason: 'the paged direction is not what is on screen',
+      );
+    });
   });
 }

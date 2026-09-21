@@ -188,16 +188,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ).clamp(0, ReadingLayout.values.length - 1),
               onSelected: (i) => _setInt(ReaderKeys.readingLayout, i),
             ),
+            // Two rows, because the two layouts do not share a direction:
+            // one value would mean a reader coming back from a right-to-left
+            // manga found their next webtoon scrolling sideways. AnymeX keeps
+            // one and force-overrides it whenever its webtoon detector fires,
+            // which is the same admission by another route.
+            //
+            // The labels come off the enum, so a member added later cannot be
+            // named here and left blank in the reader's own tooltip. Short
+            // forms, because four full labels in one segmented row are stubs
+            // at a doubled system font — and a `FittedBox` is not the fix, per
+            // `CLAUDE.md`.
             ChromeTile.choice(
               icon: Iconsax.arrow_swap_horizontal,
-              title: 'Reading direction',
+              title: 'Paged direction',
               subtitle: 'Most manga reads right to left',
-              labels: const ['Left to right', 'Right to left'],
+              labels: [for (final d in ReadingDirection.values) d.shortLabel],
               selectedIndex: _readerInt(
                 ReaderKeys.readingDirection,
-                0,
+                ReadingDirection.leftToRight.index,
               ).clamp(0, ReadingDirection.values.length - 1),
               onSelected: (i) => _setInt(ReaderKeys.readingDirection, i),
+            ),
+            ChromeTile.choice(
+              icon: Iconsax.arrow_swap_horizontal,
+              title: 'Continuous direction',
+              subtitle: 'Webtoons read top to bottom',
+              labels: [for (final d in ReadingDirection.values) d.shortLabel],
+              selectedIndex: _readerInt(
+                ReaderKeys.webtoonDirection,
+                ReadingDirection.topToBottom.index,
+              ).clamp(0, ReadingDirection.values.length - 1),
+              onSelected: (i) => _setInt(ReaderKeys.webtoonDirection, i),
             ),
             // Taken when the reader opens and released when it closes, so the
             // switch only decides what the *next* chapter does.

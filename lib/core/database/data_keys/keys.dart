@@ -35,6 +35,7 @@ enum ThemeKeys {
 enum ReaderKeys {
   readingLayout,
   readingDirection,
+  webtoonDirection,
   dualPageMode,
   imageWidth,
   scrollSpeed,

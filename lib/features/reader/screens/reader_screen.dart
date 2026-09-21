@@ -76,6 +76,16 @@ class _ReaderScreenState extends State<ReaderScreen> {
   /// `load()` is still awaiting pages.
   Worker? _pagesWorker;
 
+  /// Watches for a change of *axis*, which is the one change a live scroll
+  /// controller cannot survive: its stored `pixels` were measured down a strip
+  /// and mean nothing across one. A change of sign is deliberately not
+  /// watched — `reverse` flips the whole coordinate system, so offset 0 is
+  /// still the first page either way.
+  Worker? _axisWorker;
+
+  /// The axis the current controllers were built for.
+  Axis _axis = Axis.horizontal;
+
   @override
   void initState() {
     super.initState();
@@ -103,6 +113,34 @@ class _ReaderScreenState extends State<ReaderScreen> {
       // real extent is known.
       WidgetsBinding.instance.addPostFrameCallback((_) => _correctResume());
     });
+    _axis = _c.activeDirection.axis;
+    _axisWorker = everAll([_c.layout, _c.direction, _c.webtoonDirection], (_) {
+      if (!mounted) return;
+      final axis = _c.activeDirection.axis;
+      if (axis == _axis) return;
+      _axis = axis;
+      _rebuildForAxis();
+    });
+  }
+
+  /// Hands both modes a controller built for the axis now in force.
+  ///
+  /// The page *index* survives the switch and the pixel offset cannot, so the
+  /// index is what is restored: paged reopens on it directly, and continuous
+  /// scrolls to that page's laid-out child once there is a layout to measure.
+  void _rebuildForAxis() {
+    final current = _c.page.value;
+    _pageController?.dispose();
+    _pageController = PageController(initialPage: current);
+    _scroll?.dispose();
+    _scroll = ScrollController();
+    setState(() {});
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final context = _pageKeys[current]?.currentContext;
+      if (context == null) return;
+      Scrollable.ensureVisible(context);
+    });
   }
 
   @override
@@ -111,6 +149,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     // Before deleting the controller, so the worker cannot fire against a
     // disposed Rx or a dead State.
     _pagesWorker?.dispose();
+    _axisWorker?.dispose();
     _pageController?.dispose();
     _scroll?.dispose();
     Get.delete<ReaderController>(tag: _tag);
@@ -162,19 +201,24 @@ class _ReaderScreenState extends State<ReaderScreen> {
   Widget _paged() {
     final controller = _pageController;
     if (controller == null) return const SizedBox.shrink();
+    // Right-to-left is the default for a great deal of manga, and bottom-to-top
+    // exists for the same reason one axis over: flipping the scroll direction
+    // is what makes the swipe match the page order rather than fighting it.
+    final direction = _c.direction.value;
     return PageView.builder(
       controller: controller,
-      // Right-to-left is the default for a great deal of manga, and flipping
-      // the scroll direction is what makes the swipe gesture match the page
-      // order rather than fighting it.
-      reverse: _c.direction.value == ReadingDirection.rightToLeft,
+      scrollDirection: direction.axis,
+      reverse: direction.reversed,
       onPageChanged: _c.onPageChanged,
       itemCount: _c.pages.length,
       itemBuilder: (context, i) => InteractiveViewer(
         minScale: 1,
         maxScale: 4,
         child: Center(
-          child: _Page(page: _c.pages[i], baseUrl: _c.sourceBaseUrl.value),
+          child: KeyedSubtree(
+            key: _pageKey(i),
+            child: _Page(page: _c.pages[i], baseUrl: _c.sourceBaseUrl.value),
+          ),
         ),
       ),
     );
@@ -195,14 +239,37 @@ class _ReaderScreenState extends State<ReaderScreen> {
         if (index != null) _c.onPageChanged(index);
         return false;
       },
-      child: ListView.builder(
-        key: _webtoonKey,
-        controller: controller,
-        itemCount: _c.pages.length,
-        itemBuilder: (context, i) => KeyedSubtree(
-          key: _pageKey(i),
-          child: _Page(page: _c.pages[i], baseUrl: _c.sourceBaseUrl.value),
-        ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final direction = _c.webtoonDirection.value;
+          final horizontal = direction.axis == Axis.horizontal;
+          return ListView.builder(
+            key: _webtoonKey,
+            controller: controller,
+            scrollDirection: direction.axis,
+            reverse: direction.reversed,
+            itemCount: _c.pages.length,
+            itemBuilder: (context, i) {
+              final page = KeyedSubtree(
+                key: _pageKey(i),
+                child: _Page(
+                  page: _c.pages[i],
+                  baseUrl: _c.sourceBaseUrl.value,
+                ),
+              );
+              // A vertical strip constrains width and lets each page take the
+              // height its aspect ratio asks for. Turned on its side that
+              // reverses, and an image with an unbounded main axis falls back
+              // to its *intrinsic pixel width* — which is whatever the scan was
+              // encoded at, and has nothing to do with the screen. Pinning the
+              // page to the viewport is what a continuous horizontal reader
+              // does anyway: free scrolling, one page wide.
+              return horizontal
+                  ? SizedBox(width: constraints.maxWidth, child: page)
+                  : page;
+            },
+          );
+        },
       ),
     );
   }
@@ -249,10 +316,20 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final viewport = _webtoonKey.currentContext?.findRenderObject();
     if (viewport is! RenderBox || !viewport.hasSize) return null;
 
-    // The page under the top edge of the viewport is the one being read; a page
-    // still entirely below it has not been reached. Only children near the
-    // viewport have a context at all -- the rest are recycled, and they are
+    final direction = _c.webtoonDirection.value;
+    final horizontal = direction.axis == Axis.horizontal;
+    final extent = horizontal ? viewport.size.width : viewport.size.height;
+
+    // The page past the *leading* edge of the viewport is the one being read; a
+    // page still entirely beyond it has not been reached. Only children near
+    // the viewport have a context at all -- the rest are recycled, and they are
     // exactly the ones that cannot be the current page.
+    //
+    // "Leading" is not "top". `localToGlobal` answers in screen space, where 0
+    // is always the visual left or top, while a reversed list puts page 1 at
+    // the far end -- so comparing against 0 there names the page furthest from
+    // the one being read. Measuring the distance from the leading edge instead
+    // keeps one comparison correct for all four directions.
     int? current;
     for (final entry in _pageKeys.entries) {
       if (entry.key >= total) continue;
@@ -260,14 +337,25 @@ class _ReaderScreenState extends State<ReaderScreen> {
       if (context == null) continue;
       final child = context.findRenderObject();
       if (child is! RenderBox || !child.hasSize) continue;
-      final top = child.localToGlobal(Offset.zero, ancestor: viewport).dy;
-      if (top <= 0 && (current == null || entry.key > current)) {
+      final origin = child.localToGlobal(Offset.zero, ancestor: viewport);
+      final start = horizontal ? origin.dx : origin.dy;
+      final size = horizontal ? child.size.width : child.size.height;
+      final fromLeading = direction.reversed ? extent - (start + size) : start;
+      if (fromLeading <= 0 && (current == null || entry.key > current)) {
         current = entry.key;
       }
     }
     // Nothing above the fold means the strip is still at the very top.
     return current ?? 0;
   }
+
+  static IconData _directionIcon(ReadingDirection direction) =>
+      switch (direction) {
+        ReadingDirection.leftToRight => Iconsax.arrow_right_3,
+        ReadingDirection.rightToLeft => Iconsax.arrow_left_2,
+        ReadingDirection.topToBottom => Iconsax.arrow_down_1,
+        ReadingDirection.bottomToTop => Iconsax.arrow_up_2,
+      };
 
   Widget _chrome() {
     return Positioned.fill(
@@ -335,23 +423,19 @@ class _ReaderScreenState extends State<ReaderScreen> {
                         : ReadingLayout.webtoon,
                   ),
                 ),
-                if (_c.layout.value == ReadingLayout.paged)
-                  IconButton(
-                    tooltip: _c.direction.value == ReadingDirection.rightToLeft
-                        ? 'Right to left'
-                        : 'Left to right',
-                    icon: Icon(
-                      _c.direction.value == ReadingDirection.rightToLeft
-                          ? Iconsax.arrow_left_2
-                          : Iconsax.arrow_right_3,
-                      color: Colors.white,
-                    ),
-                    onPressed: () => _c.setDirection(
-                      _c.direction.value == ReadingDirection.rightToLeft
-                          ? ReadingDirection.leftToRight
-                          : ReadingDirection.rightToLeft,
-                    ),
+                // Both layouts carry a direction now, so this is no longer
+                // paged-only. It cycles rather than toggles, because there are
+                // four of them; the Settings row is where one is chosen
+                // deliberately.
+                IconButton(
+                  tooltip: _c.activeDirection.label,
+                  icon: Icon(
+                    _directionIcon(_c.activeDirection),
+                    color: Colors.white,
                   ),
+                  onPressed: () =>
+                      _c.setActiveDirection(_c.activeDirection.next),
+                ),
               ],
             ),
           ),

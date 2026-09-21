@@ -30,8 +30,9 @@ The audit corrected two things that had been stated as fact:
    dependency or implementation anywhere in `lib/`, and "Show the page number"
    had no page indicator in the reader. Both wrote their key and were never
    read. That is live UI wired to nothing, which `CLAUDE.md` forbids, and it
-   shipped. **Fixed 2026-09-20** — both are ticked below, and the reader now
-   honours four keys rather than two.
+   shipped. **Fixed 2026-09-20** — both are ticked below, and the reader went
+   from honouring two keys to four. It honours **five** since 2026-09-21,
+   when `webtoonDirection` arrived with the two new reading axes.
 
 A checklist that counts declarations rather than behaviour is how both got
 missed. Tick what renders, not what compiles.
@@ -43,7 +44,7 @@ missed. Tick what renders, not what compiles.
 - [x] **0 — Skeleton.** Isar + recovery ladder, `KvHelper`, typed enum keys, M3 theming, `LazyIndexedStack` shell, explicit DI.
 - [x] **1 — Source runtime.** Mangayomi Dart extensions via d4rt. 55/55 evaluate, 6 complete the full chain.
 - [~] **2 — Browse, details, library, home.** Browse, global search, details with AniList carousels and the list editor all ship. Library is a grid with 4 sorts and a search box — no filters, categories, display modes or badges.
-- [~] **3 — Reader.** Paged and webtoon, both directions, progress persistence and resume, keep-screen-on and a persistent page indicator. Four of ~40 reader settings are honoured.
+- [~] **3 — Reader.** Paged and webtoon, all four directions in both, progress persistence and resume, keep-screen-on and a persistent page indicator. Five of ~40 reader settings are honoured.
 - [~] **4 — Downloads, updates, history.** Queue with cancel/delete and storage usage; updates with mark-read and undo; history with search, remove, undo and resume. None of the depth below.
 - [ ] **5 — Smart Prefetch, Smart Panels.** AniList metadata shipped; the other two have not started.
 - [ ] **6 — Tracking fan-out, migration, stats, Komikku parity.**
@@ -70,14 +71,15 @@ The single most important surface. Combined list from both apps.
 > **Audited 2026-09-20.** The reader honoured `readingLayout` and
 > `readingDirection` and nothing else, and two Settings controls — *Keep the
 > screen on* and *Show the page number* — wrote a key the reader never read,
-> so they were inert UI. **Both are now wired**, so `ReaderKeys` stands at 4
-> honoured of 34; the other 30 have no control behind them and are ordinary
+> so they were inert UI. **Both are now wired**, and `webtoonDirection` was
+> added on 2026-09-21 with the two new reading axes, so `ReaderKeys` stands at
+> 5 honoured of 35; the other 30 have no control behind them and are ordinary
 > unbuilt features rather than dead UI. `ReaderDefaults` holds the fallback for
 > the two that have a switch, because the reader and the Settings row both need
 > it and a disagreeing pair renders a switch showing the opposite of what the
 > reader does.
 
-**Modes & layout** — [x] paged and continuous · [~] 4 directions — **LTR and RTL only**; `ReadingDirection` has exactly two members, and top-down / bottom-up do not exist · [ ] dual-page (off/auto-landscape/force) with **shift double pages** · [ ] auto webtoon mode (switches to vertical from page aspect ratios) · [ ] fit-to-screen-width · [ ] webtoon side padding and page gap · [ ] image width multiplier + desktop max-width clamp · [ ] spaced pages
+**Modes & layout** — [x] paged and continuous · [x] 4 directions — `ReadingDirection` carries an axis and a sign, and **both layouts honour both**: paged reads vertically, continuous reads sideways. The two keep *separate* stored directions, which AnymeX does not · [ ] dual-page (off/auto-landscape/force) with **shift double pages** · [ ] auto webtoon mode (switches to vertical from page aspect ratios) · [ ] fit-to-screen-width · [ ] webtoon side padding and page gap · [ ] image width multiplier + desktop max-width clamp · [ ] spaced pages
 
 **Rendering** — [ ] tiled/subsampled decoding for tall strips (AnymeX's `subsampling_scale_image_view/` + FFI decoder) · [ ] crop borders (white/black margin removal) · [ ] image filter quality incl. Lanczos pre-scale · [ ] image quality / data-saver downscaling · [ ] pinch + double-tap zoom, disable-zoom-out option
 
