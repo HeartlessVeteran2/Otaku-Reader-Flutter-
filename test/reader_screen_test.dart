@@ -524,6 +524,60 @@ void main() {
     // Faking extent would mean faking the thing under test. So the decision
     // is asserted where it is made.
 
+    test('a layout change invalidates the scroll views, not only an axis one', () {
+      // `codeant-ai`'s Major on #56, and it is the fix one case earlier in the
+      // same file left un-applied to its neighbour. Paged and continuous keep
+      // *separate* controllers, so switching between them at the same axis
+      // rebuilt neither: the `PageView` kept its page while the strip kept an
+      // offset from a different read, whichever was showing overwrote `page`,
+      // and switching back showed the old page under the other one's counter.
+      //
+      // The rendered reproduction is blocked by the same measured limitation
+      // as the walk below: with no page extent the strip never reports
+      // anything, so the disagreement cannot arise here.
+      expect(
+        modeInvalidatesScroll(
+          wasAxis: Axis.vertical,
+          nowAxis: Axis.vertical,
+          wasLayout: ReadingLayout.paged,
+          nowLayout: ReadingLayout.webtoon,
+        ),
+        isTrue,
+        reason: 'same axis, different layout',
+      );
+    });
+
+    test('an axis change invalidates them too', () {
+      // The half that already worked. Without it, dropping the axis clause
+      // would satisfy the test above.
+      expect(
+        modeInvalidatesScroll(
+          wasAxis: Axis.horizontal,
+          nowAxis: Axis.vertical,
+          wasLayout: ReadingLayout.webtoon,
+          nowLayout: ReadingLayout.webtoon,
+        ),
+        isTrue,
+        reason: 'same layout, different axis',
+      );
+    });
+
+    test('a change of sign alone does not', () {
+      // `reverse` flips the whole coordinate system, so offset 0 is the first
+      // page either way. Rebuilding here would throw away a good position for
+      // nothing -- and every direction change fires this worker, so the cheap
+      // answer of "rebuild on anything" is a real cost.
+      expect(
+        modeInvalidatesScroll(
+          wasAxis: Axis.horizontal,
+          nowAxis: Axis.horizontal,
+          wasLayout: ReadingLayout.paged,
+          nowLayout: ReadingLayout.paged,
+        ),
+        isFalse,
+      );
+    });
+
     test('a target that is not built yet means keep walking', () {
       // The mutation guard, and the bug in one line: the first version
       // answered `done` here, which is what left the reader at the top.

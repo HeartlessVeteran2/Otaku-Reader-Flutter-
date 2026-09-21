@@ -29,6 +29,26 @@ const kRestoreStepLimit = 400;
 /// Whether a restore walk has finished, or must advance to build more pages.
 enum RestoreStep { done, advance }
 
+/// Whether a mode change leaves the reader's scroll views holding state that is
+/// no longer about what is on screen.
+///
+/// The first version asked only about the **axis**, and `codeant-ai` caught
+/// what that misses: paged and continuous keep *separate* controllers, so
+/// switching between them at the same axis rebuilt neither. The `PageView`
+/// kept its page while the strip kept an offset belonging to a different read,
+/// whichever was showing overwrote `page` with its own answer, and switching
+/// back showed the old page while the counter reported the other one.
+///
+/// Eighth instance of this repo's most-repeated defect: the rule was applied
+/// one case earlier in the same file and not to its neighbour.
+@visibleForTesting
+bool modeInvalidatesScroll({
+  required Axis wasAxis,
+  required Axis nowAxis,
+  required ReadingLayout wasLayout,
+  required ReadingLayout nowLayout,
+}) => wasAxis != nowAxis || wasLayout != nowLayout;
+
 /// What a restore walk should do next.
 ///
 /// Lifted out of [_restorePage] so the decision can be asserted directly.
@@ -122,8 +142,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
   /// still the first page either way.
   Worker? _axisWorker;
 
-  /// The axis the current controllers were built for.
+  /// The axis and layout the current controllers were built for.
   Axis _axis = Axis.horizontal;
+  ReadingLayout _layout = ReadingLayout.paged;
 
   /// True while [_restorePage] is walking the strip back to where the reader
   /// was.
@@ -161,12 +182,22 @@ class _ReaderScreenState extends State<ReaderScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) => _correctResume());
     });
     _axis = _c.activeDirection.axis;
+    _layout = _c.layout.value;
     _axisWorker = everAll([_c.layout, _c.direction, _c.webtoonDirection], (_) {
       if (!mounted) return;
       final axis = _c.activeDirection.axis;
-      if (axis == _axis) return;
+      final layout = _c.layout.value;
+      if (!modeInvalidatesScroll(
+        wasAxis: _axis,
+        nowAxis: axis,
+        wasLayout: _layout,
+        nowLayout: layout,
+      )) {
+        return;
+      }
       _axis = axis;
-      _rebuildForAxis();
+      _layout = layout;
+      _rebuildForMode();
     });
   }
 
@@ -175,7 +206,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   /// The page *index* survives the switch and the pixel offset cannot, so the
   /// index is what is restored: paged reopens on it directly, and continuous
   /// scrolls to that page's laid-out child once there is a layout to measure.
-  void _rebuildForAxis() {
+  void _rebuildForMode() {
     final current = _c.page.value;
     _pageController?.dispose();
     _pageController = PageController(initialPage: current);
@@ -299,7 +330,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     // Right-to-left is the default for a great deal of manga, and bottom-to-top
     // exists for the same reason one axis over: flipping the scroll direction
     // is what makes the swipe match the page order rather than fighting it.
-    final direction = _c.direction.value;
+    final direction = _c.activeDirection;
     return PageView.builder(
       controller: controller,
       scrollDirection: direction.axis,
@@ -338,7 +369,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       },
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final direction = _c.webtoonDirection.value;
+          final direction = _c.activeDirection;
           final horizontal = direction.axis == Axis.horizontal;
           return ListView.builder(
             key: _webtoonKey,
@@ -413,7 +444,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final viewport = _webtoonKey.currentContext?.findRenderObject();
     if (viewport is! RenderBox || !viewport.hasSize) return null;
 
-    final direction = _c.webtoonDirection.value;
+    final direction = _c.activeDirection;
     final horizontal = direction.axis == Axis.horizontal;
     final extent = horizontal ? viewport.size.width : viewport.size.height;
 
