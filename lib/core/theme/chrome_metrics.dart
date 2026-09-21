@@ -123,15 +123,35 @@ extension ChromeMetricsX on BuildContext {
       (base * chromeMetrics.blurScale).clamp(0.0, double.infinity);
 }
 
-/// A shadow that honours the reader's glow multiplier, or no shadow at all.
+/// A shadow under both multipliers, or no shadow at all.
+///
+/// **The two sliders split it, as AnymeX's do:** *Blur* scales the shadow's
+/// blur radius, *Glow* scales its spread. Chosen by the developer over this
+/// app's first answer, which scaled both off `glowScale` and kept `blurScale`
+/// for the `BackdropFilter` alone.
 ///
 /// A free function for the same reason AnymeX's `glowingShadow` /
 /// `lightGlowingShadow` are: the *remove it at zero* rule has to live in one
-/// place. A `BoxShadow` whose blur and spread have been scaled to 0 is not
-/// "no glow" — it paints a hard rectangle behind the surface, which is a
-/// different and worse decoration than none. Left to each call site, one of
-/// them eventually scales to zero instead of dropping out, and the defect is
-/// invisible in the diff.
+/// place. Left to each call site, one of them eventually scales to zero
+/// instead of dropping out, and the defect is invisible in the diff.
+///
+/// ### Why **either** multiplier at zero removes it
+///
+/// Splitting the two inputs creates a case AnymeX has and gets wrong, so this
+/// is a port with a correction rather than a copy:
+///
+/// - **Glow at 0** must mean no glow — that is what the slider is called. Left
+///   to the arithmetic it would only zero the *spread*, and a 50px blur with
+///   no spread is still a plainly visible bloom.
+/// - **Blur at 0** would leave blur radius 0 with a positive spread, which is
+///   a **hard rectangle** behind the surface: not a subtle shadow, a solid
+///   band. `glowingShadow` guards only its glow multiplier, so AnymeX paints
+///   exactly that when its blur slider bottoms out.
+///
+/// So the honest reading of the labels is that each slider at 0 removes the
+/// thing it names, and a shadow needs both to exist. The consequence worth
+/// knowing: **Blur at 0 now also takes the drop shadows**, not just the
+/// frosted glass.
 ///
 /// Returns `null` rather than an empty list so it drops straight into
 /// `BoxDecoration.boxShadow`, whose own "none" is null.
@@ -142,11 +162,11 @@ List<BoxShadow>? glowShadow(
   double spreadRadius = 0,
   Offset offset = Offset.zero,
 }) {
-  if (context.glow(1) <= 0) return null;
+  if (context.glow(1) <= 0 || context.blur(1) <= 0) return null;
   return [
     BoxShadow(
       color: color,
-      blurRadius: context.glow(blurRadius),
+      blurRadius: context.blur(blurRadius),
       spreadRadius: context.glow(spreadRadius),
       offset: offset,
     ),

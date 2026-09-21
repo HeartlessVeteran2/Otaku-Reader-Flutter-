@@ -8,6 +8,8 @@ import 'package:otaku_reader/features/details/screens/manga_details_screen.dart'
 import 'package:otaku_reader/features/library/controllers/library_controller.dart';
 import 'package:otaku_reader/features/library/widgets/library_card.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
+import 'package:otaku_reader/core/ui/greeting_text.dart';
+import 'package:otaku_reader/features/settings/widgets/profile_avatar.dart';
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
@@ -50,6 +52,13 @@ class _LibraryScreenState extends State<LibraryScreen>
     );
     return ChromeScaffold.slivers(
       title: 'Library',
+      // The account leads the header, and the greeting sits under the
+      // title -- AnymeX's shape for a tab root. Both degrade on their
+      // own: the avatar has a state for every answer `AniListAuth` can
+      // give, and the leading is dropped entirely on a route that can
+      // pop, where the back button needs that slot.
+      leading: const ProfileAvatar(),
+      subtitleWidget: const GreetingText(),
       onRefresh: _c.load,
       // In the pill, not under it. The permanent 52px field this replaces was
       // 52px spent on every screenful for a control used occasionally.

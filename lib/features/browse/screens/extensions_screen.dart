@@ -14,6 +14,7 @@ import 'package:otaku_reader/features/browse/screens/source_browse_screen.dart';
 import 'package:otaku_reader/features/browse/widgets/source_tile.dart';
 import 'package:otaku_reader/source/model/source.dart';
 import 'package:otaku_reader/features/search/screens/global_search_screen.dart';
+import 'package:otaku_reader/core/ui/greeting_text.dart';
 
 /// Install, update and remove extensions, and manage the repos they come from.
 class ExtensionsScreen extends StatefulWidget {
@@ -58,6 +59,23 @@ class _ExtensionsScreenState extends State<ExtensionsScreen>
   Widget build(BuildContext context) {
     return ChromeScaffold(
       title: 'Extensions',
+      // The greeting, but **no** `leading: ProfileAvatar()`, and that is
+      // measured rather than preferred.
+      //
+      // A leading costs one action slot. This screen carries three actions
+      // plus search, and with a leading `chrome_test`'s own probe puts that
+      // combination over the edge by **22px at 320 and 1.5px at 360**, while
+      // 384 and 411 are clean. Without one the same row is clean at all four
+      // — which is every width that was measured, and not a claim about any
+      // other. Same shape as the `TabBar` overflow this repo already
+      // shipped, which was also not confined to tiny phones.
+      //
+      // AnymeX arrives at the same place from the other direction: it only
+      // leads with the avatar on screens carrying a single action, and its
+      // one busy root (home) puts the avatar in the *actions* pill instead.
+      // So four tab roots lead with the account and this one does not,
+      // which is a width budget rather than an oversight.
+      subtitleWidget: const GreetingText(),
       enableSearch: true,
       searchController: _search,
       onSearchChanged: _c.setQuery,

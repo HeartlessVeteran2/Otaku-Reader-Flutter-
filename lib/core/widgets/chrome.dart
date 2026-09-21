@@ -216,6 +216,8 @@ class ChromeScaffold extends StatefulWidget {
     required this.title,
     required this.body,
     this.subtitle,
+    this.subtitleWidget,
+    this.leading,
     this.actions,
     this.bottom,
     this.floatingActionButton,
@@ -237,6 +239,8 @@ class ChromeScaffold extends StatefulWidget {
     required String title,
     required List<Widget> slivers,
     String? subtitle,
+    Widget? subtitleWidget,
+    Widget? leading,
     List<Widget>? actions,
     PreferredSizeWidget? bottom,
     Widget? floatingActionButton,
@@ -252,6 +256,8 @@ class ChromeScaffold extends StatefulWidget {
       key: key,
       title: title,
       subtitle: subtitle,
+      subtitleWidget: subtitleWidget,
+      leading: leading,
       actions: actions,
       bottom: bottom,
       floatingActionButton: floatingActionButton,
@@ -270,6 +276,36 @@ class ChromeScaffold extends StatefulWidget {
   final String title;
   final String? subtitle;
   final Widget body;
+
+  /// A **live** subtitle, which takes precedence over [subtitle].
+  ///
+  /// [subtitle] is a `String` read once at build time. That is right for a
+  /// fixed line, and wrong for anything that changes while the screen is
+  /// already on screen — the greeting crosses a band boundary at 17:00
+  /// whether or not a rebuild happens to be due, and a `String` read at 16:59
+  /// simply stays wrong. Worse, the controller's timer would then be observed
+  /// by nothing, which is this repo's most-repeated defect wearing a clock.
+  ///
+  /// So a live subtitle is passed as a widget that listens for itself.
+  /// AnymeX's header carries the same pair for the same reason
+  /// (`subtitleWidget` beside `subtitle`).
+  final Widget? subtitleWidget;
+
+  /// One widget at the head of the **title** pill, before the title.
+  ///
+  /// AnymeX leads every tab root with the account rather than with a title,
+  /// which is what this exists for — see `ProfileAvatar`. It is a plain
+  /// `Widget?` rather than anything AniList-shaped so that `chrome.dart` stays
+  /// free of DI: the caller resolves the controller, this only lays out.
+  ///
+  /// **A back button wins over it.** The two occupy the same slot, and if both
+  /// were drawn the pill would grow by one element on exactly the screens
+  /// least able to spare the width. Back is navigation and the leading is
+  /// decoration, so on a route that can pop this is simply not rendered —
+  /// which costs nothing in practice, because a tab root never pops. Stated
+  /// here because the opposite choice is invisible in the diff and would make
+  /// a screen unnavigable at a narrow width.
+  final Widget? leading;
 
   /// Icon-sized controls for the actions pill.
   ///
@@ -376,7 +412,17 @@ class _ChromeScaffoldState extends State<ChromeScaffold> {
         _measured ??
         Chrome.headerHeight(
           context,
-          hasSubtitle: widget.subtitle != null && widget.subtitle!.isNotEmpty,
+          // `subtitleWidget` counts too. It is the form every tab root uses,
+          // so reading only `subtitle` here estimated a subtitle-less header
+          // for all of them and under-reserved the body on the **first
+          // frame** -- the first row rendered behind the blurred pill until
+          // measurement corrected it a frame later. That is the ninth
+          // instance of this repo's own layout blindness, reintroduced by
+          // adding the slot and missed by every test, because they all
+          // settle before asserting. Found by `codeant-ai`.
+          hasSubtitle:
+              widget.subtitleWidget != null ||
+              (widget.subtitle != null && widget.subtitle!.isNotEmpty),
           hasActions:
               widget.enableSearch || (widget.actions?.isNotEmpty ?? false),
           bottomHeight: bottomHeight,
@@ -409,6 +455,8 @@ class _ChromeScaffoldState extends State<ChromeScaffold> {
                   child: PillHeader(
                     title: widget.title,
                     subtitle: widget.subtitle,
+                    subtitleWidget: widget.subtitleWidget,
+                    leading: widget.leading,
                     actions: widget.actions,
                     bottom: widget.bottom,
                     enableSearch: widget.enableSearch,
@@ -473,6 +521,8 @@ class PillHeader extends StatefulWidget {
     super.key,
     required this.title,
     this.subtitle,
+    this.subtitleWidget,
+    this.leading,
     this.actions,
     this.bottom,
     this.enableSearch = false,
@@ -485,6 +535,13 @@ class PillHeader extends StatefulWidget {
 
   final String title;
   final String? subtitle;
+
+  /// A subtitle that listens for itself. Wins over [subtitle].
+  final Widget? subtitleWidget;
+
+  /// Drawn at the head of the title pill, and dropped when a back button
+  /// needs that slot. See `ChromeScaffold.leading`.
+  final Widget? leading;
   final List<Widget>? actions;
   final PreferredSizeWidget? bottom;
   final bool enableSearch;
@@ -625,6 +682,9 @@ class PillHeaderState extends State<PillHeader> {
                     onPressed: () => Navigator.of(context).pop(),
                   ),
                   const SizedBox(width: 4),
+                ] else if (widget.leading != null) ...[
+                  widget.leading!,
+                  const SizedBox(width: Chrome.gap),
                 ],
                 Flexible(
                   child: Padding(
@@ -643,7 +703,19 @@ class PillHeaderState extends State<PillHeader> {
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        if (widget.subtitle != null &&
+                        if (widget.subtitleWidget != null) ...[
+                          const SizedBox(height: 2),
+                          DefaultTextStyle.merge(
+                            style: TextStyle(
+                              fontSize: 11,
+                              height: 1.3,
+                              color: theme.colorScheme.onSurface.withValues(
+                                alpha: 0.6,
+                              ),
+                            ),
+                            child: widget.subtitleWidget!,
+                          ),
+                        ] else if (widget.subtitle != null &&
                             widget.subtitle!.isNotEmpty) ...[
                           const SizedBox(height: 2),
                           Text(

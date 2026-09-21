@@ -11,6 +11,8 @@ import 'package:otaku_reader/features/home/controllers/home_controller.dart';
 import 'package:otaku_reader/features/reader/screens/reader_screen.dart';
 import 'package:otaku_reader/features/search/screens/global_search_screen.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
+import 'package:otaku_reader/core/ui/greeting_text.dart';
+import 'package:otaku_reader/features/settings/widgets/profile_avatar.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -21,6 +23,13 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return ChromeScaffold.slivers(
       title: 'Home',
+      // The account leads the header, and the greeting sits under the
+      // title -- AnymeX's shape for a tab root. Both degrade on their
+      // own: the avatar has a state for every answer `AniListAuth` can
+      // give, and the leading is dropped entirely on a route that can
+      // pop, where the back button needs that slot.
+      leading: const ProfileAvatar(),
+      subtitleWidget: const GreetingText(),
       onRefresh: _c.load,
       actions: [
         IconButton(

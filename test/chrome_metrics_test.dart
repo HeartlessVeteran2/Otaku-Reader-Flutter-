@@ -154,13 +154,11 @@ void main() {
     );
   });
 
-  testWidgets('the header pill scales its shadow rather than swapping it', (
-    tester,
-  ) async {
-    // Scaled, not merely present: a shadow that ignores the number is the
-    // same defect one step further in.
+  testWidgets('Blur scales the shadow\'s blur radius', (tester) async {
+    // The developer's choice: the two sliders split a shadow, as AnymeX's do.
+    // Blur owns softness...
     await tester.pumpWidget(
-      scaffold(metrics: ChromeMetrics.standard.copyWith(glowScale: 2)),
+      scaffold(metrics: ChromeMetrics.standard.copyWith(blurScale: 2)),
     );
     await tester.pumpAndSettle();
 
@@ -170,6 +168,42 @@ void main() {
     ).map((s) => s.blurRadius);
 
     expect(blurs, contains(48.0), reason: 'the pill 24 doubled');
+  });
+
+  testWidgets('Glow scales the spread, and not the blur radius', (
+    tester,
+  ) async {
+    // ...and Glow owns size. Asserting both halves, because a split that
+    // moved the wrong number would satisfy either test alone.
+    await tester.pumpWidget(
+      scaffold(metrics: ChromeMetrics.standard.copyWith(glowScale: 3)),
+    );
+    await tester.pumpAndSettle();
+
+    final blurs = shadowsUnder(
+      tester,
+      find.byType(ChromeScaffold),
+    ).map((s) => s.blurRadius);
+
+    expect(
+      blurs,
+      contains(24.0),
+      reason: 'the pill keeps its 24 -- Glow must not touch the blur radius',
+    );
+  });
+
+  testWidgets('Blur at zero takes the shadow with it', (tester) async {
+    // The case the split creates and AnymeX gets wrong. Its `glowingShadow`
+    // guards only the glow multiplier, so at blur 0 it emits blurRadius 0
+    // with a positive spread -- a hard rectangle behind the surface rather
+    // than a shadow. A slider called Blur reading 0 has to mean nothing is
+    // blurred, drop shadows included.
+    await tester.pumpWidget(
+      scaffold(metrics: ChromeMetrics.standard.copyWith(blurScale: 0)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(shadowsUnder(tester, find.byType(ChromeScaffold)), isEmpty);
   });
 
   testWidgets('the selected segment honours it too', (tester) async {

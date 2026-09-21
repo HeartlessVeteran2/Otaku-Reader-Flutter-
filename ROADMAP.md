@@ -165,7 +165,7 @@ The depth that separates "has the screens" from "is the app".
 
 | | AnymeX source | size |
 |---|---|---|
-| Profile-led header on tab roots — AniList avatar + badge + greeting | `lib/widgets/header/header.dart` | 1,012 |
+| ~~Profile-led header on tab roots — AniList avatar + greeting~~ | `lib/widgets/header/header.dart` | **shipped** (no badge) |
 | ~~Radius / glow / blur **user multipliers** — roundness becomes a setting~~ | `multiplyRadius()` / `multiplyGlow()` | **shipped** |
 | ~~In-row segmented selectors, replacing radio dialogs~~ | `anymex_tile.dart` | **shipped** |
 | Searchable settings registry — relevance-scored, deep-links, highlights | `settings/search/*` | 659 |
@@ -190,6 +190,33 @@ no blur and no spread paints a hard rectangle rather than nothing.
 `ChromeTile.choice` replaced the four radio dialogs (`_pick<T>`) on the
 Settings screen, and `ChromeTile.slider` is what the three multiplier rows are
 built from. Both are ports of `AnymeXTile`'s own factories.
+
+The profile-led header landed next. `ChromeScaffold` grew a `leading` slot and
+a `subtitleWidget` slot, and four tab roots now open with the AniList account
+over a time-of-day greeting.
+
+Two things about it are measured rather than chosen:
+
+- **A leading costs one action slot.** Three actions plus search overflows the
+  header by 22px at 320 and 1.5px at 360 with one, and is clean at 384 and 411;
+  without one it is clean at all four. Those are the widths measured — the
+  guard covers 320/360/384. Browse carries exactly that load, so it takes the greeting and not
+  the avatar — which is also where AnymeX ends up, since it only leads with the
+  avatar on single-action screens.
+- **The greeting re-rolls only across a band boundary**, where AnymeX re-rolls
+  on every 15-minute tick and visibly flickers between its two phrases.
+
+The blur/glow question that #54 left open is also settled, by the developer:
+the two sliders **split** a shadow as AnymeX's do — Blur scales its blur
+radius, Glow its spread — rather than Glow owning both while Blur stays with
+the `BackdropFilter`. One correction came with it: either slider at 0 removes
+the shadow, because Glow at 0 would otherwise leave a visible blur with no
+spread, and Blur at 0 would leave a hard rectangle. AnymeX guards only the
+first.
+
+**Not carried over: the badge.** AnymeX overlays an extension-update count on
+its avatar. This app has no such count yet, and inventing one to decorate a
+header would be a feature pretending to be a port.
 
 ### Phase D — the AniList experience
 

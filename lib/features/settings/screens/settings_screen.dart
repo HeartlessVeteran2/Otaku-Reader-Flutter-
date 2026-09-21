@@ -147,7 +147,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               () => ChromeTile.slider(
                 icon: Iconsax.flash,
                 title: 'Glow',
-                subtitle: 'How much cards bloom behind their edges',
+                subtitle: 'How far a shadow spreads behind its surface',
                 value: _theme.glowScale.value,
                 min: ChromeMetrics.minScale,
                 max: ChromeMetrics.maxGlowScale,
@@ -160,7 +160,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               () => ChromeTile.slider(
                 icon: Iconsax.blur,
                 title: 'Header blur',
-                subtitle: 'How hard the floating pills blur what is under them',
+                subtitle: 'The frosted pills, and how soft every shadow is',
                 value: _theme.blurScale.value,
                 min: ChromeMetrics.minScale,
                 max: ChromeMetrics.maxBlurScale,

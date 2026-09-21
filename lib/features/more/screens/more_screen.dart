@@ -11,6 +11,8 @@ import 'package:otaku_reader/features/downloads/screens/downloads_screen.dart';
 import 'package:otaku_reader/features/history/screens/history_screen.dart';
 import 'package:otaku_reader/features/more/screens/about_screen.dart';
 import 'package:otaku_reader/features/settings/screens/settings_screen.dart';
+import 'package:otaku_reader/core/ui/greeting_text.dart';
+import 'package:otaku_reader/features/settings/widgets/profile_avatar.dart';
 
 /// Everything that does not earn a tab of its own.
 ///
@@ -26,6 +28,13 @@ class MoreScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return ChromeScaffold(
       title: 'More',
+      // The account leads the header, and the greeting sits under the
+      // title -- AnymeX's shape for a tab root. Both degrade on their
+      // own: the avatar has a state for every answer `AniListAuth` can
+      // give, and the leading is dropped entirely on a route that can
+      // pop, where the back button needs that slot.
+      leading: const ProfileAvatar(),
+      subtitleWidget: const GreetingText(),
       body: Builder(
         builder: (context) {
           // From a Builder inside the body, never from the State's context:

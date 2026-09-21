@@ -746,19 +746,78 @@ Ported from `/home/user/AnymeX-HV`, which is checked out in every session.
   Consequence to remember: `ChromeCard.radius` had to become **nullable**,
   because a default parameter value must be `const` and `context.radius(...)`
   is not.
-- **One deliberate divergence: `glowScale` owns shadow *blur* here, where
-  AnymeX splits it.** AnymeX writes `blurRadius: 50.multiplyBlur()` beside
-  `spreadRadius: 2.multiplyGlow()`, so its blur slider moves drop shadows as
-  well as backdrop filters. Ours keeps `blurScale` for the `BackdropFilter`
-  alone and scales a shadow's blur and spread together off `glowScale`,
-  because the sliders are labelled *Glow* and *Blur*: a reader who sets Blur
-  to 0 is asking for the frosted glass to go, not for the pill's drop shadow
-  to go with it. Chosen, not overlooked.
-- **Every glow-scaled shadow goes through `glowShadow()`**, a free function
-  for the same reason AnymeX's `glowingShadow` is one: the *remove it at zero*
-  rule has to live in one place. Left to each call site, one of them
-  eventually scales to zero instead of dropping out, paints a hard rectangle,
-  and the difference is invisible in the diff.
+- **The two sliders split a shadow, as AnymeX's do: Blur owns its blur
+  radius, Glow owns its spread.** AnymeX writes `blurRadius: 50.multiplyBlur()`
+  beside `spreadRadius: 2.multiplyGlow()`. This app's first answer scaled both
+  off `glowScale` and kept `blurScale` for the `BackdropFilter` alone, on the
+  argument that a reader setting Blur to 0 wants the frosted glass gone and
+  not the drop shadows with it. **The developer chose the split**, so Blur at
+  0 now takes the shadows too — recorded because the reasoning for the other
+  answer is still sound and the next reader should know it was weighed rather
+  than missed.
+- **Every shadow goes through `glowShadow()`**, a free function for the same
+  reason AnymeX's `glowingShadow` is one: the *remove it at zero* rule has to
+  live in one place. Left to each call site, one of them eventually scales to
+  zero instead of dropping out, paints a hard rectangle, and the difference is
+  invisible in the diff.
+- **Either multiplier at zero removes the shadow, which is a correction to
+  AnymeX rather than a copy of it.** Splitting the inputs creates two cases
+  the arithmetic alone gets wrong. *Glow* at 0 would zero only the spread, and
+  a 50px blur with no spread is still a plainly visible bloom — so a slider
+  called Glow would not turn the glow off. *Blur* at 0 would leave blur radius
+  0 beside a positive spread, which is a **hard rectangle**, not a soft
+  shadow; `glowingShadow` guards only its glow multiplier, so that is exactly
+  what AnymeX paints when its blur slider bottoms out. Each slider at 0
+  removes the thing it names, and a shadow needs both to exist.
+- **A tab root leads with the account, and a leading costs one action slot.**
+  AnymeX's tab roots open with `HeaderProfileAvatar` rather than with a title,
+  and carry a greeting as their subtitle — the thing the developer asked for
+  when they said they wanted the home page "interconnected with AniList".
+  `ProfileAvatar` is the port, and it lives in `features/` rather than in
+  `chrome.dart` so the chrome primitives stay DI-free.
+  **The budget is measured, at the widths named and no others.** With a
+  leading, three actions plus search overflows the header by **22px at 320 and
+  1.5px at 360**, and is clean at 384 and 411 — Pixel-class, the same shape as
+  the `TabBar` overflow below. Without a leading the same row is clean at all
+  four. "Clean at every width" is what an earlier draft of this paragraph
+  said, and `codeant-ai` was right that four samples do not establish it: the
+  committed guard covers 320/360/384, and a narrower or differently-scaled
+  surface is simply untested. So four tab roots lead with the account and **Browse does
+  not**, because it carries three actions plus search. AnymeX lands in the
+  same place from the other side: it only leads with the avatar on
+  single-action screens, and puts it in the *actions* pill on its one busy
+  root. `profile_header_test` pins the budget in both directions, so adding a
+  third action to a screen that has a leading fails a test rather than drawing
+  an overflow stripe on a phone nobody tested.
+- **A back button wins the leading slot.** They are the same slot, and drawing
+  both grows the pill on exactly the screens least able to spare the width.
+  Navigation beats decoration, so `leading` is not rendered on a route that
+  can pop — which costs nothing, because a tab root never pops.
+- **`subtitleWidget` exists because a `String` subtitle freezes.** The
+  greeting crosses a band boundary at 17:00 whether or not a rebuild is due,
+  so a subtitle read once at build time is right most of the day and silently
+  wrong across every boundary — *and* it would leave the greeting's timer with
+  no observer, which is this project's most-repeated defect wearing a clock.
+  A live subtitle is a widget that listens for itself. AnymeX carries the same
+  pair for the same reason.
+- **The greeting re-rolls only across a band boundary.** AnymeX calls
+  `random.nextBool()` inside the method its 15-minute timer runs, so its
+  header flips between "Good evening" and "Keep it chill" four times an hour.
+  That reads as the app glitching rather than as personality. The bands and
+  all eight phrases are ported exactly; only the roll moved. Its clock is
+  injected, because every boundary is otherwise unreachable except by running
+  the suite at that hour.
+- **`ProfileAvatar` and `GreetingText` render their neutral state when their
+  controller is missing, and `app_bindings_test` is what makes that
+  legitimate.** This looks identical in a diff to the silent 1.0 fallback
+  rejected for `ChromeMetrics` two rules up, and is not the same thing: there
+  the fallback *was* the correct production value, so a missing registration
+  was indistinguishable from a working app. Here absence renders a visibly
+  account-less header, and a test asserts `AppBindings` registers both — so it
+  cannot reach a device unnoticed. What it buys is that a library-grid or
+  extension-list test does not have to stand up an AniList account to render
+  the screen it is actually about; requiring it cost **74 failing tests** in
+  suites that test none of this.
 - **A choice belongs inside its row, and it is nearly free.** AnymeX's tile
   embeds a segmented selector, so a setting changes without leaving the row —
   and its selector *is* its tab bar reused, so `ChromeTile.choice` is
@@ -1041,6 +1100,7 @@ Kept because they repeat.
 | Building a screen without opening AnymeX's version of it | The repository sheet was designed from scratch while `/home/user/AnymeX-HV` sat on disk with a 911-line equivalent that is a screen rather than a sheet, splits the URL into monospace path over host, offers copy, dims and spins a row being deleted, and adds several URLs at once. Worse, the `TabBar` overflow two rows up was already designed out there: `AnymeXTabBar` gives each tab `1 / total` of the width with an ellipsised label, so it *cannot* overflow, while this app reached for Material's `TabBar` and then spent a long stretch measuring and patching it. The feature (per-repo health and counts) was genuinely net-new and AnymeX has nothing like it — but the shell around it was reinvented worse. Read the blueprint's version of a screen *before* designing one, not after a review finds the bug it had already avoided. |
 | A guard against a state that cannot happen, justified by a claim about `clamp` that is false | `ThemeController._clampScale` carried `if (value.isNaN) return 1;` above a comment reading *"NaN survives a `clamp`"*, and a test asserting a stored NaN is refused. Both halves are wrong, and measuring either one alone would have left the other standing. **NaN cannot reach it from disk**: the KV tier stores `jsonEncode({'val': ...})`, and `dart:convert` refuses NaN and both infinities outright, so there is no row to read back — the test failed on its own premise, throwing at the `set` rather than at the `expect`. And **`clamp` does not preserve NaN**: it compares through `compareTo`, whose total order sorts NaN *above* every double, so `double.nan.clamp(0.0, 3.0)` is **`3.0`**. So the guard changed one finite answer into another finite answer for an input that could not arrive, while its comment promised to prevent an app of square boxes that was never possible. Deleted. What replaced it asserts the **property** the callers need — whatever goes in, what reaches a radius is finite and in range — which is mechanism-independent and fails (`+13 -1`, confirmed applied by `grep`) when the clamp is mutated to pass NaN through. Two rules of this table met in one line: a reproduction that fails may only be disproving your guess about how to provoke it, and a comment asserting a property is not evidence the code has it. The third, new one: **before writing a guard, check that the language primitive under it behaves the way the guard assumes** — five lines of `dart run` settled both facts. |
 | A slider shipped wired to nothing, and its own test suite proved the plumbing instead of the app | The glow multiplier reached `ChromeCard.glow`, which **defaults to false and had zero callers in all of `lib/`** — measured, `grep -rn "glow:" lib/` returned nothing. So the Settings slider wrote a key that changed no pixel on any screen, while the PR body and commit message both asserted the multipliers were live. **Third** instance of the rule this file states outright, after the AniList link chips' `onOpen: (_) {}` and the two dead reader switches. What makes this one worse is the test suite: eight passing tests covered the glow, and every one of them built `ChromeCard(glow: true)` **by hand**. They proved a multiplier multiplies; they could not see that nothing asks it to. Found by `codeant-ai`, flagged Major, and correct. Two live shadows existed the whole time and ignored the setting — the header pill (on screen on **every** route) and the selected segment behind the tabs — so the fix is to route those through the multiplier, which is exactly what AnymeX does (`glowingShadow`/`lightGlowingShadow` in `anymex_scaffold.dart`, used by chapter rows, chips, buttons, sliders and an enabled switch tile). The rule for the guard that replaced them: **a multiplier is only live if it changes a surface no test had to opt into.** The regression test renders a plain `ChromeScaffold` exactly as every screen builds one, and asserts the slider at 0 removes every shadow under it — mutating the pill back to its hardcoded shadow fails it (`+15 -2`, grep-confirmed). The general shape, and the reason the previous two rows did not prevent this one: a test that constructs the feature's *enabled* state is testing the mechanism, and the defect lives in whether any caller ever enables it. Grep the call sites before believing a feature is wired. |
+| A stability test that compared only the end state, and passed under the mutation it existed to catch | The greeting is meant to re-roll **only** across a time band, where AnymeX re-rolls on every 15-minute tick. The test ticked 20 times inside one evening and asserted `c.text.value == first`. Restoring AnymeX's per-tick roll left it **green** — because the fake `Random` walks 0,1,0,1… and after an even number of ticks lands back on the phrase it started from. The greeting flipped twenty times and the assertion saw none of it. Collecting **every** observed value into a set and asserting `hasLength(1)` fails the mutation (`+15 -1`) and passes the real code. This is the cancel-test row of this table in a new costume, and the general shape is the same: **when a property is "it never changes", the test has to watch every step, because the end state can agree with the start by arithmetic.** Worth noting how it was found — the mutation was run *because* the guard was new, not because anything looked wrong. |
 
 The general lesson, and the one that keeps recurring across both codebases:
 **a comment describing the goal is not evidence the code achieves it.** After
