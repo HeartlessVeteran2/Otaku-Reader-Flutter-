@@ -543,9 +543,23 @@ identical from the outside.
   continuous reader into a paged one wearing a `ListView`; only a main-axis
   assertion tells the two apart, because a cross-axis pin is a no-op in the
   direction most likely to be tested.
-- **Only a change of *axis* invalidates a scroll controller, and it must be
-  rebuilt.** A change of sign does not: `reverse` flips the whole coordinate
-  system, so offset 0 is the first page either way. An axis change makes the
+- **Only a change of *axis* or *layout* invalidates a scroll controller.** A
+  change of sign does not, and that is **measured** rather than argued —
+  `codeant-ai` filed the opposite as a correctness issue, on the reasonable
+  reading that `reverse` puts offset 0 at the other visual edge. It does not
+  put it at a different *child*:
+
+  | | before the flip | after |
+  |---|---|---|
+  | `PageView` | page 3, offset 2400 | page 3, offset 2400 |
+  | `ListView` | offset 1000, row 10 top = 0 | offset 1000, row 10 top = 500 |
+
+  A scroll offset is **content-relative**: it measures distance from the start
+  of child 0 along the axis, and `reverse` changes which screen edge that start
+  is painted at, not which child it is. `_webtoonPage` already accounts for the
+  paint flip — at those numbers its `extent - (start + size)` gives
+  `600 - (500 + 100) = 0`, the same leading offset the unreversed branch reads
+  straight from `start`. An axis change is different in kind: it makes the
   stored `pixels` a measurement down a strip applied across one. The page
   *index* is what survives, so that is what is restored — paged reopens on it
   and continuous scrolls to that page's laid-out child once there is a layout
@@ -1142,6 +1156,7 @@ Kept because they repeat.
 | A post-frame restore that assumed the thing it was restoring to was already on screen | `_rebuildForAxis` handed continuous mode a fresh `ScrollController` and then called `Scrollable.ensureVisible` on the current page's `GlobalKey`. A fresh controller sits at 0 and a `ListView` only builds the children near its offset, so for any page past the first screenful that key has **no context** — `ensureVisible` had nothing to act on, the callback returned silently, and the scroll notification that followed overwrote the saved index with 0, which `_persist` then wrote to disk. A flipped axis lost the reader's place permanently. Found by `sourcery-ai`. Two rules: a restore has to *reach* its target rather than assume it, and anything that scrolls on the reader's behalf must suppress page reporting while it does, or it overwrites the index it is trying to reach. |
 | A page has no extent under `flutter test`, so anything about a long chapter is unreachable | Measured while trying to reproduce the row above: `_Page` builds `Image.file`, whose `errorBuilder` never fires in a widget test — not on a plain `pump`, and **not inside `tester.runAsync` either**. Every page lays out at zero height, every page therefore counts as "built", and the finder reports them all **offstage**. So a guard about a page beyond the first screenful cannot be rendered here, and faking the extent would mean faking the thing under test. The answer is to assert the **decision** at a seam (`nextRestoreStep`) rather than its rendered consequence — the same move as the four-state row above, and it is what makes the mutation `advance → done` fail. Note it against the sibling rule: a rendered test per branch is still not optional, but when the harness structurally cannot produce the state, say so in the test rather than writing one that passes because the state never occurs. |
 | The fix applied to one case and not to its neighbour, in the same file, in the same hour | `_rebuildForAxis` was taught to rebuild the reader's scroll controllers when the **axis** changed, and left alone the case where the *layout* changes at the same axis — paged and continuous keep separate controllers, so switching between them rebuilt neither. The `PageView` kept its page while the strip kept an offset from a different read, whichever was showing overwrote `page` with its own answer, and switching back showed the old page under the other one's counter. Found by `codeant-ai`, one round after `sourcery-ai` found the first half. **Eighth** instance of a rule holding in one place and not its neighbour, and the shortest gap yet between writing a rule down and failing to apply it. The fix that closes the class rather than the case: one predicate (`modeInvalidatesScroll`) answers "does anything about the mode invalidate these views", so a third thing that invalidates them has one place to be added. |
+| A test whose name claimed a rule it was structurally unable to test | `modeInvalidatesScroll` takes an axis and a layout and no sign, so the case named "a change of sign alone does not" passed **two identical arguments** — it asserted "nothing changed returns false" while its name promised something about signs. `codeant-ai` caught it alongside a correctness claim that turned out to be wrong on the facts: a scroll offset is content-relative, so a runtime `reverse` flip keeps the same child (measured — `PageView` holds page 3 at offset 2400; `ListView` holds offset 1000 with row 10 still on screen, its top moving 0 → 500 exactly as the paint flip predicts). Right about the test, wrong about the bug — the fourth time a review has been right about the *shape* and wrong about the *facts*. Both halves of the answer matter: declining the code change **and** replacing the hollow test with the measurement, so the next reader finds numbers instead of a sentence and does not re-raise it. |
 
 The general lesson, and the one that keeps recurring across both codebases:
 **a comment describing the goal is not evidence the code achieves it.** After

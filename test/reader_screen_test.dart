@@ -562,11 +562,81 @@ void main() {
       );
     });
 
-    test('a change of sign alone does not', () {
-      // `reverse` flips the whole coordinate system, so offset 0 is the first
-      // page either way. Rebuilding here would throw away a good position for
-      // nothing -- and every direction change fires this worker, so the cheap
-      // answer of "rebuild on anything" is a real cost.
+    testWidgets('a change of sign alone does not, and that is measured', (
+      tester,
+    ) async {
+      // `codeant-ai` filed this as a correctness issue: that `reverse` puts
+      // offset 0 at the opposite visual edge, so a retained controller at a
+      // non-zero offset lands on a different logical page. It was right that
+      // the claim had only ever been *asserted* -- `CLAUDE.md` stated it and
+      // nothing checked it -- and right that the predicate takes no sign, so
+      // the test that used to stand here passed two identical arguments and
+      // could not have seen a sign change at all. That is a test whose name
+      // claimed a rule it was structurally unable to test.
+      //
+      // Measured rather than argued, which is what the finding asked for:
+      //
+      //   PageView   before  page 3, offset 2400, page 3 on screen
+      //              after   page 3, offset 2400, page 3 on screen
+      //   ListView   before  offset 1000, row 10 top =   0
+      //              after   offset 1000, row 10 top = 500
+      //
+      // A scroll offset is **content-relative**, not screen-relative: it
+      // measures distance from the start of child 0 along the axis, and
+      // `reverse` changes which screen edge that start is painted at, not
+      // which child it is. So the logical position survives, and `_webtoonPage`
+      // already accounts for the paint flip -- at these numbers its
+      // `extent - (start + size)` gives 600 - (500 + 100) = 0, the same leading
+      // offset the unreversed branch reads from `start`.
+      //
+      // Rebuilding on a sign change would therefore throw away a good position
+      // for nothing, several times per cycle of the reader's four-way control.
+      final pages = PageController();
+      addTearDown(pages.dispose);
+      Widget paged(bool reverse) => MaterialApp(
+        home: PageView.builder(
+          controller: pages,
+          reverse: reverse,
+          itemCount: 5,
+          itemBuilder: (_, i) => Center(child: Text('page $i')),
+        ),
+      );
+
+      await tester.pumpWidget(paged(false));
+      pages.jumpToPage(3);
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(paged(true));
+      await tester.pumpAndSettle();
+
+      expect(pages.page, 3, reason: 'the paged reader keeps its page');
+      expect(find.text('page 3'), findsOneWidget);
+
+      final strip = ScrollController();
+      addTearDown(strip.dispose);
+      Widget continuous(bool reverse) => MaterialApp(
+        home: ListView.builder(
+          controller: strip,
+          reverse: reverse,
+          itemCount: 20,
+          itemBuilder: (_, i) => SizedBox(height: 100, child: Text('row $i')),
+        ),
+      );
+
+      await tester.pumpWidget(continuous(false));
+      strip.jumpTo(1000);
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(continuous(true));
+      await tester.pumpAndSettle();
+
+      expect(strip.offset, 1000, reason: 'the strip keeps its offset');
+      expect(
+        find.text('row 10'),
+        findsOneWidget,
+        reason: 'and the offset still means the same child',
+      );
+
+      // The predicate agrees, which is the point: nothing about a sign change
+      // reaches it, so nothing about a sign change rebuilds.
       expect(
         modeInvalidatesScroll(
           wasAxis: Axis.horizontal,
