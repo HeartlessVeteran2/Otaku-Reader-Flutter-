@@ -266,7 +266,7 @@ no — proportional sliders do the same job without a geometry a fingertip canno
 author correctly.
 
 Shipping the dispatch before the editor is deliberate and is the same argument
-as the reading axes: the standard thirds are live and useful on their own, so
+as the reading axes: AnymeX's own 30/40/30 bands are live and useful on their own, so
 nothing here is a control that does nothing.
 
 ### Phase D — the AniList experience

@@ -107,6 +107,26 @@ void main() {
       );
     });
 
+    test('whose stored value is not even a string falls back', () {
+      // `sourcery-ai`, and correct. `KvHelper.get` ends in `return val as T`,
+      // and its two `num` re-widening guards match `T == double` and
+      // `T == int` only -- so a row holding a number reached that cast as
+      // `String?` and threw a `TypeError` **before** `decode` was ever called.
+      // Every bit of care in the decoder sat behind a read that could not
+      // survive the row.
+      ReaderKeys.tapZonesPaged.set<int>(42);
+
+      expect(
+        () => TapZoneSettings.profileFor(ReadingLayout.paged),
+        returnsNormally,
+      );
+      expect(
+        TapZoneSettings.profileFor(ReadingLayout.paged).bands
+            .map((b) => b.action),
+        TapZoneProfile.standard.bands.map((b) => b.action),
+      );
+    });
+
     test('that this build cannot read falls back rather than throwing', () {
       // Read on the way into the reader, so a throw here is a chapter that
       // will not open. A row from a newer build is the realistic case.

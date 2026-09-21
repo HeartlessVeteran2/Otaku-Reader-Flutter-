@@ -58,9 +58,24 @@ class TapZoneSettings {
   /// Separate per layout for the same reason the directions are: a profile
   /// authored for a page turn is not the one you want down a long strip, and
   /// one stored value means editing either overwrites both.
-  static TapZoneProfile profileFor(ReadingLayout layout) =>
-      TapZoneProfile.decode(_key(layout).get<String?>()) ??
-      TapZoneProfile.standard;
+  /// Read as `Object?` and type-checked here, **not** as `String?`.
+  ///
+  /// `KvHelper.get` ends in `return val as T`, and its two re-widening guards
+  /// match `T == double` and `T == int` only — so a row holding a number
+  /// reached that cast as `String?` and threw a `TypeError` *before* [decode]
+  /// was ever called. Every bit of care in the decoder sat behind a read that
+  /// could not survive the row. Found by `sourcery-ai`, and reproduced: `type
+  /// 'int' is not a subtype of type 'String?' in type cast`.
+  ///
+  /// Fixed here rather than in `KvHelper`, deliberately. The hazard is general
+  /// — every `get<String?>` in the app shares it — but that primitive is read
+  /// by every feature, and widening this PR to change it is how a reader
+  /// change becomes a persistence change. Worth its own slice.
+  static TapZoneProfile profileFor(ReadingLayout layout) {
+    final stored = _key(layout).get<Object?>();
+    return TapZoneProfile.decode(stored is String ? stored : null) ??
+        TapZoneProfile.standard;
+  }
 
   // There is deliberately no writer here yet. The editor is the next slice and
   // it is what decides the write contract -- whether an invalid profile is

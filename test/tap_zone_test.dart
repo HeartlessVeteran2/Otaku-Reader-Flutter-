@@ -79,10 +79,17 @@ void main() {
       expect(profile.actionAt(1), ReaderAction.next);
     });
 
-    test('the boundary belongs to the band before it, consistently', () {
+    test('the boundary belongs to the band after it, consistently', () {
       // Exactly on a seam is a real tap. Without a rule it is whichever branch
       // the loop happens to reach first, and the two neighbours disagree about
       // who owns it.
+      //
+      // `actionAt` returns on the first band whose running edge is *past* the
+      // position, so a position sitting exactly on a seam has not passed the
+      // band before it and belongs to the one after — which is what the
+      // assertions below have always said. The name and the comment claimed
+      // the opposite for their whole life, two lines above the numbers that
+      // contradict them. Caught by `codeant-ai`.
       final profile = TapZoneProfile.standard;
 
       expect(profile.actionAt(0.2999), ReaderAction.previous);

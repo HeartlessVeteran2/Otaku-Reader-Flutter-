@@ -30,8 +30,14 @@ enum ReaderAction {
   /// it, and a pair that disagrees is a tooltip contradicting the row that set
   /// it.
   String get label => switch (this) {
-    ReaderAction.next => 'Next page',
-    ReaderAction.previous => 'Previous page',
+    // Deliberately *not* "Next page". The whole reason these two exist is that
+    // they mean one unit of reading order whatever the layout — a page turn
+    // when paged, a screen when continuous — so labelling them with a page is
+    // the same layout-specific thinking the six-action set was collapsed to
+    // avoid, reintroduced in the one place the user actually reads. Caught by
+    // `sourcery-ai`, against my own argument three lines up.
+    ReaderAction.next => 'Next',
+    ReaderAction.previous => 'Previous',
     ReaderAction.nextChapter => 'Next chapter',
     ReaderAction.previousChapter => 'Previous chapter',
     ReaderAction.toggleChrome => 'Show or hide the controls',
@@ -143,11 +149,14 @@ class TapZoneProfile {
     return profile.isValid ? profile : null;
   }
 
-  /// AnymeX's own default, which is the same for both layouts once the actions
-  /// are axis-free: a third to go back, a third for the controls, a third to go
-  /// on. Its four profiles differ only in which axis they are measured along
-  /// and which of its two action pairs they use, and both of those are now
-  /// properties of the reader rather than of the profile.
+  /// AnymeX's own default, ported at its own numbers: **30% back, 40% for the
+  /// controls, 30% on**. Not thirds — the middle band is deliberately the
+  /// widest, because it is the one a reader hits without aiming.
+  ///
+  /// The same profile serves both layouts once the actions are axis-free.
+  /// AnymeX's four differ only in which axis they are measured along and which
+  /// of its two action pairs they use, and both of those are now properties of
+  /// the reader rather than of the profile.
   static TapZoneProfile get standard => TapZoneProfile(const [
     TapBand(0.3, ReaderAction.previous),
     TapBand(0.4, ReaderAction.toggleChrome),
