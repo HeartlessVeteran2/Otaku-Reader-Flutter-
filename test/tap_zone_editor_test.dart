@@ -250,6 +250,51 @@ void main() {
       expect(find.byType(Slider), findsNWidgets(2));
     });
 
+    testWidgets('step by a fixed 5% whatever room they have', (tester) async {
+      // `Slider.divisions` divides that slider's own `max - min`, and these
+      // bounds are dynamic -- each boundary is fenced in by its neighbours. A
+      // fixed 20 divisions therefore gave the standard profile a 3% step, and
+      // 2% once the other boundary moved: not merely off the documented grid
+      // but not constant either. Nothing asserted the step, so five documents
+      // and a 171-pair test all described a grid the editor could not reach.
+      await open(tester);
+      for (final slider in tester.widgetList<Slider>(find.byType(Slider))) {
+        expect(slider.divisions, isNotNull);
+        expect(
+          (slider.max - slider.min) / slider.divisions!,
+          closeTo(kBandStep, 1e-9),
+          reason: 'slider ${slider.min}..${slider.max}',
+        );
+      }
+    });
+
+    testWidgets('keep stepping by 5% after a boundary moves', (tester) async {
+      // The half the first assertion cannot see: the bug changed the step as
+      // the *other* boundary moved, so a guard that only reads the opening
+      // state passes while the grid drifts under the user.
+      await open(tester);
+      final second = find.byType(Slider).last;
+      await tester.ensureVisible(second);
+      await tester.pumpAndSettle();
+      await tester.drag(second, const Offset(-80, 0));
+      await tester.pumpAndSettle();
+
+      for (final slider in tester.widgetList<Slider>(find.byType(Slider))) {
+        expect(
+          (slider.max - slider.min) / slider.divisions!,
+          closeTo(kBandStep, 1e-9),
+        );
+      }
+      // And every stored cut is still on the grid.
+      for (final cut in TapZoneSettings.profileFor(ReadingLayout.paged).cuts) {
+        expect(
+          (cut / kBandStep) - (cut / kBandStep).round(),
+          closeTo(0, 1e-9),
+          reason: 'cut $cut is off the 5% grid',
+        );
+      }
+    });
+
     testWidgets('are on screen beside the bands they move', (tester) async {
       // The reason the preview's height is capped. Uncapped it is 636px on a
       // 390px-wide phone, which fills the screen on its own and leaves every

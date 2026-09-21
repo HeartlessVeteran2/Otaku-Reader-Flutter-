@@ -18,14 +18,26 @@ import 'package:otaku_reader/features/reader/tap_zones/tap_zone_settings.dart';
 /// of a page the user chose rather than a control they have to hit.
 const kMinBandFraction = 0.05;
 
-/// How many steps a boundary slider has.
+/// How far a boundary moves in one step.
 ///
-/// `1 / kMinBandFraction`, so every reachable cut is a multiple of the minimum
-/// band. That keeps the labels whole percentages and, measured over all 171
-/// reachable pairs, leaves 169 of them summing to *exactly* 1.0 with a worst
-/// error of 1.1e-16 — thirteen orders of magnitude inside
-/// [TapZoneProfile.tolerance].
-const kBandDivisions = 20;
+/// A **step**, not a division count, and the difference is the whole of a bug
+/// `codeant-ai` caught. `Slider.divisions` divides that slider's own
+/// `max - min`, not the axis — and these bounds are dynamic, because each
+/// boundary is fenced in by its neighbours. So a fixed 20 divisions gave the
+/// standard profile a **3%** step, and moving the second boundary to 0.5
+/// changed the first slider's step to **2%**: not merely off the intended
+/// grid, but not constant either, while five documents and a test all called
+/// it a 5% grid.
+///
+/// Divisions are computed from this instead, and [_cutSlider] snaps as well,
+/// so every value a boundary can take is a multiple of 5% whatever profile is
+/// stored — an imported or hand-edited row is pulled onto the grid the first
+/// time it is touched rather than carrying its offset forever.
+///
+/// With the grid real, the measurement holds: over all 171 reachable pairs,
+/// 169 sum to *exactly* 1.0 with a worst error of 1.1e-16 — thirteen orders of
+/// magnitude inside [TapZoneProfile.tolerance].
+const kBandStep = 0.05;
 
 /// The most of the viewport the band preview may take.
 ///
@@ -249,10 +261,21 @@ class _TapZoneEditorScreenState extends State<TapZoneEditorScreen> {
       // visibly, through the same `enabled` path the switch uses.
       min: lower,
       max: upper > lower ? upper : lower + kMinBandFraction,
-      divisions: kBandDivisions,
+      // From the range, so the step is `kBandStep` rather than a share of
+      // whatever room this boundary happens to have between its neighbours.
+      divisions:
+          (((upper > lower ? upper : lower + kMinBandFraction) - lower) /
+                  kBandStep)
+              .round()
+              .clamp(1, 1000),
       enabled: enabled && upper > lower,
       onChanged: (v) {
-        final next = [...cuts]..[index] = v;
+        // Snapped here too, not only through `divisions`. Divisions alone put a
+        // value on the grid only when the range already starts on it, so a
+        // profile restored or imported off-grid would keep its offset for
+        // every edit that followed.
+        final snapped = (v / kBandStep).round() * kBandStep;
+        final next = [...cuts]..[index] = snapped.clamp(lower, upper);
         _write(_profile.withCuts(next));
       },
     );
