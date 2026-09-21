@@ -11,6 +11,7 @@ import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:otaku_reader/data/anilist/anilist_auth.dart';
 import 'package:otaku_reader/features/settings/screens/accounts_screen.dart';
 import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
+import 'package:otaku_reader/features/reader/tap_zones/tap_zone_settings.dart';
 
 /// How a multiplier is written on its row: `1.0x`, `0.25x`, `2.5x`.
 ///
@@ -220,6 +221,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ReadingDirection.topToBottom.index,
               ).clamp(0, ReadingDirection.values.length - 1),
               onSelected: (i) => _setInt(ReaderKeys.webtoonDirection, i),
+            ),
+            // These three read and write through `TapZoneSettings` rather
+            // than naming a key and a default of their own. A row that
+            // re-specifies the default is how a switch comes to show the
+            // opposite of what the reader does, with each file perfectly
+            // self-consistent — the `ReaderDefaults` lesson, one feature over.
+            ChromeTile.toggle(
+              icon: Iconsax.mouse_circle,
+              title: 'Tap zones',
+              subtitle: 'Tap the edges to turn pages, the middle for controls',
+              value: TapZoneSettings.enabled,
+              onChanged: (v) => setState(() => TapZoneSettings.setEnabled(v)),
+            ),
+            ChromeTile.toggle(
+              icon: Iconsax.arrow_swap_horizontal,
+              title: 'Mirror zones when reading backwards',
+              subtitle: 'Keeps the forward zone on the side you read towards',
+              value: TapZoneSettings.mirrorWhenReversed,
+              onChanged: (v) =>
+                  setState(() => TapZoneSettings.setMirrorWhenReversed(v)),
+            ),
+            ChromeTile.toggle(
+              icon: Iconsax.mobile,
+              title: 'Vibrate on a tap zone',
+              subtitle:
+                  'Confirms the tap landed, even on a zone that does nothing',
+              value: TapZoneSettings.haptics,
+              onChanged: (v) => setState(() => TapZoneSettings.setHaptics(v)),
             ),
             // Taken when the reader opens and released when it closes, so the
             // switch only decides what the *next* chapter does.

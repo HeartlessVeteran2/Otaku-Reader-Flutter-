@@ -16,6 +16,7 @@ import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/data/anilist/title_matcher.dart';
 import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
 import 'package:otaku_reader/features/reader/screen_wakelock.dart';
+import 'package:otaku_reader/features/reader/tap_zones/tap_zone_settings.dart';
 import 'package:otaku_reader/features/reader/screens/reader_screen.dart';
 import 'package:otaku_reader/features/reader/widgets/reader_page_indicator.dart';
 import 'package:otaku_reader/source/model/filter.dart';
@@ -725,6 +726,128 @@ void main() {
           expect(step, lessThanOrEqualTo(20), reason: 'extent $extent');
         }
       }
+    });
+  });
+
+  group('a tap lands in a zone', () {
+    // The whole point of the feature, and the only thing that makes the model
+    // more than a key nothing reads. Paged mode is used throughout because its
+    // pages are viewport-sized whatever the image does, so a page turn is
+    // observable here where a strip's position is not — see the harness note
+    // above.
+
+    Future<PageController> openPaged(
+      WidgetTester tester, {
+      required ReadingDirection direction,
+      bool zones = true,
+      bool mirror = true,
+    }) async {
+      await tester.binding.setSurfaceSize(const Size(400, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      ReaderKeys.readingLayout.set<int>(ReadingLayout.paged.index);
+      ReaderKeys.readingDirection.set<int>(direction.index);
+      TapZoneSettings.setEnabled(zones);
+      TapZoneSettings.setMirrorWhenReversed(mirror);
+      // Off, because a real channel call in a widget test is noise rather than
+      // signal; the haptic is asserted separately through the setting.
+      TapZoneSettings.setHaptics(false);
+      await openReader(tester);
+      final controller = tester
+          .widget<PageView>(find.byType(PageView))
+          .controller!;
+      // Page 1 of 3, so there is somewhere to go in both directions without
+      // falling off the chapter and into its neighbour.
+      controller.jumpToPage(1);
+      await tester.pumpAndSettle();
+      return controller;
+    }
+
+    /// Taps a fraction of the way across the screen and settles the animation.
+    Future<void> tapAcross(WidgetTester tester, double fraction) async {
+      await tester.tapAt(Offset(400 * fraction, 400));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('the leading third goes back and the trailing third goes on', (
+      tester,
+    ) async {
+      final controller = await openPaged(
+        tester,
+        direction: ReadingDirection.leftToRight,
+      );
+
+      await tapAcross(tester, 0.1);
+      expect(controller.page, 0, reason: 'the left third is previous');
+
+      await tapAcross(tester, 0.9);
+      await tapAcross(tester, 0.9);
+      expect(controller.page, 2, reason: 'the right third is next');
+    });
+
+    testWidgets('reading right to left mirrors them', (tester) async {
+      // **The correction AnymeX does not have**, and the reason this guard
+      // exists at all. Its `_navNextPage`/`_navPrevPage` walk the page index
+      // with no reference to `reversed`, so the same screen position fires the
+      // same action whichever way the manga reads — and the leading side of a
+      // right-to-left manga, which is most manga, goes backwards.
+      //
+      // Same tap as the test above, opposite answer.
+      final controller = await openPaged(
+        tester,
+        direction: ReadingDirection.rightToLeft,
+      );
+
+      await tapAcross(tester, 0.1);
+      expect(controller.page, 2, reason: 'the left third is now *next*');
+
+      await tapAcross(tester, 0.9);
+      await tapAcross(tester, 0.9);
+      expect(controller.page, 0, reason: 'and the right third is previous');
+    });
+
+    testWidgets('unless the mirroring is switched off', (tester) async {
+      // The other half, and it is what stops the mirror being unconditional.
+      // Both preferences are real: mirror with the text, or keep the zones
+      // where a thumb learned them.
+      final controller = await openPaged(
+        tester,
+        direction: ReadingDirection.rightToLeft,
+        mirror: false,
+      );
+
+      await tapAcross(tester, 0.1);
+      expect(controller.page, 0, reason: 'physical sides, as authored');
+    });
+
+    testWidgets('the middle band toggles the chrome instead', (tester) async {
+      final controller = await openPaged(
+        tester,
+        direction: ReadingDirection.leftToRight,
+      );
+      expect(find.byTooltip('Next chapter'), findsOneWidget);
+
+      await tapAcross(tester, 0.5);
+
+      expect(controller.page, 1, reason: 'the middle turns no page');
+      expect(find.byTooltip('Next chapter'), findsNothing);
+    });
+
+    testWidgets('with zones off, any tap still toggles the chrome', (
+      tester,
+    ) async {
+      // The switch turns the feature off, not the screen's only gesture. A
+      // reader that stopped responding to taps entirely would read as broken,
+      // and this is the behaviour the reader had before zones existed.
+      final controller = await openPaged(
+        tester,
+        direction: ReadingDirection.leftToRight,
+        zones: false,
+      );
+
+      await tapAcross(tester, 0.1);
+
+      expect(controller.page, 1, reason: 'the edge turns no page');
+      expect(find.byTooltip('Next chapter'), findsNothing);
     });
   });
 }

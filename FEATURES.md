@@ -44,7 +44,7 @@ missed. Tick what renders, not what compiles.
 - [x] **0 — Skeleton.** Isar + recovery ladder, `KvHelper`, typed enum keys, M3 theming, `LazyIndexedStack` shell, explicit DI.
 - [x] **1 — Source runtime.** Mangayomi Dart extensions via d4rt. 55/55 evaluate, 6 complete the full chain.
 - [~] **2 — Browse, details, library, home.** Browse, global search, details with AniList carousels and the list editor all ship. Library is a grid with 4 sorts and a search box — no filters, categories, display modes or badges.
-- [~] **3 — Reader.** Paged and webtoon, all four directions in both, progress persistence and resume, keep-screen-on and a persistent page indicator. Five of ~40 reader settings are honoured.
+- [~] **3 — Reader.** Paged and webtoon, all four directions in both, progress persistence and resume, keep-screen-on and a persistent page indicator. Six of ~40 reader settings are honoured.
 - [~] **4 — Downloads, updates, history.** Queue with cancel/delete and storage usage; updates with mark-read and undo; history with search, remove, undo and resume. None of the depth below.
 - [ ] **5 — Smart Prefetch, Smart Panels.** AniList metadata shipped; the other two have not started.
 - [ ] **6 — Tracking fan-out, migration, stats, Komikku parity.**
@@ -73,7 +73,8 @@ The single most important surface. Combined list from both apps.
 > screen on* and *Show the page number* — wrote a key the reader never read,
 > so they were inert UI. **Both are now wired**, and `webtoonDirection` was
 > added on 2026-09-21 with the two new reading axes, so `ReaderKeys` stands at
-> 5 honoured of 35; the other 30 have no control behind them and are ordinary
+> 6 honoured of 39 (`tapZonesEnabled` went live 2026-09-21 with three new
+> keys beside it); the rest have no control behind them and are ordinary
 > unbuilt features rather than dead UI. `ReaderDefaults` holds the fallback for
 > the two that have a switch, because the reader and the Settings row both need
 > it and a disagreeing pair renders a switch showing the opposite of what the
@@ -83,7 +84,7 @@ The single most important surface. Combined list from both apps.
 
 **Rendering** — [ ] tiled/subsampled decoding for tall strips (AnymeX's `subsampling_scale_image_view/` + FFI decoder) · [ ] crop borders (white/black margin removal) · [ ] image filter quality incl. Lanczos pre-scale · [ ] image quality / data-saver downscaling · [ ] pinch + double-tap zoom, disable-zoom-out option
 
-**Navigation** — [ ] customisable tap zones, **four profiles** (paged/webtoon × horizontal/vertical) · [ ] navigation-mode presets (Default, L, Kindlish, Edge, Right-and-Left, Disabled) · [ ] invert tapping (none/horizontal/vertical/both) · [ ] volume keys + invert + **per-mode overrides** + hold-to-skip-5 · [ ] keyboard/DeX shortcuts · [ ] mouse wheel + trackpad · [ ] overscroll to prev/next chapter · [ ] **navigate by chapter number** (skips duplicate/scanlator dupes) · [ ] auto-scroll with speed, **pause-on-touch and auto-resume**
+**Navigation** — [~] customisable tap zones — the bands and the reader dispatch are live, with a **separate profile per layout** and right-to-left mirroring AnymeX lacks; the visual editor is not built yet, so the bands are the standard thirds until it is · [ ] navigation-mode presets (Default, L, Kindlish, Edge, Right-and-Left, Disabled) · [ ] invert tapping (none/horizontal/vertical/both) · [ ] volume keys + invert + **per-mode overrides** + hold-to-skip-5 · [ ] keyboard/DeX shortcuts · [ ] mouse wheel + trackpad · [ ] overscroll to prev/next chapter · [ ] **navigate by chapter number** (skips duplicate/scanlator dupes) · [ ] auto-scroll with speed, **pause-on-touch and auto-resume**
 
 **Display** — [ ] custom brightness (AnymeX goes to −75) · [ ] colour filter with **RGBA sliders and 16 blend modes**, plus named presets · [ ] custom tint + opacity · [ ] greyscale · [ ] invert · [ ] reader background (9 options) · [ ] **e-ink flash** with duration/interval/colour · [x] keep screen on — `wakelock_plus`, taken when a chapter opens and released when it closes · [ ] fullscreen + cutout handling · [ ] orientation lock (7 modes) · [ ] secure screen (`FLAG_SECURE`)
 

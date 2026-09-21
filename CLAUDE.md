@@ -564,6 +564,46 @@ identical from the outside.
   *index* is what survives, so that is what is restored — paged reopens on it
   and continuous scrolls to that page's laid-out child once there is a layout
   to measure.
+- **A tap zone is a *band*, not a rectangle, and that removes two failures
+  rather than guarding them.** AnymeX stores each zone as a normalised `Rect`
+  and resolves a tap by walking its list **backwards**, so a later zone wins an
+  overlap — a rule that exists only because free-form rectangles can overlap.
+  They can also leave a **gap**, which nothing resolves: a tap there silently
+  does nothing, and the format cannot tell that apart from a zone deliberately
+  set to do nothing. Bands that are shares of one axis have neither failure
+  available, and that is the Kotlin Otaku-Reader's shape (`TapZoneConfig`,
+  whose `init` requires its widths to sum to 1). It is also the only geometry a
+  phone can be asked to edit: three numbers on sliders, not four corners under
+  a fingertip. Worth knowing before reaching for the reference's format:
+  **AnymeX's own editor cannot move a zone's bounds anyway** — `_editZone`
+  rebuilds it with `bounds: zone.bounds`, so the rectangles are free-form in
+  the file and fixed in practice.
+- **A tap position is measured from the *leading* edge.** One line, and it is
+  the whole right-to-left correction. AnymeX's `_navNextPage` and
+  `_navPrevPage` walk the page index with **no reference to
+  `readingDirection.reversed`** — measured, not inferred — so the same screen
+  position fires the same action whichever way the manga reads, and its own
+  default profile sends the leading side of every right-to-left manga
+  *backwards*. That is most manga. The Kotlin Otaku-Reader carries
+  `invertForRtl: Boolean = true` for exactly this, and it stays a **setting**
+  rather than becoming structural because both preferences are real: mirror
+  with the text, or keep the zones where a thumb learned them.
+- **Six actions, not AnymeX's eight, and the two it loses are why its editor
+  needs a filter.** Its set splits `nextPage`/`prevPage` from
+  `scrollUp`/`scrollDown`, so the editor must hide the pair that does not apply
+  to the layout being edited — and a zone carrying the wrong one is a dead zone
+  with nothing to say so. `next`/`previous` mean *one unit of reading order*,
+  which the reader resolves per layout, so there is nothing left to filter. The
+  axis-free naming is also forced here: "scroll up" means nothing in a strip
+  read from the right, and this app has four directions where AnymeX's zones
+  assume two.
+- **The extent a tap is divided by comes from the box its position is measured
+  in.** `details.localPosition` is relative to the `GestureDetector`, so the
+  reader wraps it in a `LayoutBuilder` and hands the constraints down rather
+  than reading a size off the `State`'s own render object. Those two agree here
+  only because nothing sits above the reader's body — which is the shape of the
+  `ChromeHeaderScope` row in the mistakes table, where a lookup correct for one
+  caller was silently wrong for every other.
 - **The reader takes the wakelock from the setting and releases it
   unconditionally.** AnymeX enables it in `onInit` and then corrects itself
   once preferences load, which holds the screen awake against the user's own
