@@ -86,7 +86,7 @@ class TapZoneSettings {
   /// by construction and it cannot reach this method with an invalid profile.
   ///
   /// Measured rather than argued, because the construction rests on floating
-  /// point: over every pair of cut points on the editor's 0.05 grid, 169 of 171
+  /// point: over every pair of cut points on the editor's 0.05 grid, 166 of 171
   /// sum to **exactly** 1.0 and the worst error is 1.1e-16 — thirteen orders of
   /// magnitude inside [TapZoneProfile.tolerance].
   ///

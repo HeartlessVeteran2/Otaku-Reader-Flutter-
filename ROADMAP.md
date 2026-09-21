@@ -277,7 +277,7 @@ points** rather than band widths: three width sliders have to be made to sum to
 1 after every drag, and *which* other band gives way is an invisible policy the
 user never chose. Cuts have no such policy — the bands are the gaps between
 them — so the sum is algebraic rather than enforced. Measured over all 171
-reachable pairs on the 5% grid: 169 sum to exactly 1.0, worst error 1.1e-16,
+reachable pairs on the 5% grid: 166 sum to exactly 1.0, worst error 1.1e-16,
 thirteen orders inside the tolerance. A minimum band width is what stops a
 slider authoring a dead zone, which is the one failure bands were chosen to make
 impossible.

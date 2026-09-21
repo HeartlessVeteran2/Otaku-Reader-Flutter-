@@ -35,7 +35,7 @@ const kMinBandFraction = 0.05;
 /// time it is touched rather than carrying its offset forever.
 ///
 /// With the grid real, the measurement holds: over all 171 reachable pairs,
-/// 169 sum to *exactly* 1.0 with a worst error of 1.1e-16 — thirteen orders of
+/// 166 sum to *exactly* 1.0 with a worst error of 1.1e-16 — thirteen orders of
 /// magnitude inside [TapZoneProfile.tolerance].
 const kBandStep = 0.05;
 
