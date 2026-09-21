@@ -56,8 +56,13 @@ class _Methods implements SourceMethods {
   @override
   final Source source;
 
+  /// How many pages this chapter has. Mutable so one test can ask for a
+  /// chapter long enough that its later pages are genuinely off screen, which
+  /// is the only state the position-restore guard is about.
+  int pageCount = 3;
+
   @override
-  Future<List<PageUrl>> getPageList(String url) async => _pages(3);
+  Future<List<PageUrl>> getPageList(String url) async => _pages(pageCount);
 
   @override
   bool get supportsLatest => true;
@@ -83,6 +88,10 @@ class _Methods implements SourceMethods {
 }
 
 class _Sources implements SourceRepository {
+  _Sources({int pageCount = 3}) {
+    _methods.pageCount = pageCount;
+  }
+
   final _methods = _Methods(_row());
 
   @override
@@ -493,6 +502,105 @@ void main() {
         ReadingDirection.topToBottom.index,
         reason: 'the paged direction is not what is on screen',
       );
+    });
+  });
+
+  group('switching axis keeps the reader where it was', () {
+    // `sourcery-ai` on #56, and it was right. `_rebuildForAxis` hands
+    // continuous mode a fresh `ScrollController`, which starts at 0 — and a
+    // `ListView` only builds the children near its current offset, so for any
+    // page past the first screenful the target's `GlobalKey` has no context.
+    // `Scrollable.ensureVisible` then had nothing to act on and the callback
+    // returned silently: the reader sat at the top of the chapter, and the
+    // scroll notification that followed overwrote the saved index with 0 —
+    // which `_persist` wrote to disk. The place was lost for good, from a
+    // change that looked like it only flipped an axis.
+    //
+    // **The rendered reproduction is not available here**, and that is
+    // measured rather than assumed: a `_Page` has no extent under
+    // `flutter test` because `Image.file` never reaches its `errorBuilder`,
+    // even inside `runAsync`. Every page lays out at zero height, so every
+    // page is always "built" and the state this guard is about cannot exist.
+    // Faking extent would mean faking the thing under test. So the decision
+    // is asserted where it is made.
+
+    test('a target that is not built yet means keep walking', () {
+      // The mutation guard, and the bug in one line: the first version
+      // answered `done` here, which is what left the reader at the top.
+      expect(
+        nextRestoreStep(
+          targetIsBuilt: false,
+          pixels: 0,
+          maxScrollExtent: 8000,
+          step: 0,
+        ),
+        RestoreStep.advance,
+      );
+    });
+
+    test('a target on screen ends the walk', () {
+      expect(
+        nextRestoreStep(
+          targetIsBuilt: true,
+          pixels: 3200,
+          maxScrollExtent: 8000,
+          step: 7,
+        ),
+        RestoreStep.done,
+      );
+    });
+
+    test('the end of the strip ends the walk', () {
+      // A chapter that came back shorter than the one being read has no page
+      // to reach. Without this the walk asks again every frame until the step
+      // limit, scrolling nothing.
+      expect(
+        nextRestoreStep(
+          targetIsBuilt: false,
+          pixels: 8000,
+          maxScrollExtent: 8000,
+          step: 3,
+        ),
+        RestoreStep.done,
+      );
+    });
+
+    test('the step budget ends the walk', () {
+      // The other terminator. A walk with neither would be an unbounded
+      // post-frame loop, which is a hang rather than a wrong answer.
+      expect(
+        nextRestoreStep(
+          targetIsBuilt: false,
+          pixels: 0,
+          maxScrollExtent: 8000,
+          step: 9,
+          stepLimit: 9,
+        ),
+        RestoreStep.done,
+      );
+    });
+
+    test('the walk terminates from any starting state', () {
+      // Mechanism-independent: whatever the three inputs, following the walk
+      // reaches `done`. A guard on each terminator individually still allows a
+      // combination that loops, and a post-frame loop that never ends is the
+      // one failure mode a reader cannot recover from.
+      for (final extent in [0.0, 1.0, 8000.0]) {
+        var pixels = 0.0;
+        var step = 0;
+        while (nextRestoreStep(
+              targetIsBuilt: false,
+              pixels: pixels,
+              maxScrollExtent: extent,
+              step: step,
+              stepLimit: 20,
+            ) ==
+            RestoreStep.advance) {
+          pixels = (pixels + 360).clamp(0.0, extent);
+          step++;
+          expect(step, lessThanOrEqualTo(20), reason: 'extent $extent');
+        }
+      }
     });
   });
 }

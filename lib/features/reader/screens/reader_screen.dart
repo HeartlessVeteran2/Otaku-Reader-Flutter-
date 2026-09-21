@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -17,6 +18,44 @@ import 'package:otaku_reader/features/reader/screen_wakelock.dart';
 import 'package:otaku_reader/features/reader/widgets/reader_page_indicator.dart';
 import 'package:otaku_reader/source/http/m_client.dart';
 import 'package:otaku_reader/source/model/page_url.dart';
+
+/// How many viewports a restore walk may advance before giving up.
+///
+/// Bounded because a target that can no longer be reached — a chapter that came
+/// back shorter than the one being read — would otherwise walk to the end and
+/// keep asking.
+const kRestoreStepLimit = 400;
+
+/// Whether a restore walk has finished, or must advance to build more pages.
+enum RestoreStep { done, advance }
+
+/// What a restore walk should do next.
+///
+/// Lifted out of [_restorePage] so the decision can be asserted directly.
+/// The state it turns on — a page laid out beyond the first screenful — is
+/// **not reachable in this harness**: a `_Page` has no extent under
+/// `flutter test`, because `Image.file` never reaches its `errorBuilder`
+/// there even inside `runAsync` (measured). A rendered reproduction would
+/// therefore have to fake the very thing it was testing.
+///
+/// The case that matters is `built: false` with room left, which the first
+/// version of this answered with [RestoreStep.done] — and that is the whole
+/// bug: giving up leaves the reader at the top of the chapter.
+@visibleForTesting
+RestoreStep nextRestoreStep({
+  required bool targetIsBuilt,
+  required double pixels,
+  required double maxScrollExtent,
+  required int step,
+  int stepLimit = kRestoreStepLimit,
+}) {
+  if (targetIsBuilt) return RestoreStep.done;
+  if (step >= stepLimit) return RestoreStep.done;
+  // Never past the end: a chapter that came back shorter has no page to
+  // reach, and asking again would walk until the step limit for nothing.
+  if (pixels >= maxScrollExtent) return RestoreStep.done;
+  return RestoreStep.advance;
+}
 
 class ReaderScreen extends StatefulWidget {
   const ReaderScreen({
@@ -86,6 +125,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
   /// The axis the current controllers were built for.
   Axis _axis = Axis.horizontal;
 
+  /// True while [_restorePage] is walking the strip back to where the reader
+  /// was.
+  ///
+  /// The walk scrolls, and scrolling reports a page. Without this the restore
+  /// overwrites the very index it is trying to reach — and `_persist` saves
+  /// that, so the place is lost on disk and not merely on screen.
+  bool _restoring = false;
+
   @override
   void initState() {
     super.initState();
@@ -135,11 +182,59 @@ class _ReaderScreenState extends State<ReaderScreen> {
     _scroll?.dispose();
     _scroll = ScrollController();
     setState(() {});
+    _restorePage(current);
+  }
+
+  /// Puts [target] back on screen after the scroll view under it was replaced.
+  ///
+  /// Paged restores itself, because a `PageController` takes an initial page.
+  /// Continuous cannot, and the first version of this assumed it could: a
+  /// fresh `ScrollController` starts at 0 and a `ListView` only builds the
+  /// children near its current offset, so for any page past the first screenful
+  /// the target's `GlobalKey` has **no context**, `ensureVisible` has nothing
+  /// to act on, and the callback returned silently. The reader sat at the top,
+  /// and the scroll notification that followed overwrote the saved index with
+  /// 0 — which `_persist` then wrote to disk, so the place was lost for good.
+  /// Found by `sourcery-ai`.
+  ///
+  /// Advancing a viewport at a time is what forces the next band of children to
+  /// build, which is the only thing that can give the target a context. An
+  /// offset cannot be computed instead: page heights vary, and the arithmetic
+  /// version of that question is already a row in this repo's mistakes table.
+  void _restorePage(int target, [int step = 0]) {
+    // A fresh controller already sits at the first page.
+    if (target <= 0) return;
+    _restoring = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final context = _pageKeys[current]?.currentContext;
-      if (context == null) return;
-      Scrollable.ensureVisible(context);
+      final controller = _scroll;
+      if (!mounted || controller == null || !controller.hasClients) {
+        _restoring = false;
+        return;
+      }
+      final context = _pageKeys[target]?.currentContext;
+      if (context != null) {
+        Scrollable.ensureVisible(context);
+        _restoring = false;
+        return;
+      }
+      final position = controller.position;
+      final next = nextRestoreStep(
+        targetIsBuilt: false,
+        pixels: position.pixels,
+        maxScrollExtent: position.maxScrollExtent,
+        step: step,
+      );
+      if (next == RestoreStep.done) {
+        _restoring = false;
+        return;
+      }
+      controller.jumpTo(
+        math.min(
+          position.pixels + position.viewportDimension,
+          position.maxScrollExtent,
+        ),
+      );
+      _restorePage(target, step + 1);
     });
   }
 
@@ -231,6 +326,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
       onNotification: (notification) {
         final metrics = notification.metrics;
         if (metrics.maxScrollExtent <= 0) return false;
+        // A restore is scrolling on the reader's behalf, not the reader's.
+        if (_restoring) return false;
         // Two things are recorded, because they answer different questions.
         // The pixel offset is what a resume restores; the page index is what
         // the counter shows and what decides the chapter has been finished.
