@@ -170,7 +170,8 @@ The depth that separates "has the screens" from "is the app".
 | ~~In-row segmented selectors, replacing radio dialogs~~ | `anymex_tile.dart` | **shipped** |
 | ~~The two missing reading axes — vertical paged, horizontal continuous~~ | `MangaPageViewDirection` | **shipped** |
 | Searchable settings registry — relevance-scored, deep-links, highlights | `settings/search/*` | 659 |
-| Tap-zones editor — four profiles | `settings_tap_zones.dart` | 544 |
+| ~~Tap zones — bands, dispatch, right-to-left mirroring~~ | `tap_zones.dart` + `tap_zone_repository.dart` | **shipped** |
+| Tap-zones editor — the screen that edits the bands | `settings_tap_zones.dart` | 544 |
 | 5 missing reader settings | `readerControlTheme`, `chapterStyle`, `displayRefreshInterval`, `displayRefreshColor`, `navigateByNumber` | — |
 
 The two struck rows landed together, because the second is a consumer of the
@@ -244,6 +245,29 @@ enum property belongs. The Settings row two files away already clamped against
 `values.length`, so appending a member would have left that row offering a
 direction the reader silently pinned back to left-to-right, with nothing failing
 on either side.
+
+**Tap zones landed as bands rather than rectangles, and the editor follows.**
+Three references disagreed and the disagreement is the design:
+
+- **AnymeX** stores normalised `Rect`s and walks its list backwards so a later
+  zone wins an overlap. Free-form rectangles can also leave a *gap*, which
+  nothing resolves — a tap there does nothing, indistinguishable from a zone
+  set to do nothing. Its editor cannot move a zone's bounds anyway.
+- **The Kotlin Otaku-Reader** stores proportions with a sum-to-one `init`
+  requirement, which has neither failure available, and carries
+  `invertForRtl: Boolean = true`.
+- **AnymeX's page actions ignore `reversed`**, measured — so its own default
+  profile sends the leading side of every right-to-left manga backwards.
+
+So: bands along the reading axis, positions measured from the *leading* edge,
+and the action set collapsed from eight to six so the editor needs no per-layout
+filter. The developer delegated the drag-to-resize question and the answer is
+no — proportional sliders do the same job without a geometry a fingertip cannot
+author correctly.
+
+Shipping the dispatch before the editor is deliberate and is the same argument
+as the reading axes: AnymeX's own 30/40/30 bands are live and useful on their own, so
+nothing here is a control that does nothing.
 
 ### Phase D — the AniList experience
 

@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -15,6 +16,8 @@ import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
 import 'package:otaku_reader/features/reader/screen_wakelock.dart';
+import 'package:otaku_reader/features/reader/tap_zones/tap_zone.dart';
+import 'package:otaku_reader/features/reader/tap_zones/tap_zone_settings.dart';
 import 'package:otaku_reader/features/reader/widgets/reader_page_indicator.dart';
 import 'package:otaku_reader/source/http/m_client.dart';
 import 'package:otaku_reader/source/model/page_url.dart';
@@ -295,12 +298,26 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
         return Stack(
           children: [
-            GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onTap: () => setState(() => _chromeVisible = !_chromeVisible),
-              child: _c.layout.value == ReadingLayout.webtoon
-                  ? _webtoon()
-                  : _paged(),
+            // The `LayoutBuilder` is what makes the tap arithmetic honest.
+            // `details.localPosition` is relative to the `GestureDetector`, so
+            // the extent it is divided by has to be that same box — reading a
+            // size off the `State`'s own render object instead happens to agree
+            // here only because nothing sits above the body, and this repo has
+            // already shipped a lookup that was right for one caller and
+            // silently wrong for the rest.
+            LayoutBuilder(
+              builder: (context, constraints) => GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                // `onTapUp` rather than `onTap`, because a zone needs to know
+                // *where*. With zones off this still toggles the chrome from
+                // anywhere, which is what the reader did before they existed —
+                // the switch turns the feature off, not the screen's only
+                // gesture.
+                onTapUp: (details) => _onTapUp(details, constraints.biggest),
+                child: _c.layout.value == ReadingLayout.webtoon
+                    ? _webtoon()
+                    : _paged(),
+              ),
             ),
             if (_chromeVisible) _chrome(),
             // The chrome's bottom bar carries the counter while it is up, so
@@ -475,6 +492,119 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
     // Nothing above the fold means the strip is still at the very top.
     return current ?? 0;
+  }
+
+  /// Resolves a tap against the profile for the layout on screen.
+  void _onTapUp(TapUpDetails details, Size size) {
+    if (!TapZoneSettings.enabled) {
+      _toggleChrome();
+      return;
+    }
+
+    final direction = _c.activeDirection;
+    final horizontal = direction.axis == Axis.horizontal;
+    final extent = horizontal ? size.width : size.height;
+    // A zero extent has no bands to land in, and dividing by it gives a
+    // position that is not a number — which `clamp` would hand back unchanged,
+    // because NaN sorts above every double.
+    if (extent <= 0) {
+      _toggleChrome();
+      return;
+    }
+
+    final along = horizontal
+        ? details.localPosition.dx
+        : details.localPosition.dy;
+    var position = (along / extent).clamp(0.0, 1.0);
+    // Measured from the **leading** edge. This one line is the right-to-left
+    // correction: the band authored as "the side you tap to go on" stays the
+    // side you tap to go on, where AnymeX's page actions ignore `reversed`
+    // entirely and fire *previous* for a tap on the leading side of every
+    // right-to-left manga.
+    if (direction.reversed && TapZoneSettings.mirrorWhenReversed) {
+      position = 1 - position;
+    }
+
+    final action = TapZoneSettings.profileFor(_c.layout.value)
+        .actionAt(position);
+    // Fired for every resolved zone, `none` included. The feedback says the tap
+    // was *received*, not that something moved — and an inert band is exactly
+    // where a silent reader is indistinguishable from one that missed the tap.
+    if (TapZoneSettings.haptics) unawaited(HapticFeedback.selectionClick());
+    _perform(action);
+  }
+
+  void _toggleChrome() => setState(() => _chromeVisible = !_chromeVisible);
+
+  void _perform(ReaderAction action) {
+    switch (action) {
+      case ReaderAction.toggleChrome:
+        _toggleChrome();
+      case ReaderAction.next:
+        _step(forward: true);
+      case ReaderAction.previous:
+        _step(forward: false);
+      case ReaderAction.nextChapter:
+        unawaited(_c.next());
+      case ReaderAction.previousChapter:
+        unawaited(_c.previous());
+      case ReaderAction.none:
+        break;
+    }
+  }
+
+  /// One unit of reading order: a page in paged mode, a screen in continuous.
+  ///
+  /// Running off either end moves to the neighbouring chapter, which is
+  /// AnymeX's behaviour and the one that makes a zone worth using — a reader
+  /// who taps forward at the end of a chapter means "carry on".
+  void _step({required bool forward}) {
+    const duration = Duration(milliseconds: 200);
+    const curve = Curves.easeOutCubic;
+
+    if (_c.layout.value == ReadingLayout.webtoon) {
+      final controller = _scroll;
+      if (controller == null || !controller.hasClients) return;
+      final position = controller.position;
+      // Content-relative, so forward is always a larger offset whichever edge
+      // it is painted from — the same property the direction tests measure.
+      final target = forward
+          ? position.pixels + position.viewportDimension
+          : position.pixels - position.viewportDimension;
+      if (forward && position.pixels >= position.maxScrollExtent - 1) {
+        unawaited(_c.next());
+        return;
+      }
+      if (!forward && position.pixels <= position.minScrollExtent + 1) {
+        unawaited(_c.previous());
+        return;
+      }
+      unawaited(
+        controller.animateTo(
+          target.clamp(position.minScrollExtent, position.maxScrollExtent),
+          duration: duration,
+          curve: curve,
+        ),
+      );
+      return;
+    }
+
+    final controller = _pageController;
+    if (controller == null || !controller.hasClients) return;
+    final page = _c.page.value;
+    if (forward && page >= _c.pages.length - 1) {
+      unawaited(_c.next());
+      return;
+    }
+    if (!forward && page <= 0) {
+      unawaited(_c.previous());
+      return;
+    }
+    unawaited(
+      forward
+          ? controller.nextPage(duration: duration, curve: curve)
+          : controller.previousPage(duration: duration, curve: curve),
+    );
   }
 
   static IconData _directionIcon(ReadingDirection direction) =>
