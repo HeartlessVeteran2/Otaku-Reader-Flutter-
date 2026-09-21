@@ -32,7 +32,9 @@ The audit corrected two things that had been stated as fact:
    read. That is live UI wired to nothing, which `CLAUDE.md` forbids, and it
    shipped. **Fixed 2026-09-20** — both are ticked below, and the reader went
    from honouring two keys to four. It honours **five** since 2026-09-21,
-   when `webtoonDirection` arrived with the two new reading axes.
+   when `webtoonDirection` arrived with the two new reading axes, and **nine**
+   since the tap-zone editor landed the same day: the four `tapZones*` keys all
+   have a control behind them and all reach the reader.
 
 A checklist that counts declarations rather than behaviour is how both got
 missed. Tick what renders, not what compiles.
@@ -73,8 +75,9 @@ The single most important surface. Combined list from both apps.
 > screen on* and *Show the page number* — wrote a key the reader never read,
 > so they were inert UI. **Both are now wired**, and `webtoonDirection` was
 > added on 2026-09-21 with the two new reading axes, so `ReaderKeys` stands at
-> 6 honoured of 39 (`tapZonesEnabled` went live 2026-09-21 with three new
-> keys beside it); the rest have no control behind them and are ordinary
+> **9 honoured of 39** — the four `tapZones*` keys went live the same day, and
+> the editor is what makes the two profile keys writable rather than only
+> readable; the rest have no control behind them and are ordinary
 > unbuilt features rather than dead UI. `ReaderDefaults` holds the fallback for
 > the two that have a switch, because the reader and the Settings row both need
 > it and a disagreeing pair renders a switch showing the opposite of what the
@@ -84,7 +87,7 @@ The single most important surface. Combined list from both apps.
 
 **Rendering** — [ ] tiled/subsampled decoding for tall strips (AnymeX's `subsampling_scale_image_view/` + FFI decoder) · [ ] crop borders (white/black margin removal) · [ ] image filter quality incl. Lanczos pre-scale · [ ] image quality / data-saver downscaling · [ ] pinch + double-tap zoom, disable-zoom-out option
 
-**Navigation** — [~] customisable tap zones — the bands and the reader dispatch are live, with a **separate profile per layout** and right-to-left mirroring AnymeX lacks; the visual editor is not built yet, so the bands stay AnymeX's own 30/40/30 until it is · [ ] navigation-mode presets (Default, L, Kindlish, Edge, Right-and-Left, Disabled) · [ ] invert tapping (none/horizontal/vertical/both) · [ ] volume keys + invert + **per-mode overrides** + hold-to-skip-5 · [ ] keyboard/DeX shortcuts · [ ] mouse wheel + trackpad · [ ] overscroll to prev/next chapter · [ ] **navigate by chapter number** (skips duplicate/scanlator dupes) · [ ] auto-scroll with speed, **pause-on-touch and auto-resume**
+**Navigation** — [x] customisable tap zones — bands along the reading axis, a **separate profile per layout**, right-to-left mirroring AnymeX lacks, haptics, and an editor that assigns an action per band *and moves the boundaries between them*. AnymeX's cannot move a bound at all (`_editZone` rebuilds the zone with `bounds: zone.bounds`); the boundaries are edited as cut points, so the fractions sum to 1 by construction rather than by a check — measured, 166 of the 171 reachable pairs sum to exactly 1.0, worst error 1.1e-16 · [ ] navigation-mode presets (Default, L, Kindlish, Edge, Right-and-Left, Disabled) · [ ] invert tapping (none/horizontal/vertical/both) · [ ] volume keys + invert + **per-mode overrides** + hold-to-skip-5 · [ ] keyboard/DeX shortcuts · [ ] mouse wheel + trackpad · [ ] overscroll to prev/next chapter · [ ] **navigate by chapter number** (skips duplicate/scanlator dupes) · [ ] auto-scroll with speed, **pause-on-touch and auto-resume**
 
 **Display** — [ ] custom brightness (AnymeX goes to −75) · [ ] colour filter with **RGBA sliders and 16 blend modes**, plus named presets · [ ] custom tint + opacity · [ ] greyscale · [ ] invert · [ ] reader background (9 options) · [ ] **e-ink flash** with duration/interval/colour · [x] keep screen on — `wakelock_plus`, taken when a chapter opens and released when it closes · [ ] fullscreen + cutout handling · [ ] orientation lock (7 modes) · [ ] secure screen (`FLAG_SECURE`)
 

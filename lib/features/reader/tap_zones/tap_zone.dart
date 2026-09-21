@@ -126,6 +126,51 @@ class TapZoneProfile {
     return bands.isEmpty ? ReaderAction.none : bands.last.action;
   }
 
+  /// The boundaries *between* bands, as fractions along the axis.
+  ///
+  /// `n` bands have `n - 1` cuts, and this is the representation the editor
+  /// works in — because the two are not equally safe to edit. Three
+  /// independent band sliders must be made to sum to 1 after every drag, and
+  /// *which* other band gives way is an invisible policy the user never chose.
+  /// Cuts have no such policy: the bands are the gaps between them, so they
+  /// sum to 1 algebraically and a drag moves exactly one boundary.
+  List<double> get cuts {
+    final result = <double>[];
+    var edge = 0.0;
+    for (var i = 0; i < bands.length - 1; i++) {
+      edge += bands[i].fraction;
+      result.add(edge);
+    }
+    return result;
+  }
+
+  /// This profile's actions, re-spaced so the boundaries fall on [cuts].
+  ///
+  /// Expects `bands.length - 1` values, ascending and inside `(0, 1)`. The
+  /// editor guarantees all three through its slider bounds rather than through
+  /// a check here, and [isValid] is the gate at the write either way — so a
+  /// caller that breaks the contract gets a profile that is refused, never one
+  /// that is silently repaired into something it did not ask for.
+  TapZoneProfile withCuts(List<double> cuts) {
+    final edges = [0.0, ...cuts, 1.0];
+    return TapZoneProfile([
+      for (var i = 0; i < bands.length; i++)
+        TapBand(edges[i + 1] - edges[i], bands[i].action),
+    ]);
+  }
+
+  /// This profile with band [index] doing [action] instead, geometry untouched.
+  ///
+  /// The separation is the point: AnymeX's editor can change only the action —
+  /// `_editZone` rebuilds the zone with `bounds: zone.bounds` — so its format
+  /// is free-form rectangles that nothing can author. Here both halves move,
+  /// and they move independently.
+  TapZoneProfile withActionAt(int index, ReaderAction action) =>
+      TapZoneProfile([
+        for (var i = 0; i < bands.length; i++)
+          i == index ? TapBand(bands[i].fraction, action) : bands[i],
+      ]);
+
   String encode() => jsonEncode(bands.map((b) => b.toJson()).toList());
 
   /// Returns null for anything it cannot read, so the caller falls back to a

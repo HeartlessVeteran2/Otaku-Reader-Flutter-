@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:otaku_reader/features/reader/tap_zones/tap_zone.dart';
+import 'package:otaku_reader/features/reader/tap_zones/tap_zone_editor_screen.dart';
 
 /// The tap-zone model, and the geometry choice behind it.
 ///
@@ -178,6 +179,116 @@ void main() {
         isNot(anyElement(contains('Page'))),
         reason: 'no action names a layout',
       );
+    });
+  });
+
+  group('cut points', () {
+    test('are the running edges, one fewer than the bands', () {
+      // 30/40/30 -> boundaries at 30% and 70%. The editor edits these, not the
+      // widths, and the whole sum-to-one invariant rests on that swap.
+      final cuts = TapZoneProfile.standard.cuts;
+      expect(cuts, hasLength(2));
+      expect(cuts[0], closeTo(0.3, 1e-9));
+      expect(cuts[1], closeTo(0.7, 1e-9));
+    });
+
+    test('a single band has none', () {
+      expect(
+        TapZoneProfile(const [TapBand(1, ReaderAction.toggleChrome)]).cuts,
+        isEmpty,
+      );
+    });
+
+    test('round-trip through withCuts changes nothing', () {
+      final profile = TapZoneProfile.standard;
+      final same = profile.withCuts(profile.cuts);
+      expect(same.isValid, isTrue);
+      for (var i = 0; i < profile.bands.length; i++) {
+        expect(
+          same.bands[i].fraction,
+          closeTo(profile.bands[i].fraction, 1e-9),
+        );
+        expect(same.bands[i].action, profile.bands[i].action);
+      }
+    });
+
+    test('every pair the editor can author stays valid', () {
+      // The measured claim the write contract rests on, asserted rather than
+      // argued: over every reachable cut pair, the bands sum to 1 well inside
+      // the tolerance -- 166 of the 171 exactly. So the editor structurally
+      // cannot reach `setProfileFor` with a profile it refuses, and the refusal
+      // path exists for restores and imports alone.
+      //
+      // The bounds are **derived from the editor's own constants**, not written
+      // out as `i / 20`. That spelling is what let this test pass while the
+      // sliders actually stepped in 3% -- it enumerated the grid the code was
+      // meant to have rather than the one it had, so it agreed with the prose
+      // and neither agreed with the editor. Caught by `codeant-ai` as a nitpick
+      // beside the Major, and it is the same lesson one file over: when a test
+      // enumerates what a feature can produce, derive it from the feature.
+      // `i * kBandStep` is deliberately the **production snap's own
+      // arithmetic** -- `_cutSlider` stores `(v / kBandStep).round() *
+      // kBandStep` -- and it is not interchangeable with `i / steps`. Measured:
+      // `6 * 0.05` is `0.30000000000000004` while `6 / 20` is `0.3`, and
+      // `19 * 0.05` is `0.9500000000000001`. Enumerating with the division
+      // gives 169 exact sums for a set the editor never produces; the multiply
+      // gives the true 166. Do not "simplify" this -- the count moving back to
+      // 169 is the tell that the test has drifted off the code again.
+      final steps = (1 / kBandStep).round();
+      final floor = (kMinBandFraction / kBandStep).ceil();
+      var pairs = 0;
+      var exact = 0;
+      for (var i = floor; i <= steps - floor; i++) {
+        for (var j = i + floor; j <= steps - floor; j++) {
+          final cuts = [i * kBandStep, j * kBandStep];
+          final profile = TapZoneProfile.standard.withCuts(cuts);
+          pairs++;
+          final sum = profile.bands.fold<double>(0, (a, b) => a + b.fraction);
+          if (sum == 1.0) exact++;
+          expect(profile.isValid, isTrue, reason: 'cuts $cuts');
+          // Every band reachable, which is what a minimum band width buys: a
+          // zero-width band is a dead zone, and the failure bands exist to make
+          // impossible would have been handed back by the editor. The bound
+          // carries a float slack on purpose: the smallest band the editor can
+          // produce is `1 - 19 * 0.05`, which is `0.04999999999999993` -- under
+          // `kMinBandFraction` by 7e-17, and a dead zone only to a comparison
+          // that mistakes representation error for intent.
+          for (final band in profile.bands) {
+            expect(
+              band.fraction,
+              greaterThanOrEqualTo(kMinBandFraction - 1e-9),
+            );
+          }
+        }
+      }
+      // Pinned rather than recomputed: a count derived the same way the loop
+      // is would assert nothing. These are the numbers that were measured, and
+      // they move if `kBandStep` or `kMinBandFraction` does -- which is the
+      // point, because that is a re-measurement rather than a rename.
+      expect(pairs, 171);
+      expect(exact, 166);
+    });
+
+    test('withCuts keeps the actions in order', () {
+      final moved = TapZoneProfile.standard.withCuts([0.1, 0.2]);
+      expect(
+        moved.bands.map((b) => b.action),
+        TapZoneProfile.standard.bands.map((b) => b.action),
+      );
+      expect(moved.bands[0].fraction, closeTo(0.1, 1e-9));
+      expect(moved.bands[1].fraction, closeTo(0.1, 1e-9));
+      expect(moved.bands[2].fraction, closeTo(0.8, 1e-9));
+    });
+
+    test('withActionAt moves no boundary', () {
+      final profile = TapZoneProfile.standard;
+      final edited = profile.withActionAt(1, ReaderAction.nextChapter);
+      expect(edited.bands[1].action, ReaderAction.nextChapter);
+      expect(edited.cuts, profile.cuts);
+      // The other two untouched, which is what separates this from AnymeX's
+      // `_editZone` -- there the action is the *only* thing that can change.
+      expect(edited.bands[0].action, profile.bands[0].action);
+      expect(edited.bands[2].action, profile.bands[2].action);
     });
   });
 }
