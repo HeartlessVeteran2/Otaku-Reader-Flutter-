@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/painting.dart' show Axis;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
@@ -691,6 +692,170 @@ void main() {
       final (c, _) = await open('/c-1');
 
       expect(c.showPageIndicator.value, isTrue);
+    });
+  });
+
+  group('the reading direction', () {
+    // The reader honours four directions now, and every one of them arrives
+    // through a stored enum index. That is the whole surface: a round-trip of
+    // the key proves nothing -- it is exactly what passed the entire time the
+    // two inert Settings switches shipped -- so these assert what the
+    // *controller* ends up holding.
+
+    for (final expected in ReadingDirection.values) {
+      test('a stored ${expected.name} reaches the reader', () async {
+        // The mutation guard for the clamp. `clamp(0, 1)` stood here: a
+        // literal bound where an enum property belongs, so the two appended
+        // members were pinned back to left-to-right while the Settings row --
+        // which already clamped against `values.length` -- went on offering
+        // them. Nothing failed, on either side.
+        await seed();
+        ReaderKeys.readingDirection.set<int>(expected.index);
+        final (c, _) = await open('/c-1');
+
+        expect(c.direction.value, expected);
+      });
+    }
+
+    test(
+      'an index no build has ever written falls back rather than throws',
+      () async {
+        // A row from a future build, or a corrupted one. Reading it happens
+        // inside `onInit`, which has nobody to catch a RangeError.
+        await seed();
+        ReaderKeys.readingDirection.set<int>(99);
+        final (c, _) = await open('/c-1');
+
+        expect(c.direction.value, ReadingDirection.values.last);
+      },
+    );
+
+    test('each direction names an axis and a sign', () {
+      // Mechanism-independent, and it is the pair every call site consumes:
+      // one wrong entry turns a right-to-left manga into a vertical one with
+      // no other symptom.
+      expect(ReadingDirection.leftToRight.axis, Axis.horizontal);
+      expect(ReadingDirection.rightToLeft.axis, Axis.horizontal);
+      expect(ReadingDirection.topToBottom.axis, Axis.vertical);
+      expect(ReadingDirection.bottomToTop.axis, Axis.vertical);
+
+      expect(ReadingDirection.leftToRight.reversed, isFalse);
+      expect(ReadingDirection.rightToLeft.reversed, isTrue);
+      expect(ReadingDirection.topToBottom.reversed, isFalse);
+      expect(ReadingDirection.bottomToTop.reversed, isTrue);
+    });
+
+    test('the first two members keep the indices already on disk', () {
+      // AnymeX's own enum is `{up, down, left, right}`, and taking that order
+      // would have re-pointed every stored value: a `0` written by this app
+      // means left-to-right, and there are users holding one. New members are
+      // appended for that reason, and this is what says so out loud.
+      expect(ReadingDirection.leftToRight.index, 0);
+      expect(ReadingDirection.rightToLeft.index, 1);
+    });
+
+    test('the two layouts do not share a direction', () async {
+      // The departure from AnymeX, which keeps one value and then
+      // force-overrides it to `down` whenever its webtoon detector fires.
+      // Sharing here would be worse: the stored default is left-to-right, so
+      // every existing webtoon reader would have come back from the upgrade
+      // scrolling sideways.
+      await seed();
+      ReaderKeys.readingDirection.set<int>(ReadingDirection.rightToLeft.index);
+      ReaderKeys.webtoonDirection.set<int>(ReadingDirection.topToBottom.index);
+      final (c, _) = await open('/c-1');
+
+      expect(c.direction.value, ReadingDirection.rightToLeft);
+      expect(c.webtoonDirection.value, ReadingDirection.topToBottom);
+    });
+
+    test(
+      'with nothing stored each layout starts where its readers read',
+      () async {
+        // A fresh install. One shared default cannot be right for both: a long
+        // strip read sideways is as wrong as a manga read downwards.
+        await seed();
+        final (c, _) = await open('/c-1');
+
+        expect(c.direction.value, ReadingDirection.leftToRight);
+        expect(c.webtoonDirection.value, ReadingDirection.topToBottom);
+        expect(
+          ReadingDirection.defaultFor(ReadingLayout.paged),
+          ReadingDirection.leftToRight,
+        );
+        expect(
+          ReadingDirection.defaultFor(ReadingLayout.webtoon),
+          ReadingDirection.topToBottom,
+        );
+      },
+    );
+
+    test('activeDirection is whichever layout is on screen', () async {
+      await seed();
+      ReaderKeys.readingDirection.set<int>(ReadingDirection.rightToLeft.index);
+      ReaderKeys.webtoonDirection.set<int>(ReadingDirection.bottomToTop.index);
+      final (c, _) = await open('/c-1');
+
+      c.setLayout(ReadingLayout.paged);
+      expect(c.activeDirection, ReadingDirection.rightToLeft);
+
+      c.setLayout(ReadingLayout.webtoon);
+      expect(c.activeDirection, ReadingDirection.bottomToTop);
+    });
+
+    test(
+      'setActiveDirection writes the key its layout reads, and only that one',
+      () async {
+        // The reader's own control edits "the direction", and which key that is
+        // belongs with `activeDirection` rather than with the button. Splitting
+        // that knowledge is how the control comes to write one key while the
+        // reader renders the other.
+        await seed();
+        final (c, _) = await open('/c-1');
+
+        c.setLayout(ReadingLayout.webtoon);
+        c.setActiveDirection(ReadingDirection.rightToLeft);
+
+        expect(
+          ReaderKeys.webtoonDirection.get<int>(0),
+          ReadingDirection.rightToLeft.index,
+        );
+        expect(
+          ReaderKeys.readingDirection.get<int?>(),
+          isNull,
+          reason: 'the paged direction was never touched',
+        );
+      },
+    );
+
+    test('the quick cycle reaches every direction and wraps', () async {
+      // The reader's control cycles rather than toggles, because there are
+      // four. A cycle that skipped one would leave a direction reachable only
+      // from Settings, and a cycle that did not wrap would strand the reader
+      // on the last.
+      var direction = ReadingDirection.values.first;
+      final seen = <ReadingDirection>{direction};
+      for (var i = 0; i < ReadingDirection.values.length - 1; i++) {
+        direction = direction.next;
+        seen.add(direction);
+      }
+
+      expect(seen, ReadingDirection.values.toSet());
+      expect(direction.next, ReadingDirection.values.first);
+    });
+
+    test('every direction is named, in one place', () {
+      // On the enum rather than in either screen, so the reader's tooltip and
+      // the Settings row cannot disagree -- and so a member added later cannot
+      // be labelled in one and left blank in the other.
+      for (final d in ReadingDirection.values) {
+        expect(d.label.trim(), isNotEmpty, reason: d.name);
+        expect(d.shortLabel.trim(), isNotEmpty, reason: d.name);
+      }
+      expect(
+        ReadingDirection.values.map((d) => d.label).toSet(),
+        hasLength(ReadingDirection.values.length),
+      );
     });
   });
 }

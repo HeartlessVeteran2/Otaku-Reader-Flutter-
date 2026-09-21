@@ -7,6 +7,10 @@
 import 'dart:async';
 import 'dart:io';
 
+// `Axis` only. The reader's direction carries the axis it flows along, and
+// that pair belongs with the enum rather than being re-derived at each of the
+// four call sites that need it.
+import 'package:flutter/painting.dart' show Axis;
 import 'package:get/get.dart';
 import 'package:path/path.dart' as p;
 
@@ -24,8 +28,80 @@ import 'package:otaku_reader/source/model/page_url.dart';
 /// How pages are laid out.
 enum ReadingLayout { paged, webtoon }
 
-/// Which way paged mode advances.
-enum ReadingDirection { leftToRight, rightToLeft }
+/// Which way a reader advances: an axis, and a sign along it.
+///
+/// Ported from AnymeX's `MangaPageViewDirection`, which carries exactly this
+/// pair of getters — **but not its member order**. AnymeX's is
+/// `{up, down, left, right}`; adopting that here would silently re-point every
+/// stored index, because the value is persisted as `index` and this app already
+/// has users whose `0` means left-to-right. New members are therefore
+/// *appended*, and the spelling differs from the reference on purpose.
+enum ReadingDirection {
+  leftToRight,
+  rightToLeft,
+  topToBottom,
+  bottomToTop;
+
+  /// The axis pages flow along.
+  Axis get axis => switch (this) {
+    ReadingDirection.leftToRight => Axis.horizontal,
+    ReadingDirection.rightToLeft => Axis.horizontal,
+    ReadingDirection.topToBottom => Axis.vertical,
+    ReadingDirection.bottomToTop => Axis.vertical,
+  };
+
+  /// Whether the first page sits at the far end of that axis.
+  bool get reversed => switch (this) {
+    ReadingDirection.leftToRight => false,
+    ReadingDirection.rightToLeft => true,
+    ReadingDirection.topToBottom => false,
+    ReadingDirection.bottomToTop => true,
+  };
+
+  /// What this direction is called, everywhere it is named.
+  ///
+  /// On the enum rather than in either screen, for the reason `ReaderDefaults`
+  /// exists: the reader's own control and the Settings row both render this,
+  /// and a pair that disagrees puts a tooltip on screen contradicting the row
+  /// that set it — with each file perfectly self-consistent on its own. It also
+  /// means a member added later cannot be labelled in one place and left blank
+  /// in the other.
+  String get label => switch (this) {
+    ReadingDirection.leftToRight => 'Left to right',
+    ReadingDirection.rightToLeft => 'Right to left',
+    ReadingDirection.topToBottom => 'Top to bottom',
+    ReadingDirection.bottomToTop => 'Bottom to top',
+  };
+
+  /// The short form, for a segmented row where a full label would be squeezed
+  /// to a stub. `CLAUDE.md` records why a `FittedBox` is not the fix there: it
+  /// hands its child unbounded width, so the ellipsis never fires and a long
+  /// label scales toward nothing.
+  String get shortLabel => switch (this) {
+    ReadingDirection.leftToRight => 'L → R',
+    ReadingDirection.rightToLeft => 'R → L',
+    ReadingDirection.topToBottom => 'T → B',
+    ReadingDirection.bottomToTop => 'B → T',
+  };
+
+  /// The next one in the reader's quick cycle, wrapping at the end.
+  ReadingDirection get next =>
+      ReadingDirection.values[(index + 1) % ReadingDirection.values.length];
+
+  /// The default for [layout].
+  ///
+  /// The two layouts do **not** share a stored direction, and that is a
+  /// deliberate departure. AnymeX keeps one value for both and then
+  /// force-overrides it to `down` whenever its auto-webtoon detector fires
+  /// (`_applyAutoWebtoonMode`) — a special case that exists precisely because a
+  /// shared value is wrong for a long strip. Sharing here would be worse still:
+  /// this app's stored default is `leftToRight`, so every existing webtoon
+  /// reader would have come back from an upgrade scrolling sideways.
+  static ReadingDirection defaultFor(ReadingLayout layout) =>
+      layout == ReadingLayout.webtoon
+      ? ReadingDirection.topToBottom
+      : ReadingDirection.leftToRight;
+}
 
 /// Reads one chapter, and moves between chapters without leaving the screen.
 class ReaderController extends GetxController {
@@ -69,7 +145,19 @@ class ReaderController extends GetxController {
   final isLoading = false.obs;
   final error = RxnString();
   final layout = ReadingLayout.paged.obs;
+
+  /// The direction paged mode advances in.
   final direction = ReadingDirection.leftToRight.obs;
+
+  /// The direction continuous mode scrolls in, stored separately — see
+  /// [ReadingDirection.defaultFor] for why the two are not one value.
+  final webtoonDirection = ReadingDirection.topToBottom.obs;
+
+  /// The direction actually in force, which is the one the screen renders and
+  /// the only one a tap zone can be measured against.
+  ReadingDirection get activeDirection => layout.value == ReadingLayout.webtoon
+      ? webtoonDirection.value
+      : direction.value;
 
   /// Whether a page counter stays on screen once the chrome is hidden.
   ///
@@ -101,10 +189,25 @@ class ReaderController extends GetxController {
   @override
   void onInit() {
     super.onInit();
+    // The bounds come from the enums, never from a literal. `clamp(0, 1)` was
+    // what stood here, and it is the `int status = 5` row of the mistakes
+    // table wearing a different hat: appending a `ReadingDirection` member
+    // would have left the Settings row offering it -- that row already clamps
+    // against `values.length` -- while the reader silently pinned it back to
+    // left-to-right, with nothing failing anywhere. Seventh instance of a rule
+    // holding in one file and not in its neighbour.
     layout.value =
-        ReadingLayout.values[ReaderKeys.readingLayout.get<int>(0).clamp(0, 1)];
-    direction.value = ReadingDirection
-        .values[ReaderKeys.readingDirection.get<int>(0).clamp(0, 1)];
+        ReadingLayout.values[ReaderKeys.readingLayout
+            .get<int>(0)
+            .clamp(0, ReadingLayout.values.length - 1)];
+    direction.value =
+        ReadingDirection.values[ReaderKeys.readingDirection
+            .get<int>(ReadingDirection.leftToRight.index)
+            .clamp(0, ReadingDirection.values.length - 1)];
+    webtoonDirection.value =
+        ReadingDirection.values[ReaderKeys.webtoonDirection
+            .get<int>(ReadingDirection.topToBottom.index)
+            .clamp(0, ReadingDirection.values.length - 1)];
     showPageIndicator.value = ReaderKeys.showPageIndicator.get<bool>(
       ReaderDefaults.showPageIndicator,
     );
@@ -437,4 +540,20 @@ class ReaderController extends GetxController {
     direction.value = value;
     ReaderKeys.readingDirection.set<int>(value.index);
   }
+
+  void setWebtoonDirection(ReadingDirection value) {
+    webtoonDirection.value = value;
+    ReaderKeys.webtoonDirection.set<int>(value.index);
+  }
+
+  /// Writes [value] to whichever direction the current layout is reading.
+  ///
+  /// The reader's own control should not have to know which of the two keys it
+  /// is editing — that is the knowledge [activeDirection] already holds, and
+  /// splitting it across the control and the controller is how the two come to
+  /// disagree.
+  void setActiveDirection(ReadingDirection value) =>
+      layout.value == ReadingLayout.webtoon
+      ? setWebtoonDirection(value)
+      : setDirection(value);
 }

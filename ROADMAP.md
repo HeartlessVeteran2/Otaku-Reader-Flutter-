@@ -168,6 +168,7 @@ The depth that separates "has the screens" from "is the app".
 | ~~Profile-led header on tab roots — AniList avatar + greeting~~ | `lib/widgets/header/header.dart` | **shipped** (no badge) |
 | ~~Radius / glow / blur **user multipliers** — roundness becomes a setting~~ | `multiplyRadius()` / `multiplyGlow()` | **shipped** |
 | ~~In-row segmented selectors, replacing radio dialogs~~ | `anymex_tile.dart` | **shipped** |
+| ~~The two missing reading axes — vertical paged, horizontal continuous~~ | `MangaPageViewDirection` | **shipped** |
 | Searchable settings registry — relevance-scored, deep-links, highlights | `settings/search/*` | 659 |
 | Tap-zones editor — four profiles | `settings_tap_zones.dart` | 544 |
 | 5 missing reader settings | `readerControlTheme`, `chapterStyle`, `displayRefreshInterval`, `displayRefreshColor`, `navigateByNumber` | — |
@@ -217,6 +218,32 @@ first.
 **Not carried over: the badge.** AnymeX overlays an extension-update count on
 its avatar. This app has no such count yet, and inventing one to decorate a
 header would be a feature pretending to be a port.
+
+**The reading axes landed before the tap-zones editor, and that ordering was
+chosen rather than inherited.** AnymeX ships four tap-zone profiles — paged and
+continuous, each horizontal and vertical — and two of them had nothing to apply
+to here: `ReadingDirection` held two members and only ever reversed a horizontal
+`PageView`, while continuous mode was vertical unconditionally. Porting the
+editor first would have put two tabs on screen that cannot affect reading, which
+is the defect this file's own mistakes table records three times.
+
+Two things about the port are corrections rather than copies:
+
+- **The two layouts keep separate directions.** AnymeX stores one and then
+  force-overrides it to `down` whenever its auto-webtoon detector fires — a
+  special case that exists precisely because a shared value is wrong for a long
+  strip. Sharing here would have been worse: the stored default is
+  left-to-right, so every existing webtoon reader would have come back from the
+  upgrade scrolling sideways.
+- **The member order is this app's, not AnymeX's.** Its enum is
+  `{up, down, left, right}`; the value is persisted as `index`, and a `0` on
+  disk here already means left-to-right. New members are appended.
+
+The clamp that read those indices was `clamp(0, 1)` — a literal bound where an
+enum property belongs. The Settings row two files away already clamped against
+`values.length`, so appending a member would have left that row offering a
+direction the reader silently pinned back to left-to-right, with nothing failing
+on either side.
 
 ### Phase D — the AniList experience
 

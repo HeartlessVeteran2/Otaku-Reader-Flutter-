@@ -14,6 +14,7 @@ import 'package:otaku_reader/domain/repository/anilist_repository.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/data/anilist/title_matcher.dart';
+import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
 import 'package:otaku_reader/features/reader/screen_wakelock.dart';
 import 'package:otaku_reader/features/reader/screens/reader_screen.dart';
 import 'package:otaku_reader/features/reader/widgets/reader_page_indicator.dart';
@@ -55,8 +56,13 @@ class _Methods implements SourceMethods {
   @override
   final Source source;
 
+  /// How many pages this chapter has. Mutable so one test can ask for a
+  /// chapter long enough that its later pages are genuinely off screen, which
+  /// is the only state the position-restore guard is about.
+  int pageCount = 3;
+
   @override
-  Future<List<PageUrl>> getPageList(String url) async => _pages(3);
+  Future<List<PageUrl>> getPageList(String url) async => _pages(pageCount);
 
   @override
   bool get supportsLatest => true;
@@ -82,6 +88,10 @@ class _Methods implements SourceMethods {
 }
 
 class _Sources implements SourceRepository {
+  _Sources({int pageCount = 3}) {
+    _methods.pageCount = pageCount;
+  }
+
   final _methods = _Methods(_row());
 
   @override
@@ -345,5 +355,376 @@ void main() {
         expect(tapsBehind, 1);
       });
     }
+  });
+
+  group('the reader reads along the direction it was given', () {
+    // The controller tests prove the stored value reaches the controller. They
+    // say nothing about whether anything on screen moved, and that gap is this
+    // repo's most-repeated defect -- a key that round-trips perfectly while no
+    // widget reads it is exactly what shipped as two dead Settings switches.
+    // So these assert the laid-out scroll view.
+
+    Future<void> openWith(
+      WidgetTester tester, {
+      required ReadingLayout layout,
+      required ReadingDirection direction,
+    }) async {
+      ReaderKeys.readingLayout.set<int>(layout.index);
+      ReaderKeys.readingDirection.set<int>(direction.index);
+      ReaderKeys.webtoonDirection.set<int>(direction.index);
+      await openReader(tester);
+    }
+
+    for (final direction in ReadingDirection.values) {
+      testWidgets('paged lays out ${direction.name}', (tester) async {
+        await openWith(
+          tester,
+          layout: ReadingLayout.paged,
+          direction: direction,
+        );
+
+        final view = tester.widget<PageView>(find.byType(PageView));
+        expect(view.scrollDirection, direction.axis, reason: direction.name);
+        expect(view.reverse, direction.reversed, reason: direction.name);
+      });
+
+      testWidgets('continuous lays out ${direction.name}', (tester) async {
+        await openWith(
+          tester,
+          layout: ReadingLayout.webtoon,
+          direction: direction,
+        );
+
+        final view = tester.widget<ListView>(find.byType(ListView));
+        expect(view.scrollDirection, direction.axis, reason: direction.name);
+        expect(view.reverse, direction.reversed, reason: direction.name);
+      });
+    }
+
+    /// The constraints the first page is handed inside the strip.
+    ///
+    /// Constraints rather than a painted rect, and that is not a stylistic
+    /// choice. `_Page` is private, so the image it builds is the handle — and
+    /// under `flutter test` that image never resolves, so every page lays out
+    /// at zero extent and the finder reports it **offstage**. A rect would be
+    /// measuring the harness. What the viewport hands down is the thing the
+    /// pin actually changes, and it is true whether or not a byte ever loads.
+    BoxConstraints firstPageConstraints(WidgetTester tester) => tester
+        .renderObject<RenderBox>(
+          find
+              .descendant(
+                of: find.byType(ListView),
+                // `skipOffstage: false` on **both**. `find.descendant`
+                // filters by its own flag, which defaults to true, so setting
+                // it on the inner finder alone changes nothing and the match
+                // comes back empty -- which reads exactly like the page not
+                // being there.
+                matching: find.byType(Image, skipOffstage: false),
+                skipOffstage: false,
+              )
+              .first,
+        )
+        .constraints;
+
+    for (final width in [320.0, 411.0]) {
+      testWidgets('a horizontal strip pins each page to the $width viewport', (
+        tester,
+      ) async {
+        // Turned on its side, a page has an unbounded *main* axis, and an
+        // image with one falls back to its intrinsic width — whatever the scan
+        // was encoded at, which has nothing to do with the screen. Nothing
+        // throws either way, which is why this is asserted rather than
+        // assumed.
+        //
+        // Two widths, because a pin hardcoded to one phone satisfies a single
+        // sample, and that is the fix that suggests itself.
+        await tester.binding.setSurfaceSize(Size(width, 720));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        await openWith(
+          tester,
+          layout: ReadingLayout.webtoon,
+          direction: ReadingDirection.leftToRight,
+        );
+
+        final constraints = firstPageConstraints(tester);
+        expect(constraints.maxWidth, width, reason: 'pinned to the viewport');
+        expect(constraints.minWidth, width, reason: 'tightly, not loosely');
+      });
+    }
+
+    testWidgets('a vertical strip leaves each page its own main axis', (
+      tester,
+    ) async {
+      // The other half, and the one that catches an over-eager fix: pinning
+      // the *cross* axis is a no-op in a vertical list, so only the main axis
+      // can tell the two apart. A page given the viewport's height here would
+      // be a paged reader wearing a ListView, and the width assertions above
+      // cannot see that.
+      await tester.binding.setSurfaceSize(const Size(360, 720));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await openWith(
+        tester,
+        layout: ReadingLayout.webtoon,
+        direction: ReadingDirection.topToBottom,
+      );
+
+      final constraints = firstPageConstraints(tester);
+      expect(constraints.maxWidth, 360, reason: 'the cross axis is the screen');
+      expect(
+        constraints.maxHeight,
+        double.infinity,
+        reason: 'the main axis belongs to the page, not the screen',
+      );
+    });
+
+    testWidgets('the quick control edits the layout on screen, not the other', (
+      tester,
+    ) async {
+      // The reader's direction button used to be paged-only and toggled two
+      // values. It now cycles four and has to write whichever key the layout
+      // in force reads -- a button that edited the paged key while a webtoon
+      // was on screen would look completely inert.
+      await openWith(
+        tester,
+        layout: ReadingLayout.webtoon,
+        direction: ReadingDirection.topToBottom,
+      );
+
+      await tester.tap(find.byTooltip(ReadingDirection.topToBottom.label));
+      await tester.pumpAndSettle();
+
+      expect(
+        ReaderKeys.webtoonDirection.get<int>(0),
+        ReadingDirection.topToBottom.next.index,
+      );
+      expect(
+        ReaderKeys.readingDirection.get<int>(0),
+        ReadingDirection.topToBottom.index,
+        reason: 'the paged direction is not what is on screen',
+      );
+    });
+  });
+
+  group('switching axis keeps the reader where it was', () {
+    // `sourcery-ai` on #56, and it was right. `_rebuildForAxis` hands
+    // continuous mode a fresh `ScrollController`, which starts at 0 — and a
+    // `ListView` only builds the children near its current offset, so for any
+    // page past the first screenful the target's `GlobalKey` has no context.
+    // `Scrollable.ensureVisible` then had nothing to act on and the callback
+    // returned silently: the reader sat at the top of the chapter, and the
+    // scroll notification that followed overwrote the saved index with 0 —
+    // which `_persist` wrote to disk. The place was lost for good, from a
+    // change that looked like it only flipped an axis.
+    //
+    // **The rendered reproduction is not available here**, and that is
+    // measured rather than assumed: a `_Page` has no extent under
+    // `flutter test` because `Image.file` never reaches its `errorBuilder`,
+    // even inside `runAsync`. Every page lays out at zero height, so every
+    // page is always "built" and the state this guard is about cannot exist.
+    // Faking extent would mean faking the thing under test. So the decision
+    // is asserted where it is made.
+
+    test('a layout change invalidates the scroll views, not only an axis one', () {
+      // `codeant-ai`'s Major on #56, and it is the fix one case earlier in the
+      // same file left un-applied to its neighbour. Paged and continuous keep
+      // *separate* controllers, so switching between them at the same axis
+      // rebuilt neither: the `PageView` kept its page while the strip kept an
+      // offset from a different read, whichever was showing overwrote `page`,
+      // and switching back showed the old page under the other one's counter.
+      //
+      // The rendered reproduction is blocked by the same measured limitation
+      // as the walk below: with no page extent the strip never reports
+      // anything, so the disagreement cannot arise here.
+      expect(
+        modeInvalidatesScroll(
+          wasAxis: Axis.vertical,
+          nowAxis: Axis.vertical,
+          wasLayout: ReadingLayout.paged,
+          nowLayout: ReadingLayout.webtoon,
+        ),
+        isTrue,
+        reason: 'same axis, different layout',
+      );
+    });
+
+    test('an axis change invalidates them too', () {
+      // The half that already worked. Without it, dropping the axis clause
+      // would satisfy the test above.
+      expect(
+        modeInvalidatesScroll(
+          wasAxis: Axis.horizontal,
+          nowAxis: Axis.vertical,
+          wasLayout: ReadingLayout.webtoon,
+          nowLayout: ReadingLayout.webtoon,
+        ),
+        isTrue,
+        reason: 'same layout, different axis',
+      );
+    });
+
+    testWidgets('a change of sign alone does not, and that is measured', (
+      tester,
+    ) async {
+      // `codeant-ai` filed this as a correctness issue: that `reverse` puts
+      // offset 0 at the opposite visual edge, so a retained controller at a
+      // non-zero offset lands on a different logical page. It was right that
+      // the claim had only ever been *asserted* -- `CLAUDE.md` stated it and
+      // nothing checked it -- and right that the predicate takes no sign, so
+      // the test that used to stand here passed two identical arguments and
+      // could not have seen a sign change at all. That is a test whose name
+      // claimed a rule it was structurally unable to test.
+      //
+      // Measured rather than argued, which is what the finding asked for:
+      //
+      //   PageView   before  page 3, offset 2400, page 3 on screen
+      //              after   page 3, offset 2400, page 3 on screen
+      //   ListView   before  offset 1000, row 10 top =   0
+      //              after   offset 1000, row 10 top = 500
+      //
+      // A scroll offset is **content-relative**, not screen-relative: it
+      // measures distance from the start of child 0 along the axis, and
+      // `reverse` changes which screen edge that start is painted at, not
+      // which child it is. So the logical position survives, and `_webtoonPage`
+      // already accounts for the paint flip -- at these numbers its
+      // `extent - (start + size)` gives 600 - (500 + 100) = 0, the same leading
+      // offset the unreversed branch reads from `start`.
+      //
+      // Rebuilding on a sign change would therefore throw away a good position
+      // for nothing, several times per cycle of the reader's four-way control.
+      final pages = PageController();
+      addTearDown(pages.dispose);
+      Widget paged(bool reverse) => MaterialApp(
+        home: PageView.builder(
+          controller: pages,
+          reverse: reverse,
+          itemCount: 5,
+          itemBuilder: (_, i) => Center(child: Text('page $i')),
+        ),
+      );
+
+      await tester.pumpWidget(paged(false));
+      pages.jumpToPage(3);
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(paged(true));
+      await tester.pumpAndSettle();
+
+      expect(pages.page, 3, reason: 'the paged reader keeps its page');
+      expect(find.text('page 3'), findsOneWidget);
+
+      final strip = ScrollController();
+      addTearDown(strip.dispose);
+      Widget continuous(bool reverse) => MaterialApp(
+        home: ListView.builder(
+          controller: strip,
+          reverse: reverse,
+          itemCount: 20,
+          itemBuilder: (_, i) => SizedBox(height: 100, child: Text('row $i')),
+        ),
+      );
+
+      await tester.pumpWidget(continuous(false));
+      strip.jumpTo(1000);
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(continuous(true));
+      await tester.pumpAndSettle();
+
+      expect(strip.offset, 1000, reason: 'the strip keeps its offset');
+      expect(
+        find.text('row 10'),
+        findsOneWidget,
+        reason: 'and the offset still means the same child',
+      );
+
+      // The predicate agrees, which is the point: nothing about a sign change
+      // reaches it, so nothing about a sign change rebuilds.
+      expect(
+        modeInvalidatesScroll(
+          wasAxis: Axis.horizontal,
+          nowAxis: Axis.horizontal,
+          wasLayout: ReadingLayout.paged,
+          nowLayout: ReadingLayout.paged,
+        ),
+        isFalse,
+      );
+    });
+
+    test('a target that is not built yet means keep walking', () {
+      // The mutation guard, and the bug in one line: the first version
+      // answered `done` here, which is what left the reader at the top.
+      expect(
+        nextRestoreStep(
+          targetIsBuilt: false,
+          pixels: 0,
+          maxScrollExtent: 8000,
+          step: 0,
+        ),
+        RestoreStep.advance,
+      );
+    });
+
+    test('a target on screen ends the walk', () {
+      expect(
+        nextRestoreStep(
+          targetIsBuilt: true,
+          pixels: 3200,
+          maxScrollExtent: 8000,
+          step: 7,
+        ),
+        RestoreStep.done,
+      );
+    });
+
+    test('the end of the strip ends the walk', () {
+      // A chapter that came back shorter than the one being read has no page
+      // to reach. Without this the walk asks again every frame until the step
+      // limit, scrolling nothing.
+      expect(
+        nextRestoreStep(
+          targetIsBuilt: false,
+          pixels: 8000,
+          maxScrollExtent: 8000,
+          step: 3,
+        ),
+        RestoreStep.done,
+      );
+    });
+
+    test('the step budget ends the walk', () {
+      // The other terminator. A walk with neither would be an unbounded
+      // post-frame loop, which is a hang rather than a wrong answer.
+      expect(
+        nextRestoreStep(
+          targetIsBuilt: false,
+          pixels: 0,
+          maxScrollExtent: 8000,
+          step: 9,
+          stepLimit: 9,
+        ),
+        RestoreStep.done,
+      );
+    });
+
+    test('the walk terminates from any starting state', () {
+      // Mechanism-independent: whatever the three inputs, following the walk
+      // reaches `done`. A guard on each terminator individually still allows a
+      // combination that loops, and a post-frame loop that never ends is the
+      // one failure mode a reader cannot recover from.
+      for (final extent in [0.0, 1.0, 8000.0]) {
+        var pixels = 0.0;
+        var step = 0;
+        while (nextRestoreStep(
+              targetIsBuilt: false,
+              pixels: pixels,
+              maxScrollExtent: extent,
+              step: step,
+              stepLimit: 20,
+            ) ==
+            RestoreStep.advance) {
+          pixels = (pixels + 360).clamp(0.0, extent);
+          step++;
+          expect(step, lessThanOrEqualTo(20), reason: 'extent $extent');
+        }
+      }
+    });
   });
 }
