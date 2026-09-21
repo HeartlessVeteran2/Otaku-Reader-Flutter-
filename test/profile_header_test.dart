@@ -180,7 +180,8 @@ void main() {
     // Measured, not reasoned about. With a leading, three actions plus search
     // overflows by 22px at 320 and **1.5px at 360** -- a Pixel-class width,
     // exactly like the `TabBar` overflow this repo already shipped. Without
-    // one, the same row is clean at every width.
+    // one, the same row is clean at 320, 360, 384 and 411, which is every
+    // width that was measured and not a claim about any other.
     //
     // This is what keeps four tab roots leading with the account while Browse
     // does not. If someone gives Browse a leading again, or adds a third

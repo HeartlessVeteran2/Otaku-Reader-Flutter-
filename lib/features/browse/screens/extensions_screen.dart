@@ -63,11 +63,12 @@ class _ExtensionsScreenState extends State<ExtensionsScreen>
       // measured rather than preferred.
       //
       // A leading costs one action slot. This screen carries three actions
-      // plus search, and `chrome_test`'s own probe puts that combination
-      // over the edge by **22px at 320 and 1.5px at 360** with a leading,
-      // and clean at every width without one — the same shape as the
-      // `TabBar` overflow this repo already shipped, which was also not
-      // confined to tiny phones.
+      // plus search, and with a leading `chrome_test`'s own probe puts that
+      // combination over the edge by **22px at 320 and 1.5px at 360**, while
+      // 384 and 411 are clean. Without one the same row is clean at all four
+      // — which is every width that was measured, and not a claim about any
+      // other. Same shape as the `TabBar` overflow this repo already
+      // shipped, which was also not confined to tiny phones.
       //
       // AnymeX arrives at the same place from the other direction: it only
       // leads with the avatar on screens carrying a single action, and its
