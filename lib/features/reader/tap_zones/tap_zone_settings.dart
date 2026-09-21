@@ -62,13 +62,10 @@ class TapZoneSettings {
       TapZoneProfile.decode(_key(layout).get<String?>()) ??
       TapZoneProfile.standard;
 
-  static void setProfileFor(ReadingLayout layout, TapZoneProfile profile) {
-    // A profile whose bands do not cover the axis would leave a tap with no
-    // answer, so it is refused at the boundary rather than written and
-    // rediscovered as a dead zone on a device.
-    if (!profile.isValid) return;
-    _key(layout).set<String>(profile.encode());
-  }
-
-  static void resetProfileFor(ReadingLayout layout) => _key(layout).delete();
+  // There is deliberately no writer here yet. The editor is the next slice and
+  // it is what decides the write contract -- whether an invalid profile is
+  // refused silently, reported, or cannot be produced at all -- so guessing
+  // that now would ship an API with no caller to shape it. `profileFor` falls
+  // back to the standard bands until then, which is exactly what the reader
+  // gets today.
 }
