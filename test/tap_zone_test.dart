@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:otaku_reader/features/reader/tap_zones/tap_zone.dart';
+import 'package:otaku_reader/features/reader/tap_zones/tap_zone_editor_screen.dart';
 
 /// The tap-zone model, and the geometry choice behind it.
 ///
@@ -178,6 +179,89 @@ void main() {
         isNot(anyElement(contains('Page'))),
         reason: 'no action names a layout',
       );
+    });
+  });
+
+  group('cut points', () {
+    test('are the running edges, one fewer than the bands', () {
+      // 30/40/30 -> boundaries at 30% and 70%. The editor edits these, not the
+      // widths, and the whole sum-to-one invariant rests on that swap.
+      final cuts = TapZoneProfile.standard.cuts;
+      expect(cuts, hasLength(2));
+      expect(cuts[0], closeTo(0.3, 1e-9));
+      expect(cuts[1], closeTo(0.7, 1e-9));
+    });
+
+    test('a single band has none', () {
+      expect(
+        TapZoneProfile(const [TapBand(1, ReaderAction.toggleChrome)]).cuts,
+        isEmpty,
+      );
+    });
+
+    test('round-trip through withCuts changes nothing', () {
+      final profile = TapZoneProfile.standard;
+      final same = profile.withCuts(profile.cuts);
+      expect(same.isValid, isTrue);
+      for (var i = 0; i < profile.bands.length; i++) {
+        expect(
+          same.bands[i].fraction,
+          closeTo(profile.bands[i].fraction, 1e-9),
+        );
+        expect(same.bands[i].action, profile.bands[i].action);
+      }
+    });
+
+    test('every pair the editor can author stays valid', () {
+      // The measured claim the write contract rests on, asserted rather than
+      // argued: over all 171 reachable cut pairs on the 5% grid, the bands sum
+      // to 1 well inside the tolerance -- 169 of them exactly. So the editor
+      // structurally cannot reach `setProfileFor` with a profile it refuses,
+      // and the refusal path exists for restores and imports alone.
+      var pairs = 0;
+      var exact = 0;
+      for (var i = 1; i <= 19; i++) {
+        for (var j = i + 1; j <= 19; j++) {
+          final profile = TapZoneProfile.standard.withCuts([i / 20, j / 20]);
+          pairs++;
+          final sum = profile.bands.fold<double>(0, (a, b) => a + b.fraction);
+          if (sum == 1.0) exact++;
+          expect(profile.isValid, isTrue, reason: 'cuts ${i / 20}, ${j / 20}');
+          // Every band reachable, which is what a minimum band width buys: a
+          // zero-width band is a dead zone, and the failure bands exist to make
+          // impossible would have been handed back by the editor.
+          for (final band in profile.bands) {
+            expect(
+              band.fraction,
+              greaterThanOrEqualTo(kMinBandFraction - 1e-9),
+            );
+          }
+        }
+      }
+      expect(pairs, 171);
+      expect(exact, 169);
+    });
+
+    test('withCuts keeps the actions in order', () {
+      final moved = TapZoneProfile.standard.withCuts([0.1, 0.2]);
+      expect(
+        moved.bands.map((b) => b.action),
+        TapZoneProfile.standard.bands.map((b) => b.action),
+      );
+      expect(moved.bands[0].fraction, closeTo(0.1, 1e-9));
+      expect(moved.bands[1].fraction, closeTo(0.1, 1e-9));
+      expect(moved.bands[2].fraction, closeTo(0.8, 1e-9));
+    });
+
+    test('withActionAt moves no boundary', () {
+      final profile = TapZoneProfile.standard;
+      final edited = profile.withActionAt(1, ReaderAction.nextChapter);
+      expect(edited.bands[1].action, ReaderAction.nextChapter);
+      expect(edited.cuts, profile.cuts);
+      // The other two untouched, which is what separates this from AnymeX's
+      // `_editZone` -- there the action is the *only* thing that can change.
+      expect(edited.bands[0].action, profile.bands[0].action);
+      expect(edited.bands[2].action, profile.bands[2].action);
     });
   });
 }

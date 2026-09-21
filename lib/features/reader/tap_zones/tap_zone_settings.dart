@@ -77,10 +77,38 @@ class TapZoneSettings {
         TapZoneProfile.standard;
   }
 
-  // There is deliberately no writer here yet. The editor is the next slice and
-  // it is what decides the write contract -- whether an invalid profile is
-  // refused silently, reported, or cannot be produced at all -- so guessing
-  // that now would ship an API with no caller to shape it. `profileFor` falls
-  // back to the standard bands until then, which is exactly what the reader
-  // gets today.
+  /// Stores [profile] as [layout]'s bands, and answers whether it did.
+  ///
+  /// The open question the previous slice left here was *whether an invalid
+  /// profile is refused silently, reported, or cannot be produced at all*, and
+  /// the editor answers **all three at once**: it edits the *cut points*
+  /// between bands rather than the bands themselves, so the fractions sum to 1
+  /// by construction and it cannot reach this method with an invalid profile.
+  ///
+  /// Measured rather than argued, because the construction rests on floating
+  /// point: over every pair of cut points on the editor's 0.05 grid, 169 of 171
+  /// sum to **exactly** 1.0 and the worst error is 1.1e-16 — thirteen orders of
+  /// magnitude inside [TapZoneProfile.tolerance].
+  ///
+  /// The check still runs, and still reports, because this is a public writer
+  /// and the next caller is a restore or an imported profile — neither of which
+  /// is constructed here. A refusal deliberately leaves the stored row
+  /// **alone**: clearing it would turn one bad write into the loss of bands the
+  /// user had already authored, and nothing in the return value could tell the
+  /// caller that had happened.
+  static bool setProfileFor(ReadingLayout layout, TapZoneProfile profile) {
+    if (!profile.isValid) return false;
+    _key(layout).set<String>(profile.encode());
+    return true;
+  }
+
+  /// Forgets [layout]'s stored bands, so [profileFor] answers
+  /// [TapZoneProfile.standard] again.
+  ///
+  /// Deletes the row rather than writing the standard profile into it. The two
+  /// are indistinguishable today and stop being so the moment the standard
+  /// bands change: a user who never edited theirs should get the new default,
+  /// and one who reset theirs asked for the default rather than for a copy of
+  /// whatever it was on the day they tapped.
+  static void resetProfileFor(ReadingLayout layout) => _key(layout).delete();
 }

@@ -143,4 +143,89 @@ void main() {
       );
     });
   });
+
+  group('the write contract', () {
+    test('stores a profile the editor could author', () {
+      final edited = TapZoneProfile.standard
+          .withCuts([0.2, 0.5])
+          .withActionAt(1, ReaderAction.nextChapter);
+
+      expect(
+        TapZoneSettings.setProfileFor(ReadingLayout.paged, edited),
+        isTrue,
+      );
+
+      final read = TapZoneSettings.profileFor(ReadingLayout.paged);
+      expect(read.bands[0].fraction, closeTo(0.2, 1e-9));
+      expect(read.bands[1].action, ReaderAction.nextChapter);
+      expect(read.bands[2].fraction, closeTo(0.5, 1e-9));
+    });
+
+    test('writes one layout without touching the other', () {
+      final edited = TapZoneProfile.standard.withCuts([0.1, 0.9]);
+      TapZoneSettings.setProfileFor(ReadingLayout.webtoon, edited);
+
+      expect(
+        TapZoneSettings.profileFor(ReadingLayout.webtoon).bands[0].fraction,
+        closeTo(0.1, 1e-9),
+      );
+      // Separate keys for the same reason the directions are separate: a
+      // profile authored for a page turn is not the one you want down a strip,
+      // and one stored value means editing either overwrites both.
+      expect(
+        TapZoneSettings.profileFor(ReadingLayout.paged).bands[0].fraction,
+        closeTo(0.3, 1e-9),
+      );
+    });
+
+    test('refuses an invalid profile and leaves the stored bands alone', () {
+      final good = TapZoneProfile.standard.withCuts([0.2, 0.5]);
+      TapZoneSettings.setProfileFor(ReadingLayout.paged, good);
+
+      // Sums to 1.2. Not reachable from the editor -- the cut points make it
+      // impossible -- but a restore or an imported profile is not built here.
+      final bad = TapZoneProfile(const [
+        TapBand(0.6, ReaderAction.previous),
+        TapBand(0.6, ReaderAction.next),
+      ]);
+      expect(TapZoneSettings.setProfileFor(ReadingLayout.paged, bad), isFalse);
+
+      // The half that matters. A refusal that *cleared* the row would also
+      // return false, and the caller could not tell the difference -- so the
+      // assertion is on what survived, not on what was returned.
+      final read = TapZoneSettings.profileFor(ReadingLayout.paged);
+      expect(read.bands, hasLength(3));
+      expect(read.bands[0].fraction, closeTo(0.2, 1e-9));
+    });
+
+    test('resetting forgets the row rather than writing the default into it', () {
+      TapZoneSettings.setProfileFor(
+        ReadingLayout.paged,
+        TapZoneProfile.standard.withCuts([0.1, 0.2]),
+      );
+      TapZoneSettings.resetProfileFor(ReadingLayout.paged);
+
+      // Deleted, not overwritten. The two are indistinguishable today and stop
+      // being so the moment the standard bands change: a user who reset theirs
+      // asked for the default, not for a copy of what it was that day.
+      expect(ReaderKeys.tapZonesPaged.get<Object?>(), isNull);
+      expect(
+        TapZoneSettings.profileFor(ReadingLayout.paged).bands[0].fraction,
+        closeTo(0.3, 1e-9),
+      );
+    });
+
+    test('resetting one layout leaves the other edited', () {
+      final edited = TapZoneProfile.standard.withCuts([0.1, 0.2]);
+      TapZoneSettings.setProfileFor(ReadingLayout.paged, edited);
+      TapZoneSettings.setProfileFor(ReadingLayout.webtoon, edited);
+
+      TapZoneSettings.resetProfileFor(ReadingLayout.paged);
+
+      expect(
+        TapZoneSettings.profileFor(ReadingLayout.webtoon).bands[0].fraction,
+        closeTo(0.1, 1e-9),
+      );
+    });
+  });
 }

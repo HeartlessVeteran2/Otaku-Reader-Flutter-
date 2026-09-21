@@ -11,6 +11,7 @@ import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:otaku_reader/data/anilist/anilist_auth.dart';
 import 'package:otaku_reader/features/settings/screens/accounts_screen.dart';
 import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
+import 'package:otaku_reader/features/reader/tap_zones/tap_zone_editor_screen.dart';
 import 'package:otaku_reader/features/reader/tap_zones/tap_zone_settings.dart';
 
 /// How a multiplier is written on its row: `1.0x`, `0.25x`, `2.5x`.
@@ -249,6 +250,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   'Confirms the tap landed, even on a zone that does nothing',
               value: TapZoneSettings.haptics,
               onChanged: (v) => setState(() => TapZoneSettings.setHaptics(v)),
+            ),
+            // Rebuilds on return, because the editor carries the same
+            // enable switch and writes through the same setter. Without it
+            // this screen would keep rendering the value it read on the way
+            // in, and say the opposite of the screen it just opened -- the
+            // `isReady` row, one feature over.
+            ChromeTile(
+              icon: Iconsax.mouse_square,
+              title: 'Tap zone layout',
+              subtitle: 'Which band does what, and where the edges fall',
+              onTap: () async {
+                await Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const TapZoneEditorScreen(),
+                  ),
+                );
+                if (mounted) setState(() {});
+              },
             ),
             // Taken when the reader opens and released when it closes, so the
             // switch only decides what the *next* chapter does.

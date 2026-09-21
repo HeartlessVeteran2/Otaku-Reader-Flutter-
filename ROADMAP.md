@@ -171,7 +171,7 @@ The depth that separates "has the screens" from "is the app".
 | ~~The two missing reading axes — vertical paged, horizontal continuous~~ | `MangaPageViewDirection` | **shipped** |
 | Searchable settings registry — relevance-scored, deep-links, highlights | `settings/search/*` | 659 |
 | ~~Tap zones — bands, dispatch, right-to-left mirroring~~ | `tap_zones.dart` + `tap_zone_repository.dart` | **shipped** |
-| Tap-zones editor — the screen that edits the bands | `settings_tap_zones.dart` | 544 |
+| ~~Tap-zones editor — actions per band, and the boundaries between them~~ | `settings_tap_zones.dart` | **shipped** |
 | 5 missing reader settings | `readerControlTheme`, `chapterStyle`, `displayRefreshInterval`, `displayRefreshColor`, `navigateByNumber` | — |
 
 The two struck rows landed together, because the second is a consumer of the
@@ -265,9 +265,41 @@ filter. The developer delegated the drag-to-resize question and the answer is
 no — proportional sliders do the same job without a geometry a fingertip cannot
 author correctly.
 
-Shipping the dispatch before the editor is deliberate and is the same argument
+Shipping the dispatch before the editor was deliberate and is the same argument
 as the reading axes: AnymeX's own 30/40/30 bands are live and useful on their own, so
-nothing here is a control that does nothing.
+nothing there was a control that does nothing.
+
+**The editor then shipped, and it edits more than AnymeX's does.** AnymeX's
+assigns an action and nothing else — `_editZone` rebuilds the zone with
+`bounds: zone.bounds`, so its rectangles are free-form in the file and fixed in
+practice. Here both halves move, and the geometry half is edited as **cut
+points** rather than band widths: three width sliders have to be made to sum to
+1 after every drag, and *which* other band gives way is an invisible policy the
+user never chose. Cuts have no such policy — the bands are the gaps between
+them — so the sum is algebraic rather than enforced. Measured over all 171
+reachable pairs on the 5% grid: 169 sum to exactly 1.0, worst error 1.1e-16,
+thirteen orders inside the tolerance. A minimum band width is what stops a
+slider authoring a dead zone, which is the one failure bands were chosen to make
+impossible.
+
+Three corrections to the reference went in with it, each read out of its source
+rather than assumed:
+
+- **AnymeX applies the profile last *looked at*, not the one being *read
+  in*.** The only writers of `activeTapIsWebtoon`/`activeTapIsVertical` are its
+  two segmented controls on that screen. Here the selector is screen-local and
+  a test asserts the editor writes no reader state at all.
+- **`_GridPainter.shouldRepaint` returns `false` unconditionally**, so its
+  backdrop keeps its colour across a light/dark switch.
+- **`_ElegantSegmentedControl` is a fourth segmented control.** This uses
+  `SegmentedTabs`, the one whose segments are `1 / total` by construction.
+
+One thing the port had to add: AnymeX's preview is a 9/16 phone because its
+editor is *nothing but* the preview. With sliders under it, 9/16 across a 390px
+phone is 636px tall and puts every boundary below the fold — so you would drag a
+boundary with the bands it moves off screen. The preview is capped to a share of
+the viewport, and a test asserts a slider and the preview are on screen
+together.
 
 ### Phase D — the AniList experience
 
