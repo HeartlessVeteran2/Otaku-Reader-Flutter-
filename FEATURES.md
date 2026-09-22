@@ -77,13 +77,24 @@ The single most important surface. Combined list from both apps.
 > screen on* and *Show the page number* — wrote a key the reader never read,
 > so they were inert UI. **Both are now wired**, and `webtoonDirection` was
 > added on 2026-09-21 with the two new reading axes, so `ReaderKeys` stands at
-> **18 honoured of 39** — the five `tapZones*` keys went live on 2026-09-21,
-> and the eight display keys (`customBrightnessEnabled`/`Value`,
+> **27 honoured of 42** — the five `tapZones*` keys went live on 2026-09-21,
+> the eight display keys (`customBrightnessEnabled`/`Value`,
 > `colorFilterEnabled`/`Value`/`Mode`, `grayscaleEnabled`,
-> `invertColorsEnabled`, `readerTheme`) on 2026-09-22. Every one of those eight
-> was **declared from the start and read by nothing**, which is the exact state
+> `invertColorsEnabled`, `readerTheme`) on 2026-09-22, and the screen group
+> (`orientationLock`, `immersiveMode`, `secureScreen`, plus
+> `displayRefreshEnabled`/`DurationMs`) and the page-layout group
+> (`autoWebtoonMode`, `fitToScreen`, `imageWidth`, `spacedPages`) the same
+> day. Every one of those was
+> **declared from the start and read by nothing**, which is the exact state
 > this file exists to catch: a checklist counting declared keys reports parity
 > for a feature nobody built.
+>
+> That count is measured by `features_doc_test.dart`, and the guard itself had
+> to be fixed to take it: it split the enum body on commas and dropped any
+> chunk beginning `//`, so a member carrying a doc comment was thrown away with
+> its documentation. It read 20 where the code had 23. Correct only while no
+> member of this enum was documented, which stopped being true the moment three
+> were added.
 >
 > That count is **derived, not counted by hand**. It was hand-written wrong
 > three times in two days — "six" display keys for eight names, "four"
@@ -97,13 +108,13 @@ The single most important surface. Combined list from both apps.
 > it and a disagreeing pair renders a switch showing the opposite of what the
 > reader does.
 
-**Modes & layout** — [x] paged and continuous · [x] 4 directions — `ReadingDirection` carries an axis and a sign, and **both layouts honour both**: paged reads vertically, continuous reads sideways. The two keep *separate* stored directions, which AnymeX does not · [ ] dual-page (off/auto-landscape/force) with **shift double pages** · [ ] auto webtoon mode (switches to vertical from page aspect ratios) · [ ] fit-to-screen-width · [ ] webtoon side padding and page gap · [ ] image width multiplier + desktop max-width clamp · [ ] spaced pages
+**Modes & layout** — [x] paged and continuous · [x] 4 directions — `ReadingDirection` carries an axis and a sign, and **both layouts honour both**: paged reads vertically, continuous reads sideways. The two keep *separate* stored directions, which AnymeX does not · [ ] dual-page (off/auto-landscape/force) with **shift double pages** · [x] auto webtoon mode — **from genre metadata, not page aspect ratios**, which is AnymeX's approach and is knowable before an image is fetched; `manhua` is deliberately excluded as too mixed a signal. It never writes the stored layout, so one manhwa cannot change the default · [x] fit-to-screen-width · [~] page gap *(gap yes; webtoon side padding no)* · [~] image width multiplier — **narrows only** (0.5-1.0), because the continuous body has no `InteractiveViewer` and a page wider than the viewport would have an unreachable edge; no desktop max-width clamp · [x] spaced pages
 
 **Rendering** — [ ] tiled/subsampled decoding for tall strips (AnymeX's `subsampling_scale_image_view/` + FFI decoder) · [ ] crop borders (white/black margin removal) · [ ] image filter quality incl. Lanczos pre-scale · [ ] image quality / data-saver downscaling · [ ] pinch + double-tap zoom, disable-zoom-out option
 
 **Navigation** — [x] customisable tap zones — bands along the reading axis, a **separate profile per layout**, right-to-left mirroring AnymeX lacks, haptics, and an editor that assigns an action per band *and moves the boundaries between them*. AnymeX's cannot move a bound at all (`_editZone` rebuilds the zone with `bounds: zone.bounds`); the boundaries are edited as cut points, so the fractions sum to 1 by construction rather than by a check — measured, 166 of the 171 reachable pairs sum to exactly 1.0, worst error 1.1e-16 · [ ] navigation-mode presets (Default, L, Kindlish, Edge, Right-and-Left, Disabled) · [ ] invert tapping (none/horizontal/vertical/both) · [ ] volume keys + invert + **per-mode overrides** + hold-to-skip-5 · [ ] keyboard/DeX shortcuts · [ ] mouse wheel + trackpad · [ ] overscroll to prev/next chapter · [ ] **navigate by chapter number** (skips duplicate/scanlator dupes) · [ ] auto-scroll with speed, **pause-on-touch and auto-resume**
 
-**Display** — [x] page dim, 0–75% — **dim, not brightness**: AnymeX's slider runs −75 to 100 while its overlay only reads `brightness < 0`, so 100 of its 175 units change nothing; raising the screen needs the platform's own control · [x] colour filter with **RGBA sliders and 16 blend modes** on its own screen, with a live preview AnymeX has none of · [x] greyscale · [x] invert — **composes** with greyscale, where AnymeX's `else if` leaves a live invert switch doing nothing · [x] reader background — **4 options, which is AnymeX's own count**; the 9 claimed here before was Komikku's number and reached this checklist unchecked · [ ] named filter presets · [ ] **e-ink flash** with duration/interval/colour · [x] keep screen on — `wakelock_plus`, taken when a chapter opens and released when it closes · [ ] fullscreen + cutout handling · [ ] orientation lock (7 modes) · [ ] secure screen (`FLAG_SECURE`)
+**Display** — [x] page dim, 0–75% — **dim, not brightness**: AnymeX's slider runs −75 to 100 while its overlay only reads `brightness < 0`, so 100 of its 175 units change nothing; raising the screen needs the platform's own control · [x] colour filter with **RGBA sliders and 16 blend modes** on its own screen, with a live preview AnymeX has none of · [x] greyscale · [x] invert — **composes** with greyscale, where AnymeX's `else if` leaves a live invert switch doing nothing · [x] reader background — **4 options, which is AnymeX's own count**; the 9 claimed here before was Komikku's number and reached this checklist unchecked · [ ] named filter presets · [~] **e-ink flash** — duration yes, **no interval and no colour**: it fires on a page turn rather than on a schedule, because ghosting is caused by the frame changing · [x] keep screen on — `wakelock_plus`, taken when a chapter opens and released when it closes · [~] fullscreen — **no cutout handling**; `layoutInDisplayCutoutMode` is a manifest/theme change this has not made · [~] orientation lock — **3 modes, not 7** (follow device, portrait, landscape); each covers both of its rotations, so a device held upside down still turns · [x] secure screen (`FLAG_SECURE`) — and a **refusal is rendered**, because a platform that declines must not leave the reader believing screenshots are blocked
 
 **Chrome** — [ ] reader control theme registry (default/iOS) · [x] page indicator — a pill that stays on screen once the controls are hidden, off by default as AnymeX's is · [ ] page slider with haptic tick · [ ] **page thumbnail strip** (slider ⇄ filmstrip) · [ ] full-page gallery grid · [ ] in-reader chapter list with search + asc/desc + list/grid · [ ] chapter transition cards with **missing-chapter gap warning** · [ ] reading timer overlay · [ ] battery + clock overlay · [ ] zoom indicator
 
@@ -183,7 +194,7 @@ The single most important surface. Combined list from both apps.
 
 [~] Queue with pause/resume/cancel/retry/move-to-front *(cancel only)* · [ ] **survives restart** (persisted queue) · [ ] foreground notification with progress · [ ] concurrency + chunk settings · [ ] download location picker · [ ] **CBZ export + AES-256 encryption** · [ ] auto-download new chapters + per-category include/exclude · [ ] download-ahead · [ ] **smart downloads** (trigger at % through a chapter, wifi/favourites/free-space gates) · [ ] delete-after-read + **keep-last-N** · [ ] data saver · [ ] storage analytics with per-entry delete · [ ] data usage dashboard + monthly budget
 
-[x] Updates: list, mark read · [x] undo · [ ] group by manga/date · [ ] date filters · [ ] **to-be-updated sheet** · [ ] **last-run summary** (checked/new/skipped/failed) · [ ] multi-select · [ ] **update errors screen** (sticky headers, migrate-selected)
+[x] Updates: list, mark read · [x] undo · [x] **automatic refresh on a schedule** (interval, Wi-Fi only, skip finished) · [ ] group by manga/date · [ ] date filters · [ ] **to-be-updated sheet** · [ ] **last-run summary** (checked/new/skipped/failed) · [ ] multi-select · [ ] **update errors screen** (sticky headers, migrate-selected)
 
 [x] History: search · [x] swipe-to-delete + undo · [x] resume · [ ] date-range filter · [ ] **date section headers** · [ ] multi-select
 

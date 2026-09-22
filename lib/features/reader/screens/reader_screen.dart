@@ -14,6 +14,9 @@ import 'package:otaku_reader/data/anilist/anilist_metadata_service.dart';
 import 'package:otaku_reader/data/anilist/anilist_progress_sync.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
+import 'package:otaku_reader/features/reader/display/eink_flash.dart';
+import 'package:otaku_reader/features/reader/widgets/secure_refusal_notice.dart';
+import 'package:otaku_reader/features/reader/screen_controls.dart';
 import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
 import 'package:otaku_reader/features/reader/screen_wakelock.dart';
 import 'package:otaku_reader/features/reader/display/reader_display_layer.dart';
@@ -112,6 +115,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
         Get.find<AniListListService>(),
       ),
       wakelock: Get.find<ScreenWakelock>(),
+      screen: Get.find<ReaderScreenControls>(),
       sourceId: widget.sourceId,
       mangaUrl: widget.mangaUrl,
       chapterUrl: widget.chapterUrl,
@@ -345,6 +349,19 @@ class _ReaderScreenState extends State<ReaderScreen> {
             // The chrome's bottom bar carries the counter while it is up, so
             // this one fills the gap that actually exists: reading with the
             // chrome hidden, where until now there was no page number at all.
+            // Under the page indicator and above the artwork, shown with the
+            // chrome. The state behind it existed for a whole commit with
+            // nothing rendering it — a refusal was indistinguishable from
+            // success on screen, which is worse than not having the setting.
+            if (_chromeVisible)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: MediaQuery.paddingOf(context).bottom + 88,
+                child: Center(
+                  child: SecureRefusalNotice(visible: _c.secureRefused.value),
+                ),
+              ),
             Positioned(
               top: MediaQuery.paddingOf(context).top + 8,
               left: 0,
@@ -355,6 +372,17 @@ class _ReaderScreenState extends State<ReaderScreen> {
                   total: _c.pages.length,
                   visible: _c.showPageIndicator.value && !_chromeVisible,
                 ),
+              ),
+            ),
+            // Last, so it covers the chrome and the indicator too. Ghosting is
+            // a property of the whole panel, so a flash that clears the
+            // artwork and leaves the controls behind clears half the screen —
+            // which is the one thing this is for.
+            Positioned.fill(
+              child: EInkFlash(
+                page: _c.page.value,
+                enabled: _c.einkFlash.value,
+                duration: Duration(milliseconds: _c.einkFlashMs.value),
               ),
             ),
           ],
@@ -382,7 +410,18 @@ class _ReaderScreenState extends State<ReaderScreen> {
         child: Center(
           child: KeyedSubtree(
             key: _pageKey(i),
-            child: _Page(page: _c.pages[i], baseUrl: _c.sourceBaseUrl.value),
+            child: _Page(
+              page: _c.pages[i],
+              baseUrl: _c.sourceBaseUrl.value,
+              // Fill the width, letting a tall page run past the screen; or
+              // show the whole page. Either way the `InteractiveViewer` above
+              // is what makes the overflowing case reachable, which is why
+              // this option belongs to the paged body and the strip's does
+              // not.
+              fit: _c.pageLayout.value.fitToScreen
+                  ? BoxFit.fitWidth
+                  : BoxFit.contain,
+            ),
           ),
         ),
       ),
@@ -417,13 +456,35 @@ class _ReaderScreenState extends State<ReaderScreen> {
             reverse: direction.reversed,
             itemCount: _c.pages.length,
             itemBuilder: (context, i) {
-              final page = KeyedSubtree(
+              final layout = _c.pageLayout.value;
+              Widget page = KeyedSubtree(
                 key: _pageKey(i),
                 child: _Page(
                   page: _c.pages[i],
                   baseUrl: _c.sourceBaseUrl.value,
+                  // Always `fitWidth` in a strip. The page's width is decided
+                  // by the factor below and its height follows the artwork, so
+                  // `contain` would shrink a tall page to a height nothing is
+                  // constraining and leave it floating in its own column.
+                  fit: BoxFit.fitWidth,
                 ),
               );
+              // Narrows the column, never widens it — the continuous body has
+              // no `InteractiveViewer`, so anything past the viewport could not
+              // be reached. `1.0` skips the widget rather than wrapping in a
+              // no-op fraction.
+              if (layout.widthFactor < 1) {
+                page = FractionallySizedBox(
+                  widthFactor: layout.widthFactor,
+                  child: page,
+                );
+              }
+              if (layout.gap > 0) {
+                page = Padding(
+                  padding: EdgeInsets.symmetric(vertical: layout.gap),
+                  child: page,
+                );
+              }
               // A vertical strip constrains width and lets each page take the
               // height its aspect ratio asks for. Turned on its side that
               // reverses, and an image with an unbounded main axis falls back
@@ -757,10 +818,22 @@ class _ReaderScreenState extends State<ReaderScreen> {
 }
 
 class _Page extends StatelessWidget {
-  const _Page({required this.page, required this.baseUrl});
+  const _Page({
+    required this.page,
+    required this.baseUrl,
+    this.fit = BoxFit.contain,
+  });
 
   final PageUrl page;
   final String baseUrl;
+
+  /// How the artwork fills the box it is given.
+  ///
+  /// Passed in rather than read from a key here, so both bodies get it from
+  /// the one object the controller resolved — the `activeDirection` rule, one
+  /// layer down. A widget that reads its own setting is a widget each body can
+  /// disagree with.
+  final BoxFit fit;
 
   static const _broken = SizedBox(
     height: 200,
@@ -775,7 +848,7 @@ class _Page extends StatelessWidget {
     if (!page.url.startsWith('http')) {
       return Image.file(
         File(page.url),
-        fit: BoxFit.contain,
+        fit: fit,
         errorBuilder: (_, _, _) => _broken,
       );
     }
@@ -788,7 +861,7 @@ class _Page extends StatelessWidget {
       // because a source that bothered to set a header knows something a
       // default does not.
       httpHeaders: MClient.pageImageHeaders(page.headers, baseUrl),
-      fit: BoxFit.contain,
+      fit: fit,
       placeholder: (_, _) => const SizedBox(
         height: 400,
         child: Center(child: CircularProgressIndicator(strokeWidth: 2)),

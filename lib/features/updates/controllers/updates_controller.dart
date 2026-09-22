@@ -11,7 +11,10 @@ import 'package:otaku_reader/core/database/kv_helper.dart';
 import 'package:otaku_reader/data/isar/manga_entry.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
+import 'package:otaku_reader/core/platform/network_status.dart';
 import 'package:otaku_reader/data/source_base_urls.dart';
+import 'package:otaku_reader/features/updates/scheduling/update_schedule.dart';
+import 'package:otaku_reader/source/model/m_status.dart';
 
 /// One new chapter, with the manga it belongs to.
 class ChapterUpdate {
@@ -43,11 +46,21 @@ class UpdatesController extends GetxController {
   UpdatesController({
     required LibraryRepository library,
     required SourceRepository sources,
+    required NetworkStatus network,
   }) : _library = library,
-       _sources = sources;
+       _sources = sources,
+       _network = network;
 
   final LibraryRepository _library;
   final SourceRepository _sources;
+
+  /// Whether the connection is one to crawl every installed source over.
+  ///
+  /// Required rather than optional for the same reason the reader's wakelock
+  /// is: an optional dependency lets a call site forget it, and the switch in
+  /// front of it goes quietly dead — which is the exact defect this slice
+  /// exists to close.
+  final NetworkStatus _network;
 
   /// How many series are refreshed at once. Same reasoning as global search:
   /// one request per library entry would be hundreds of connections at once,
@@ -151,13 +164,81 @@ class UpdatesController extends GetxController {
   /// mixin, and GetX calls it internally to rebuild listeners. Shadowing it
   /// with a library-wide network fetch would fire a full refresh every time
   /// the framework wanted a repaint.
+  /// Refreshes only if the schedule says it is due.
+  ///
+  /// Separate from [refreshLibrary], which is what the pull-to-refresh calls
+  /// and must always run: a gesture is the user asking, and silently ignoring
+  /// it because an interval has not elapsed is the feature deciding it knows
+  /// better. This one is for launch and resume.
+  ///
+  /// Returns the decision so a caller can render *why* nothing happened —
+  /// "waiting for Wi-Fi" is something a user can act on, and collapsing it
+  /// into "nothing to do" makes a working feature look broken.
+  Future<UpdateDecision> refreshIfDue({DateTime? now}) async {
+    final interval =
+        UpdateInterval.values[UpdateKeys.updateInterval
+            .get<int>(UpdateInterval.manual.index)
+            .clamp(0, UpdateInterval.values.length - 1)];
+    final wifiOnly = UpdateKeys.updateOnWifiOnly.get<bool>(true);
+
+    // The network is only asked about when the schedule has already said yes.
+    // Querying a platform channel on every resume to answer a question that
+    // usually ends in "not due" is work nobody asked for.
+    final provisional = shouldRefreshLibrary(
+      interval: interval,
+      lastCheck: lastChecked.value,
+      now: now ?? DateTime.now(),
+      wifiOnly: false,
+      onWifi: true,
+    );
+    if (!provisional.shouldRun) return provisional;
+
+    final decision = shouldRefreshLibrary(
+      interval: interval,
+      lastCheck: lastChecked.value,
+      now: now ?? DateTime.now(),
+      wifiOnly: wifiOnly,
+      onWifi: wifiOnly ? await _network.isUnmetered() : true,
+    );
+    if (!decision.shouldRun) return decision;
+
+    // Reported rather than glossed. `refreshLibrary` drops a call while one is
+    // already running, so answering `run` here would be a sentence about a
+    // refresh that never started.
+    if (isRefreshing.value) return UpdateDecision.alreadyRunning;
+
+    await refreshLibrary();
+    return UpdateDecision.run;
+  }
+
+  /// Whether a series is still getting chapters.
+  ///
+  /// A finished series is the bulk of a long-lived library and will never gain
+  /// anything, so refreshing it is a request per entry per interval spent on a
+  /// guaranteed no. `unknown` counts as ongoing on purpose: most sources do not
+  /// report status at all, and treating "I don't know" as finished would
+  /// silently stop updating most of the library.
+  static bool isOngoing(MangaEntry entry) {
+    final status =
+        Status.values[entry.status.clamp(0, Status.values.length - 1)];
+    return status != Status.completed &&
+        status != Status.canceled &&
+        status != Status.publishingFinished;
+  }
+
   Future<void> refreshLibrary() async {
     if (isRefreshing.value) return;
     isRefreshing.value = true;
     errors.clear();
     done.value = 0;
     try {
-      final favourites = await _library.favorites();
+      final all = await _library.favorites();
+      // Filtered here rather than inside the worker, so the progress line
+      // counts what will actually be fetched. Counting skipped entries as
+      // "done" makes a refresh of 200 finished series look like it did work.
+      final favourites = UpdateKeys.updateOnlyOngoing.get<bool>(false)
+          ? all.where(isOngoing).toList()
+          : all;
       total.value = favourites.length;
 
       var next = 0;

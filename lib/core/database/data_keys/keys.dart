@@ -12,6 +12,16 @@ enum General {
   lastOpenedTab,
   imageCacheThresholdGb,
   incognitoMode,
+
+  /// Set once the platform has refused `FLAG_SECURE`.
+  ///
+  /// A **device** property rather than a reader one, which is why it lives
+  /// here: whether a window can be marked secure does not change between
+  /// chapters. It is written by the reader, because that is the only place
+  /// the flag is ever requested, and read by the Settings switch — which
+  /// otherwise goes on claiming screenshots are blocked to anyone who turns
+  /// it on and does not happen to open a chapter afterwards.
+  secureScreenUnsupported,
 }
 
 enum ThemeKeys {
@@ -72,6 +82,19 @@ enum ReaderKeys {
   panelModeEnabled,
   prefetchStrategy,
   prefetchOnWifiOnly,
+
+  /// Which way up the reader is pinned, as a [ReaderOrientation] index.
+  ///
+  /// Appended, like every member above it: these are persisted by `index`, so
+  /// inserting anywhere but the end re-points every stored value in place.
+  orientationLock,
+
+  /// Hide the status and navigation bars while a chapter is open.
+  immersiveMode,
+
+  /// Ask the platform to keep this window out of screenshots and the recents
+  /// thumbnail.
+  secureScreen,
 }
 
 /// What the reader falls back to for a key the user has never set.
@@ -90,6 +113,44 @@ abstract final class ReaderDefaults {
   /// away, so a pill floating permanently over the artwork is something to ask
   /// for rather than something to find and turn off.
   static const showPageIndicator = false;
+
+  /// Follow the device. Pinning a reader that the user never asked to pin is
+  /// the kind of default that reads as the rotation lock being broken.
+  static const orientationLock = 0;
+
+  /// On. A chapter is the one screen in this app that *is* the content, and
+  /// AnymeX's reader reaches the same place from the other side — it flips to
+  /// `immersiveSticky` whenever the chrome hides.
+  static const immersiveMode = true;
+
+  /// Off. It costs a screenshot of your own reading, which is a normal thing
+  /// to want, so it is asked for rather than found and turned off.
+  static const secureScreen = false;
+
+  /// Off, and the two e-ink keys are separate for the same reason the dim's
+  /// magnitude and switch are: "zero means off" loses the setting every time
+  /// it is toggled.
+  static const displayRefresh = false;
+
+  /// Long enough for a panel to settle on the slow displays this is for, and
+  /// short enough not to read as a dropped frame on the fast ones.
+  static const displayRefreshMs = 120;
+
+  /// On. A manhwa opened in a paged reader is the wrong reader, and the signal
+  /// (a genre) is free and available before a page has been fetched.
+  static const autoWebtoonMode = true;
+
+  /// On: fill the width. This is what a phone-shaped reader wants by default —
+  /// a page shrunk to fit the height leaves margins on the one axis that is
+  /// already tight.
+  static const fitToScreen = true;
+
+  /// Full width. The slider only narrows from here; see `PageLayout`.
+  static const imageWidth = 1.0;
+
+  /// Off. A long strip is meant to be continuous, so a gap between pages is a
+  /// preference rather than the default — the artwork usually joins up.
+  static const spacedPages = false;
 }
 
 enum LibraryKeys {
