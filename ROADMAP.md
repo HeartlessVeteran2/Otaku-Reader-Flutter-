@@ -172,7 +172,9 @@ The depth that separates "has the screens" from "is the app".
 | Searchable settings registry — relevance-scored, deep-links, highlights | `settings/search/*` | 659 |
 | ~~Tap zones — bands, dispatch, right-to-left mirroring~~ | `tap_zones.dart` + `tap_zone_repository.dart` | **shipped** |
 | ~~Tap-zones editor — actions per band, and the boundaries between them~~ | `settings_tap_zones.dart` | **shipped** |
+| ~~The display group — dim, colour filter + 16 blend modes, greyscale, invert, background~~ | `color_filter_settings_page.dart` + `reader_color_overlay.dart` | **shipped** |
 | 5 missing reader settings | `readerControlTheme`, `chapterStyle`, `displayRefreshInterval`, `displayRefreshColor`, `navigateByNumber` | — |
+| Orientation lock, `FLAG_SECURE`, fullscreen/cutout, e-ink flash | **no AnymeX equivalent** — Kotlin-app parity, each needs a platform channel or manifest work | — |
 
 The two struck rows landed together, because the second is a consumer of the
 first. `ChromeMetrics` is a `ThemeExtension`, so every chrome widget reads the

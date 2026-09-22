@@ -16,6 +16,9 @@ import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/data/anilist/title_matcher.dart';
 import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
 import 'package:otaku_reader/features/reader/screen_wakelock.dart';
+import 'package:otaku_reader/features/reader/display/reader_display.dart';
+import 'package:otaku_reader/features/reader/display/reader_display_layer.dart';
+import 'package:otaku_reader/features/reader/display/reader_display_settings.dart';
 import 'package:otaku_reader/features/reader/tap_zones/tap_zone_settings.dart';
 import 'package:otaku_reader/features/reader/screens/reader_screen.dart';
 import 'package:otaku_reader/features/reader/widgets/reader_page_indicator.dart';
@@ -848,6 +851,98 @@ void main() {
 
       expect(controller.page, 1, reason: 'the edge turns no page');
       expect(find.byTooltip('Next chapter'), findsNothing);
+    });
+  });
+
+  group('the display treatment reaches the reader', () {
+    // These are the guards that count. Every assertion in
+    // `reader_display_test.dart` builds a `ReaderDisplayLayer` **by hand**, so
+    // between them they prove a filter filters -- and could not see that
+    // nothing on any screen asks it to. That is the glow-slider row of the
+    // mistakes table verbatim, and the rule it left behind: a setting is only
+    // live if it changes a surface no test had to opt into. So these open the
+    // reader exactly as the app does and read what is there.
+
+    testWidgets('nothing is applied when every treatment is off', (
+      tester,
+    ) async {
+      await openReader(tester);
+      expect(
+        find.descendant(
+          of: find.byType(ReaderDisplayLayer),
+          matching: find.byType(ColorFiltered),
+        ),
+        findsNothing,
+      );
+      expect(find.byType(ReaderDimVeil), findsNothing);
+    });
+
+    testWidgets('the stored tint reaches the page', (tester) async {
+      ReaderDisplaySettings.setFilterEnabled(true);
+      ReaderDisplaySettings.setFilterColor(0x80FF0000);
+      ReaderDisplaySettings.setFilterBlend(ReaderBlend.multiply);
+
+      await openReader(tester);
+
+      final layer = tester.widget<ReaderDisplayLayer>(
+        find.byType(ReaderDisplayLayer),
+      );
+      expect(layer.filter, const Color(0x80FF0000));
+      expect(layer.blend, ReaderBlend.multiply);
+    });
+
+    testWidgets('greyscale and invert both reach the page at once', (
+      tester,
+    ) async {
+      ReaderDisplaySettings.setGreyscale(true);
+      ReaderDisplaySettings.setInvert(true);
+
+      await openReader(tester);
+
+      final layer = tester.widget<ReaderDisplayLayer>(
+        find.byType(ReaderDisplayLayer),
+      );
+      expect(layer.greyscale, isTrue);
+      expect(layer.invert, isTrue);
+    });
+
+    testWidgets('the dim is drawn over the page and under the chrome', (
+      tester,
+    ) async {
+      ReaderDisplaySettings.setDimEnabled(true);
+      ReaderDisplaySettings.setDim(40);
+
+      await openReader(tester);
+
+      expect(find.byType(ReaderDimVeil), findsOneWidget);
+      expect(
+        tester.widget<ReaderDimVeil>(find.byType(ReaderDimVeil)).percent,
+        40,
+      );
+
+      // Placement, not merely presence. Dimming the controls along with the
+      // artwork makes the one surface a reader reaches for when the page is too
+      // bright the hardest thing on screen to read -- which is what AnymeX
+      // does, stacking its overlay above everything it draws.
+      final veil = find.byType(ReaderDimVeil);
+      final indicator = find.byType(ReaderPageIndicator);
+      final all = tester.allWidgets.toList();
+      expect(
+        all.indexOf(tester.widget(veil)),
+        lessThan(all.indexOf(tester.widget(indicator))),
+        reason: 'the veil is painted before the chrome, so it sits under it',
+      );
+    });
+
+    testWidgets('the stored background reaches the scaffold', (tester) async {
+      ReaderDisplaySettings.setBackground(ReaderBackground.white);
+
+      await openReader(tester);
+
+      expect(
+        tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
+        Colors.white,
+      );
     });
   });
 }

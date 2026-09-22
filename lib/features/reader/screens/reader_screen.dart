@@ -16,6 +16,8 @@ import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
 import 'package:otaku_reader/features/reader/screen_wakelock.dart';
+import 'package:otaku_reader/features/reader/display/reader_display_layer.dart';
+import 'package:otaku_reader/features/reader/display/reader_display_settings.dart';
 import 'package:otaku_reader/features/reader/tap_zones/tap_zone.dart';
 import 'package:otaku_reader/features/reader/tap_zones/tap_zone_settings.dart';
 import 'package:otaku_reader/features/reader/widgets/reader_page_indicator.dart';
@@ -288,7 +290,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      // The backdrop is a setting now, not a constant. Resolved through the
+      // enum so `system` can read the theme, which a stored colour cannot.
+      backgroundColor: ReaderDisplaySettings.background.colorFor(context),
       body: Obx(() {
         if (_c.isLoading.value && _c.pages.isEmpty) {
           return const Center(child: CircularProgressIndicator());
@@ -305,20 +309,38 @@ class _ReaderScreenState extends State<ReaderScreen> {
             // here only because nothing sits above the body, and this repo has
             // already shipped a lookup that was right for one caller and
             // silently wrong for the rest.
-            LayoutBuilder(
-              builder: (context, constraints) => GestureDetector(
-                behavior: HitTestBehavior.translucent,
-                // `onTapUp` rather than `onTap`, because a zone needs to know
-                // *where*. With zones off this still toggles the chrome from
-                // anywhere, which is what the reader did before they existed —
-                // the switch turns the feature off, not the screen's only
-                // gesture.
-                onTapUp: (details) => _onTapUp(details, constraints.biggest),
-                child: _c.layout.value == ReadingLayout.webtoon
-                    ? _webtoon()
-                    : _paged(),
+            // Wrapped rather than applied per page: the treatment is a
+            // property of the reading surface, so a paged view and a strip get
+            // it identically and neither builder has to remember to ask.
+            ReaderDisplayLayer(
+              greyscale: ReaderDisplaySettings.greyscale,
+              invert: ReaderDisplaySettings.invert,
+              filter: ReaderDisplaySettings.filterEnabled
+                  ? Color(ReaderDisplaySettings.filterColor)
+                  : null,
+              blend: ReaderDisplaySettings.filterBlend,
+              child: LayoutBuilder(
+                builder: (context, constraints) => GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  // `onTapUp` rather than `onTap`, because a zone needs to know
+                  // *where*. With zones off this still toggles the chrome from
+                  // anywhere, which is what the reader did before they existed —
+                  // the switch turns the feature off, not the screen's only
+                  // gesture.
+                  onTapUp: (details) => _onTapUp(details, constraints.biggest),
+                  child: _c.layout.value == ReadingLayout.webtoon
+                      ? _webtoon()
+                      : _paged(),
+                ),
               ),
             ),
+            // Over the page, under the chrome. Dimming the controls with the
+            // artwork makes the one surface a reader reaches for when the page
+            // is too bright the hardest thing on screen to read.
+            if (ReaderDisplaySettings.dimEnabled)
+              Positioned.fill(
+                child: ReaderDimVeil(percent: ReaderDisplaySettings.dim),
+              ),
             if (_chromeVisible) _chrome(),
             // The chrome's bottom bar carries the counter while it is up, so
             // this one fills the gap that actually exists: reading with the
