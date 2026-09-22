@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:get/get.dart';
 
+import 'package:otaku_reader/core/platform/network_status.dart';
 import 'package:otaku_reader/core/preferences/nsfw_preference.dart';
 import 'package:otaku_reader/core/ui/greeting_controller.dart';
 import 'package:otaku_reader/core/theme/theme_controller.dart';
@@ -123,6 +124,7 @@ class AppBindings extends Bindings {
       () => UpdatesController(
         library: Get.find<LibraryRepository>(),
         sources: Get.find<SourceRepository>(),
+        network: const ConnectivityNetworkStatus(),
       ),
       fenix: true,
     );

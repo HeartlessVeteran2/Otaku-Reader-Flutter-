@@ -11,6 +11,7 @@ import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:otaku_reader/data/anilist/anilist_auth.dart';
 import 'package:otaku_reader/features/library/screens/categories_screen.dart';
 import 'package:otaku_reader/features/reader/screen_controls.dart';
+import 'package:otaku_reader/features/updates/scheduling/update_schedule.dart';
 import 'package:otaku_reader/features/settings/screens/accounts_screen.dart';
 import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
 import 'package:otaku_reader/features/reader/display/colour_filter_screen.dart';
@@ -450,6 +451,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ReaderDefaults.showPageIndicator,
               ),
               onChanged: (v) => _setBool(ReaderKeys.showPageIndicator, v),
+            ),
+          ],
+        ),
+        SliverChromeSection(
+          label: 'Library updates',
+          children: [
+            // Three keys that have been declared since the enum was written
+            // and read by nothing. The Updates tab could always be pulled to
+            // refresh; nothing ever refreshed on its own.
+            ChromeTile.choice(
+              icon: Iconsax.refresh_circle,
+              title: 'Check for new chapters',
+              subtitle: 'Runs when you open the app, if it is due',
+              labels: [for (final i in UpdateInterval.values) i.label],
+              selectedIndex: UpdateKeys.updateInterval
+                  .get<int>(UpdateInterval.manual.index)
+                  .clamp(0, UpdateInterval.values.length - 1),
+              onSelected: (i) {
+                UpdateKeys.updateInterval.set<int>(i);
+                setState(() {});
+              },
+            ),
+            ChromeTile.toggle(
+              icon: Iconsax.wifi,
+              title: 'Only on Wi-Fi',
+              subtitle: 'A refresh asks every source you have installed',
+              value: UpdateKeys.updateOnWifiOnly.get<bool>(true),
+              onChanged: (v) {
+                UpdateKeys.updateOnWifiOnly.set<bool>(v);
+                setState(() {});
+              },
+            ),
+            ChromeTile.toggle(
+              icon: Iconsax.tick_circle,
+              title: 'Skip finished series',
+              // `unknown` counts as ongoing, because most sources do not
+              // report status and treating "I don't know" as finished would
+              // quietly stop updating most of a library.
+              subtitle: 'Only refreshes series still getting chapters',
+              value: UpdateKeys.updateOnlyOngoing.get<bool>(false),
+              onChanged: (v) {
+                UpdateKeys.updateOnlyOngoing.set<bool>(v);
+                setState(() {});
+              },
             ),
           ],
         ),

@@ -192,7 +192,7 @@ The single most important surface. Combined list from both apps.
 
 [~] Queue with pause/resume/cancel/retry/move-to-front *(cancel only)* · [ ] **survives restart** (persisted queue) · [ ] foreground notification with progress · [ ] concurrency + chunk settings · [ ] download location picker · [ ] **CBZ export + AES-256 encryption** · [ ] auto-download new chapters + per-category include/exclude · [ ] download-ahead · [ ] **smart downloads** (trigger at % through a chapter, wifi/favourites/free-space gates) · [ ] delete-after-read + **keep-last-N** · [ ] data saver · [ ] storage analytics with per-entry delete · [ ] data usage dashboard + monthly budget
 
-[x] Updates: list, mark read · [x] undo · [ ] group by manga/date · [ ] date filters · [ ] **to-be-updated sheet** · [ ] **last-run summary** (checked/new/skipped/failed) · [ ] multi-select · [ ] **update errors screen** (sticky headers, migrate-selected)
+[x] Updates: list, mark read · [x] undo · [x] **automatic refresh on a schedule** (interval, Wi-Fi only, skip finished) · [ ] group by manga/date · [ ] date filters · [ ] **to-be-updated sheet** · [ ] **last-run summary** (checked/new/skipped/failed) · [ ] multi-select · [ ] **update errors screen** (sticky headers, migrate-selected)
 
 [x] History: search · [x] swipe-to-delete + undo · [x] resume · [ ] date-range filter · [ ] **date section headers** · [ ] multi-select
 
