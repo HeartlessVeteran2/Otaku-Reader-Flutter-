@@ -116,10 +116,15 @@ class _CategorySheetState extends State<_CategorySheet> {
             .toList();
 
   void _save() {
-    // Nothing changed, so nothing is written. A `setCategoriesFor` that runs
-    // anyway announces a change to every listener and makes the grid reload
-    // for a sheet the user only looked at.
-    if (!setEquals(_checked, _initial)) {
+    // Nothing changed, so nothing is written **and the caller is told so**.
+    // Popping a bare `true` here is what shipped first, two lines under a
+    // comment claiming the opposite: the write was skipped correctly and the
+    // result still said "saved", so the details screen refetched the whole
+    // manga over the network for a sheet the user opened and closed. Found by
+    // `codeant-ai`, and it is this file's closing lesson in miniature — the
+    // comment described the goal and the return value did not meet it.
+    final changed = !setEquals(_checked, _initial);
+    if (changed) {
       widget.repository.setCategoriesFor(
         widget.sourceId,
         widget.url,
@@ -131,7 +136,7 @@ class _CategorySheetState extends State<_CategorySheet> {
         ],
       );
     }
-    Navigator.pop(context, true);
+    Navigator.pop(context, changed);
   }
 
   Future<void> _create() async {

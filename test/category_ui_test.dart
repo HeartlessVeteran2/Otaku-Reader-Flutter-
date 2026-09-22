@@ -122,9 +122,12 @@ void main() {
       await tester.pumpWidget(wrap(const LibraryScreen()));
       await tester.pumpAndSettle();
 
-      expect(find.byType(CategoryFilterBar), findsOneWidget);
-      // The widget is in the tree and deliberately renders nothing: a lone
-      // "All" chip filters against no alternative.
+      // **Absent, not present-and-empty.** A bar that renders nothing still
+      // costs the `Chrome.gap` that `PillHeader` puts beside the bottom slot,
+      // so an unfiled library carried 8px of dead header. Found by
+      // `codeant-ai`; mutating `bottom` back to an unconditional bar fails
+      // here.
+      expect(find.byType(CategoryFilterBar), findsNothing);
       expect(find.byType(ChromePills), findsNothing);
       expect(find.text('All'), findsNothing);
     });
@@ -526,6 +529,39 @@ void main() {
       await tester.tap(find.widgetWithText(FilledButton, 'Save'));
       await tester.pumpAndSettle();
       expect(repo.categoriesOf(5, '/a'), hasLength(1));
+    });
+
+    testWidgets('Save reports false when nothing was ticked or unticked', (
+      tester,
+    ) async {
+      // The sheet's result is what the details screen uses to decide whether
+      // to refetch the manga over the network. Popping a bare `true` meant
+      // opening the sheet and pressing Save — changing nothing — cost a full
+      // detail reload. Found by `codeant-ai`, two lines under a comment of
+      // mine claiming the write was skipped.
+      await addManga('/a', 'Berserk');
+      repo.create('Seinen');
+
+      final results = await openSheet(tester);
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(results, [isFalse]);
+    });
+
+    testWidgets('Save reports true when a tick actually changed', (
+      tester,
+    ) async {
+      await addManga('/a', 'Berserk');
+      repo.create('Seinen');
+
+      final results = await openSheet(tester);
+      await tester.tap(find.text('Seinen'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(results, [isTrue]);
     });
 
     testWidgets('a category made inside the sheet is ticked already', (
