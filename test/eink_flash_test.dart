@@ -121,6 +121,31 @@ void main() {
     await tester.pump(const Duration(milliseconds: 120));
   });
 
+  testWidgets('mounting already past page zero does not flash', (tester) async {
+    // `codeant-ai` filed this as a Major: it read the reader as letting an
+    // async load move `page` from 0 to a saved resume page while the flash was
+    // already mounted, so opening a resumed chapter would flash with no page
+    // turned. Settled by reproduction rather than by argument, because a
+    // reproduction that fails may only be disproving a guess about how to
+    // provoke it.
+    //
+    // It does not reproduce, for two independent reasons. `_afterPagesLoaded`
+    // assigns `page.value` **inside** `load()`, before the `finally` clears
+    // `isLoading`; and the reader's body returns a spinner while loading, so
+    // the whole `Stack` — this widget with it — is not in the tree until after
+    // the resume page is set. Either one alone is enough. What reaches the
+    // widget is therefore a *first build* at the resume page, and
+    // `didUpdateWidget` does not run on a first build.
+    //
+    // This asserts that last property directly, which is the part that would
+    // actually have to break for the finding to become real.
+    await pump(tester, page: 12);
+    expect(flashBox(), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(flashBox(), findsNothing);
+  });
+
   testWidgets('a reader closed mid-flash does not throw', (tester) async {
     // A page turn is exactly when someone backs out, and the timer outlives
     // the widget by up to its whole duration.

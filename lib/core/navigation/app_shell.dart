@@ -11,6 +11,7 @@ import 'package:otaku_reader/features/home/screens/home_screen.dart';
 import 'package:otaku_reader/features/library/screens/library_screen.dart';
 import 'package:otaku_reader/features/more/screens/more_screen.dart';
 import 'package:otaku_reader/features/updates/controllers/updates_controller.dart';
+import 'package:otaku_reader/features/updates/scheduling/update_schedule.dart';
 import 'package:otaku_reader/features/updates/screens/updates_screen.dart';
 import 'package:otaku_reader/widgets/common/lazy_indexed_stack.dart';
 
@@ -107,7 +108,17 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   /// every resume would be the app talking about itself.
   void _refreshIfDue() {
     if (!Get.isRegistered<UpdatesController>()) return;
-    unawaited(Get.find<UpdatesController>().refreshIfDue());
+    // Caught, not merely unawaited. This fires from `initState` and from a
+    // resume, so a throw has nobody above it and becomes an unhandled async
+    // error at startup — the same shape as `AniListAuth.restore` being
+    // launched unawaited from `AppBindings`, which is already a row in the
+    // mistakes table. A refresh that cannot run is not worth a crash: the
+    // Updates tab surfaces its own errors, and the next resume tries again.
+    unawaited(
+      Get.find<UpdatesController>().refreshIfDue().catchError(
+        (_) => UpdateDecision.notDue,
+      ),
+    );
   }
 
   void _select(int i) {

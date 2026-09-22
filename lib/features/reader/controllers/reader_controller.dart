@@ -337,8 +337,18 @@ class ReaderController extends GetxController {
   /// false on a build with no implementation and on a platform that refused,
   /// and a privacy setting that claims a property it does not have is worse
   /// than no setting.
+  /// Bumped per request, so a slow answer cannot describe a newer one.
+  int _secureGeneration = 0;
+
   Future<void> _applySecure(bool on) async {
+    final generation = ++_secureGeneration;
     final applied = await _screen.setSecure(on);
+    // A platform channel round trip can be outrun by a second toggle, and the
+    // two observables below are a *privacy claim* — an older answer landing
+    // last would tell the reader screenshots are blocked because of a request
+    // that has since been replaced. Same guard as `MangaDetailsController.load`
+    // uses for its own out-of-order writes. Found by `codeant-ai`.
+    if (generation != _secureGeneration) return;
     secureApplied.value = on && applied;
     secureRefused.value = on && !applied;
   }

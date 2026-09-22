@@ -37,11 +37,15 @@ class ConnectivityNetworkStatus implements NetworkStatus {
       // `checkConnectivity` returns a **list** — a device can be on Wi-Fi and
       // VPN at once, and reading `.first` would let the VPN entry decide. Any
       // unmetered member is enough.
+      // **`vpn` is deliberately not in this set**, though it was at first.
+      // A VPN is a tunnel, not a link: it runs over whatever is underneath,
+      // and over mobile data it is exactly the case this guard exists to
+      // stop. When the tunnel runs over Wi-Fi the list carries `wifi` as
+      // well, so that case is already covered by the member below — which
+      // means including `vpn` could only ever turn a *metered* connection
+      // into a false yes. Found by `codeant-ai`.
       return results.any(
-        (r) =>
-            r == ConnectivityResult.wifi ||
-            r == ConnectivityResult.ethernet ||
-            r == ConnectivityResult.vpn,
+        (r) => r == ConnectivityResult.wifi || r == ConnectivityResult.ethernet,
       );
     } catch (_) {
       return true;

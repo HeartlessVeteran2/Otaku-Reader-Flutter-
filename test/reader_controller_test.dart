@@ -406,6 +406,28 @@ void main() {
       c.onClose();
     });
 
+    test('a stale secure answer cannot overwrite a newer one', () async {
+      // Two toggles in flight: the older channel round trip must not land last
+      // and describe a request that has since been replaced. These are a
+      // privacy claim, so a wrong one tells the reader screenshots are blocked
+      // when they are not. Found by `codeant-ai`.
+      ReaderKeys.secureScreen.set<bool>(false);
+      final (c, _) = await open('/c-1');
+
+      // Turn on (which this fake refuses), then immediately off.
+      final first = c.setSecure(true);
+      final second = c.setSecure(false);
+      await Future.wait([first, second]);
+
+      expect(
+        c.secureRefused.value,
+        isFalse,
+        reason: 'the latest request was an off, which cannot be refused',
+      );
+      expect(c.secureApplied.value, isFalse);
+      c.onClose();
+    });
+
     test('an applied secure flag reports applied and not refused', () async {
       ReaderKeys.secureScreen.set<bool>(true);
 

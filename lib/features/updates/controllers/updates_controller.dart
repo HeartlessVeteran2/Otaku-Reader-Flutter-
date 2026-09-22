@@ -202,6 +202,11 @@ class UpdatesController extends GetxController {
     );
     if (!decision.shouldRun) return decision;
 
+    // Reported rather than glossed. `refreshLibrary` drops a call while one is
+    // already running, so answering `run` here would be a sentence about a
+    // refresh that never started.
+    if (isRefreshing.value) return UpdateDecision.alreadyRunning;
+
     await refreshLibrary();
     return UpdateDecision.run;
   }

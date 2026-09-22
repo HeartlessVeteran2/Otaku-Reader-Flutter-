@@ -15,6 +15,7 @@ import 'package:otaku_reader/data/anilist/anilist_progress_sync.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/features/reader/display/eink_flash.dart';
+import 'package:otaku_reader/features/reader/widgets/secure_refusal_notice.dart';
 import 'package:otaku_reader/features/reader/screen_controls.dart';
 import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
 import 'package:otaku_reader/features/reader/screen_wakelock.dart';
@@ -348,6 +349,19 @@ class _ReaderScreenState extends State<ReaderScreen> {
             // The chrome's bottom bar carries the counter while it is up, so
             // this one fills the gap that actually exists: reading with the
             // chrome hidden, where until now there was no page number at all.
+            // Under the page indicator and above the artwork, shown with the
+            // chrome. The state behind it existed for a whole commit with
+            // nothing rendering it — a refusal was indistinguishable from
+            // success on screen, which is worse than not having the setting.
+            if (_chromeVisible)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: MediaQuery.paddingOf(context).bottom + 88,
+                child: Center(
+                  child: SecureRefusalNotice(visible: _c.secureRefused.value),
+                ),
+              ),
             Positioned(
               top: MediaQuery.paddingOf(context).top + 8,
               left: 0,

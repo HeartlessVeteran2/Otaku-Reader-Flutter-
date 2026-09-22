@@ -45,7 +45,17 @@ enum UpdateDecision {
   run,
   notDue,
   disabled,
-  waitingForWifi;
+  waitingForWifi,
+
+  /// A refresh was already in flight, so this one was not started.
+  ///
+  /// Distinct from [run] because the caller is told what happened, and from
+  /// [notDue] because the schedule *was* due. Two resume events can both pass
+  /// the due check before either stamps the last check — the second used to
+  /// answer `run` while `refreshLibrary` silently dropped it on its own
+  /// in-flight guard. Found by `codeant-ai`; the same "busy is not refused"
+  /// distinction the AniList save already makes.
+  alreadyRunning;
 
   bool get shouldRun => this == UpdateDecision.run;
 }
