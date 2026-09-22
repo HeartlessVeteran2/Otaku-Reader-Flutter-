@@ -6,6 +6,8 @@ import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:otaku_reader/data/isar/manga_entry.dart';
 import 'package:otaku_reader/features/details/screens/manga_details_screen.dart';
 import 'package:otaku_reader/features/library/controllers/library_controller.dart';
+import 'package:otaku_reader/features/library/screens/categories_screen.dart';
+import 'package:otaku_reader/features/library/widgets/category_filter_bar.dart';
 import 'package:otaku_reader/features/library/widgets/library_card.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/core/ui/greeting_text.dart';
@@ -50,86 +52,115 @@ class _LibraryScreenState extends State<LibraryScreen>
       2,
       6,
     );
-    return ChromeScaffold.slivers(
-      title: 'Library',
-      // The account leads the header, and the greeting sits under the
-      // title -- AnymeX's shape for a tab root. Both degrade on their
-      // own: the avatar has a state for every answer `AniListAuth` can
-      // give, and the leading is dropped entirely on a route that can
-      // pop, where the back button needs that slot.
-      leading: const ProfileAvatar(),
-      subtitleWidget: const GreetingText(),
-      onRefresh: _c.load,
-      // In the pill, not under it. The permanent 52px field this replaces was
-      // 52px spent on every screenful for a control used occasionally.
-      enableSearch: true,
-      searchController: _search,
-      onSearchChanged: _c.setQuery,
-      searchHint: 'Search your library',
-      actions: [
-        PopupMenuButton<LibrarySort>(
-          icon: const Icon(Iconsax.sort),
-          tooltip: 'Sort',
-          onSelected: _c.setSort,
-          itemBuilder: (context) => [
-            for (final option in LibrarySort.values)
-              PopupMenuItem(
-                value: option,
-                child: Obx(
-                  () => Row(
-                    children: [
-                      Expanded(child: Text(_label(option))),
-                      if (_c.sort.value == option)
-                        Icon(
-                          _c.ascending.value
-                              ? Iconsax.arrow_up_2
-                              : Iconsax.arrow_down,
-                          size: 16,
-                        ),
-                    ],
+    // `Obx` around the whole scaffold, because `bottom` is decided from
+    // `categories` and is passed at construction — without an observer the
+    // first category to be created would not grow the bar until some unrelated
+    // rebuild happened to run.
+    return Obx(
+      () => ChromeScaffold.slivers(
+        title: 'Library',
+        // The account leads the header, and the greeting sits under the
+        // title -- AnymeX's shape for a tab root. Both degrade on their
+        // own: the avatar has a state for every answer `AniListAuth` can
+        // give, and the leading is dropped entirely on a route that can
+        // pop, where the back button needs that slot.
+        leading: const ProfileAvatar(),
+        subtitleWidget: const GreetingText(),
+        onRefresh: _c.load,
+        // In the pill, not under it. The permanent 52px field this replaces was
+        // 52px spent on every screenful for a control used occasionally.
+        enableSearch: true,
+        searchController: _search,
+        onSearchChanged: _c.setQuery,
+        searchHint: 'Search your library',
+        // Under the pills and hidden with them, which is where AnymeX hangs its
+        // own `ChipTabs`.
+        //
+        // **Absent, not empty**, when there are no categories. A bar that
+        // renders `SizedBox.shrink()` still costs the `Chrome.gap` that
+        // `PillHeader` puts *beside* the bottom slot, so a library nobody has
+        // filed carried 8px of dead header — visible, and caused by a widget
+        // drawing nothing. Found by `codeant-ai`. This is the rule this repo
+        // already has for zero-valued effects, one level up: at zero, remove the
+        // thing rather than render an empty one.
+        bottom: _c.categories.isEmpty
+            ? null
+            : CategoryFilterBar(controller: _c, onManage: _openCategories),
+        actions: [
+          PopupMenuButton<LibrarySort>(
+            icon: const Icon(Iconsax.sort),
+            tooltip: 'Sort',
+            onSelected: _c.setSort,
+            itemBuilder: (context) => [
+              for (final option in LibrarySort.values)
+                PopupMenuItem(
+                  value: option,
+                  child: Obx(
+                    () => Row(
+                      children: [
+                        Expanded(child: Text(_label(option))),
+                        if (_c.sort.value == option)
+                          Icon(
+                            _c.ascending.value
+                                ? Iconsax.arrow_up_2
+                                : Iconsax.arrow_down,
+                            size: 16,
+                          ),
+                      ],
+                    ),
                   ),
                 ),
+            ],
+          ),
+        ],
+        slivers: [
+          // The pull-to-refresh that each branch used to carry its own copy of
+          // now lives on the scaffold, so the empty state is pullable without
+          // wrapping it in a `ListView` that exists only to be scrollable.
+          Obx(() {
+            if (_c.isLoading.value && _c.entries.isEmpty) {
+              return const SliverFillRemaining(
+                hasScrollBody: false,
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+            final items = _c.visible;
+            if (items.isEmpty) {
+              return SliverFillRemaining(
+                hasScrollBody: false,
+                child: _Empty(searching: _c.query.value.isNotEmpty),
+              );
+            }
+            return SliverPadding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: Chrome.gutter,
+                vertical: Chrome.gap,
               ),
-          ],
-        ),
-      ],
-      slivers: [
-        // The pull-to-refresh that each branch used to carry its own copy of
-        // now lives on the scaffold, so the empty state is pullable without
-        // wrapping it in a `ListView` that exists only to be scrollable.
-        Obx(() {
-          if (_c.isLoading.value && _c.entries.isEmpty) {
-            return const SliverFillRemaining(
-              hasScrollBody: false,
-              child: Center(child: CircularProgressIndicator()),
-            );
-          }
-          final items = _c.visible;
-          if (items.isEmpty) {
-            return SliverFillRemaining(
-              hasScrollBody: false,
-              child: _Empty(searching: _c.query.value.isNotEmpty),
-            );
-          }
-          return SliverPadding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Chrome.gutter,
-              vertical: Chrome.gap,
-            ),
-            sliver: SliverGrid.builder(
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: columns,
-                childAspectRatio: 0.52,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 12,
+              sliver: SliverGrid.builder(
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: columns,
+                  childAspectRatio: 0.52,
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: 12,
+                ),
+                itemCount: items.length,
+                itemBuilder: (context, i) => _card(items[i]),
               ),
-              itemCount: items.length,
-              itemBuilder: (context, i) => _card(items[i]),
-            ),
-          );
-        }),
-      ],
+            );
+          }),
+        ],
+      ),
     );
+  }
+
+  Future<void> _openCategories() async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const CategoriesScreen()));
+    // The controller watches the category stream, so the pills are already
+    // current. The grid is not: a category deleted on that screen drops the
+    // selection, and `visible` has to be recomputed against the scrubbed rows.
+    await _c.load();
   }
 
   Widget _card(MangaEntry entry) {

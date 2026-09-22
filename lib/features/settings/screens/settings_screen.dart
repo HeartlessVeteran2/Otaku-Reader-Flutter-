@@ -9,6 +9,7 @@ import 'package:otaku_reader/core/theme/chrome_metrics.dart';
 import 'package:otaku_reader/core/theme/theme_controller.dart';
 import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:otaku_reader/data/anilist/anilist_auth.dart';
+import 'package:otaku_reader/features/library/screens/categories_screen.dart';
 import 'package:otaku_reader/features/settings/screens/accounts_screen.dart';
 import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
 import 'package:otaku_reader/features/reader/display/colour_filter_screen.dart';
@@ -380,6 +381,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ReaderDefaults.showPageIndicator,
               ),
               onChanged: (v) => _setBool(ReaderKeys.showPageIndicator, v),
+            ),
+          ],
+        ),
+        SliverChromeSection(
+          label: 'Library',
+          children: [
+            // The filter bar's gear is the other route, and it is the one a
+            // reader will use day to day. This exists because that gear only
+            // appears once a category does, so without it the screen that
+            // *creates* the first one would be reachable only from a sheet on
+            // a manga — a route nobody would guess at.
+            ChromeTile(
+              icon: Iconsax.folder_2,
+              title: 'Categories',
+              subtitle: 'Shelves to file your library into',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const CategoriesScreen(),
+                ),
+              ),
             ),
           ],
         ),

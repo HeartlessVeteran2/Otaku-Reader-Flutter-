@@ -11,6 +11,8 @@ import 'package:get/get.dart';
 import 'package:otaku_reader/core/database/data_keys/keys.dart';
 import 'package:otaku_reader/core/database/kv_helper.dart';
 import 'package:otaku_reader/data/isar/manga_entry.dart';
+import 'package:otaku_reader/data/isar/category_entry.dart';
+import 'package:otaku_reader/domain/repository/category_repository.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/data/source_base_urls.dart';
@@ -22,11 +24,14 @@ class LibraryController extends GetxController {
   LibraryController({
     required LibraryRepository library,
     required SourceRepository sources,
+    required CategoryRepository categories,
   }) : _library = library,
-       _sources = sources;
+       _sources = sources,
+       _categories = categories;
 
   final LibraryRepository _library;
   final SourceRepository _sources;
+  final CategoryRepository _categories;
 
   /// Base URL per source id, for cover Referer/Origin headers. Resolved once
   /// per load rather than per card, because every card in the grid rebuilds
@@ -36,6 +41,19 @@ class LibraryController extends GetxController {
   String baseUrlFor(MangaEntry entry) => _baseUrls.forEntry(entry);
 
   final entries = <MangaEntry>[].obs;
+
+  /// The categories, in their stored order. Empty until one is created, and an
+  /// empty list is a **first-class state**: the filter bar renders nothing
+  /// rather than a lone "All" chip that filters against no alternative.
+  final categories = <CategoryEntry>[].obs;
+
+  /// The category being shown, or null for all of them.
+  ///
+  /// Deliberately not persisted. A filter is a thing you do, not a thing you
+  /// configure — coming back to the app and finding two thirds of the library
+  /// missing, because of a chip tapped yesterday, reads as data loss.
+  final selectedCategory = Rxn<int>();
+
   final query = ''.obs;
   final sort = LibrarySort.title.obs;
   final ascending = true.obs;
@@ -50,6 +68,7 @@ class LibraryController extends GetxController {
             .clamp(0, LibrarySort.values.length - 1)];
     ascending.value = LibraryKeys.sortAscending.get<bool>(true);
     load();
+    loadCategories();
     _startWatching();
   }
 
@@ -57,6 +76,7 @@ class LibraryController extends GetxController {
   void onClose() {
     _watchDebounce?.cancel();
     unawaited(_watch?.cancel());
+    unawaited(_categoryWatch?.cancel());
     super.onClose();
   }
 
@@ -70,6 +90,7 @@ class LibraryController extends GetxController {
   /// Debounced, because a library refresh writes once per series and this would
   /// otherwise reload once per write.
   StreamSubscription<void>? _watch;
+  StreamSubscription<void>? _categoryWatch;
   Timer? _watchDebounce;
 
   void _startWatching() {
@@ -80,6 +101,11 @@ class LibraryController extends GetxController {
         () => unawaited(load()),
       );
     });
+    // A second subscription rather than one merged stream, and **undebounced**.
+    // The library's debounce exists because a refresh writes a row per series;
+    // a category write is one deliberate tap, and delaying it by 300ms after
+    // the user renames a chip is a visible lag for no benefit.
+    _categoryWatch = _categories.changes.listen((_) => loadCategories());
   }
 
   Future<void> load() async {
@@ -101,8 +127,14 @@ class LibraryController extends GetxController {
 
   List<MangaEntry> get visible {
     final q = query.value.trim().toLowerCase();
+    final category = selectedCategory.value;
     final list = entries
         .where((e) => q.isEmpty || e.displayTitle.toLowerCase().contains(q))
+        // Filtered here rather than by re-querying: the grid already holds
+        // every favourite, and a category is a handful of ids on each row.
+        // Round-tripping the database on a chip tap would also drop the
+        // search, which is a second filter the user is still holding.
+        .where((e) => category == null || e.categoryIds.contains(category))
         .toList();
 
     list.sort((a, b) {
@@ -141,6 +173,43 @@ class LibraryController extends GetxController {
     if (b == null) return -1;
     return null;
   }
+
+  /// Reloads the category list, and drops a selection that no longer exists.
+  ///
+  /// That second half is the one that matters. A category deleted from the
+  /// management screen while the grid is filtered by it leaves the selection
+  /// naming nothing — and `visible` would then answer **empty**, which is a
+  /// library that looks wiped. The repository scrubs the ids off the rows;
+  /// this scrubs the one held in memory.
+  void loadCategories() {
+    categories.value = _categories.all();
+    final selected = selectedCategory.value;
+    if (selected != null && !categories.any((c) => c.id == selected)) {
+      selectedCategory.value = null;
+    }
+  }
+
+  /// How many favourites sit in each category, keyed by category id.
+  ///
+  /// Derived from [entries] rather than counted in the database, so it is the
+  /// same list the grid is about and cannot disagree with it. A count that
+  /// says 4 over a grid showing 3 is worse than no count, and a second query
+  /// is exactly how the two drift.
+  ///
+  /// A category nobody has filed anything into is simply absent from the map,
+  /// which is why callers read it with a `?? 0` — that is the honest answer
+  /// for a category that exists and is empty.
+  Map<int, int> get categoryCounts {
+    final counts = <int, int>{};
+    for (final entry in entries) {
+      for (final id in entry.categoryIds) {
+        counts[id] = (counts[id] ?? 0) + 1;
+      }
+    }
+    return counts;
+  }
+
+  void selectCategory(int? id) => selectedCategory.value = id;
 
   void setQuery(String value) => query.value = value;
 

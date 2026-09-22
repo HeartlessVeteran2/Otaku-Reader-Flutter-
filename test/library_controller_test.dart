@@ -8,6 +8,8 @@ import 'package:otaku_reader/source/model/m_manga.dart';
 
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 
+import 'helpers/category_fakes.dart';
+
 import 'helpers/fake_source_repository.dart';
 import 'helpers/isar_test_env.dart';
 
@@ -54,8 +56,11 @@ void main() {
   }
 
   Future<LibraryController> build() async {
-    final c = LibraryController(library: library, sources: const NoSources())
-      ..onInit();
+    final c = LibraryController(
+      library: library,
+      sources: const NoSources(),
+      categories: const EmptyCategories(),
+    )..onInit();
     await Future<void>.delayed(Duration.zero);
     return c;
   }

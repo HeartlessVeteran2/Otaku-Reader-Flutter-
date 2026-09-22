@@ -12,6 +12,8 @@ import 'package:otaku_reader/data/anilist/anilist_metadata_service.dart';
 import 'package:otaku_reader/features/details/controllers/manga_details_controller.dart';
 import 'package:otaku_reader/features/details/widgets/anilist_edit_sheet.dart';
 import 'package:otaku_reader/features/details/widgets/anilist_sections.dart';
+import 'package:otaku_reader/features/details/widgets/category_sheet.dart';
+import 'package:otaku_reader/domain/repository/category_repository.dart';
 import 'package:otaku_reader/features/reader/screens/reader_screen.dart';
 import 'package:otaku_reader/source/http/m_client.dart';
 import 'package:otaku_reader/source/model/m_manga.dart';
@@ -57,6 +59,20 @@ class _MangaDetailsScreenState extends State<MangaDetailsScreen> {
     super.dispose();
   }
 
+  Future<void> _openCategories() async {
+    final saved = await showCategorySheet(
+      context: context,
+      repository: Get.find<CategoryRepository>(),
+      sourceId: widget.sourceId,
+      url: widget.url,
+    );
+    // The sheet writes straight to the row this screen is showing, so the
+    // controller's copy of it is now a snapshot from before the save — and
+    // this screen renders `entry`, not the database. Nothing announced it to
+    // GetX, because the repository's change stream is about the *library*.
+    if (saved && mounted) await _c.load();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -94,6 +110,7 @@ class _MangaDetailsScreenState extends State<MangaDetailsScreen> {
                   isLoading: _c.isLoading.value,
                   isFavorite: _c.isFavorite,
                   onToggleFavorite: entry == null ? null : _c.toggleFavorite,
+                  onCategories: _openCategories,
                 ),
               ),
               SliverToBoxAdapter(child: _AniList(controller: _c)),
@@ -334,12 +351,22 @@ class _Meta extends StatelessWidget {
     required this.isLoading,
     required this.isFavorite,
     this.onToggleFavorite,
+    this.onCategories,
   });
 
   final MangaEntry? entry;
   final bool isLoading;
   final bool isFavorite;
   final VoidCallback? onToggleFavorite;
+
+  /// Only offered once the manga is a favourite.
+  ///
+  /// A category is a shelf in the *library*, and the grid lists favourites
+  /// only — so filing an unfavourited manga would write a row nothing renders,
+  /// which is this repo's most-repeated defect. Adding it to the library
+  /// implicitly on tap is the other way out, and it is worse: it does
+  /// something the button does not say.
+  final VoidCallback? onCategories;
 
   @override
   Widget build(BuildContext context) {
@@ -359,6 +386,23 @@ class _Meta extends StatelessWidget {
                 icon: Icon(isFavorite ? Iconsax.heart5 : Iconsax.heart),
                 label: Text(isFavorite ? 'In library' : 'Add to library'),
               ),
+              if (isFavorite && onCategories != null) ...[
+                const SizedBox(width: 8),
+                // `Flexible` so a long label gives way rather than overflowing
+                // the row beside a button whose own label grows with the
+                // state.
+                Flexible(
+                  child: OutlinedButton.icon(
+                    onPressed: onCategories,
+                    icon: const Icon(Iconsax.folder_2, size: 18),
+                    label: const Text(
+                      'Categories',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+              ],
               const Spacer(),
               if (isLoading)
                 const SizedBox(
