@@ -31,10 +31,12 @@ The audit corrected two things that had been stated as fact:
    had no page indicator in the reader. Both wrote their key and were never
    read. That is live UI wired to nothing, which `CLAUDE.md` forbids, and it
    shipped. **Fixed 2026-09-20** — both are ticked below, and the reader went
-   from honouring two keys to four. It honours **five** since 2026-09-21,
-   when `webtoonDirection` arrived with the two new reading axes, and **nine**
-   since the tap-zone editor landed the same day: the four `tapZones*` keys all
-   have a control behind them and all reach the reader.
+   from honouring two keys to four. It has grown since: `webtoonDirection` with
+   the two reading axes, the `tapZones*` group, and the display group.
+   **The live number is stated once**, in the audit note below, and
+   `features_doc_test.dart` derives it from `keys.dart` rather than trusting
+   the sentence — because a running tally kept in prose is a tally that drifts,
+   and this one drifted three times in two days.
 
 A checklist that counts declarations rather than behaviour is how both got
 missed. Tick what renders, not what compiles.
@@ -46,7 +48,7 @@ missed. Tick what renders, not what compiles.
 - [x] **0 — Skeleton.** Isar + recovery ladder, `KvHelper`, typed enum keys, M3 theming, `LazyIndexedStack` shell, explicit DI.
 - [x] **1 — Source runtime.** Mangayomi Dart extensions via d4rt. 55/55 evaluate, 6 complete the full chain.
 - [~] **2 — Browse, details, library, home.** Browse, global search, details with AniList carousels and the list editor all ship. Library is a grid with 4 sorts and a search box — no filters, categories, display modes or badges.
-- [~] **3 — Reader.** Paged and webtoon, all four directions in both, progress persistence and resume, keep-screen-on and a persistent page indicator. Six of ~40 reader settings are honoured.
+- [~] **3 — Reader.** Paged and webtoon, all four directions in both, progress persistence and resume, keep-screen-on, a persistent page indicator, tap zones with an editor, and the display group. The honoured-key count is in the audit note below rather than repeated here.
 - [~] **4 — Downloads, updates, history.** Queue with cancel/delete and storage usage; updates with mark-read and undo; history with search, remove, undo and resume. None of the depth below.
 - [ ] **5 — Smart Prefetch, Smart Panels.** AniList metadata shipped; the other two have not started.
 - [ ] **6 — Tracking fan-out, migration, stats, Komikku parity.**
@@ -75,9 +77,21 @@ The single most important surface. Combined list from both apps.
 > screen on* and *Show the page number* — wrote a key the reader never read,
 > so they were inert UI. **Both are now wired**, and `webtoonDirection` was
 > added on 2026-09-21 with the two new reading axes, so `ReaderKeys` stands at
-> **9 honoured of 39** — the four `tapZones*` keys went live the same day, and
-> the editor is what makes the two profile keys writable rather than only
-> readable; the rest have no control behind them and are ordinary
+> **18 honoured of 39** — the five `tapZones*` keys went live on 2026-09-21,
+> and the eight display keys (`customBrightnessEnabled`/`Value`,
+> `colorFilterEnabled`/`Value`/`Mode`, `grayscaleEnabled`,
+> `invertColorsEnabled`, `readerTheme`) on 2026-09-22. Every one of those eight
+> was **declared from the start and read by nothing**, which is the exact state
+> this file exists to catch: a checklist counting declared keys reports parity
+> for a feature nobody built.
+>
+> That count is **derived, not counted by hand**. It was hand-written wrong
+> three times in two days — "six" display keys for eight names, "four"
+> `tapZones*` for five, and a total that inherited both — so
+> `features_doc_test.dart` now reads `keys.dart`, greps `lib/` for each
+> member, and fails when this sentence disagrees. Found by `codeant-ai`, which
+> counted the names in the list against the number in front of them. The rest
+> have no control behind them and are ordinary
 > unbuilt features rather than dead UI. `ReaderDefaults` holds the fallback for
 > the two that have a switch, because the reader and the Settings row both need
 > it and a disagreeing pair renders a switch showing the opposite of what the
@@ -89,7 +103,7 @@ The single most important surface. Combined list from both apps.
 
 **Navigation** — [x] customisable tap zones — bands along the reading axis, a **separate profile per layout**, right-to-left mirroring AnymeX lacks, haptics, and an editor that assigns an action per band *and moves the boundaries between them*. AnymeX's cannot move a bound at all (`_editZone` rebuilds the zone with `bounds: zone.bounds`); the boundaries are edited as cut points, so the fractions sum to 1 by construction rather than by a check — measured, 166 of the 171 reachable pairs sum to exactly 1.0, worst error 1.1e-16 · [ ] navigation-mode presets (Default, L, Kindlish, Edge, Right-and-Left, Disabled) · [ ] invert tapping (none/horizontal/vertical/both) · [ ] volume keys + invert + **per-mode overrides** + hold-to-skip-5 · [ ] keyboard/DeX shortcuts · [ ] mouse wheel + trackpad · [ ] overscroll to prev/next chapter · [ ] **navigate by chapter number** (skips duplicate/scanlator dupes) · [ ] auto-scroll with speed, **pause-on-touch and auto-resume**
 
-**Display** — [ ] custom brightness (AnymeX goes to −75) · [ ] colour filter with **RGBA sliders and 16 blend modes**, plus named presets · [ ] custom tint + opacity · [ ] greyscale · [ ] invert · [ ] reader background (9 options) · [ ] **e-ink flash** with duration/interval/colour · [x] keep screen on — `wakelock_plus`, taken when a chapter opens and released when it closes · [ ] fullscreen + cutout handling · [ ] orientation lock (7 modes) · [ ] secure screen (`FLAG_SECURE`)
+**Display** — [x] page dim, 0–75% — **dim, not brightness**: AnymeX's slider runs −75 to 100 while its overlay only reads `brightness < 0`, so 100 of its 175 units change nothing; raising the screen needs the platform's own control · [x] colour filter with **RGBA sliders and 16 blend modes** on its own screen, with a live preview AnymeX has none of · [x] greyscale · [x] invert — **composes** with greyscale, where AnymeX's `else if` leaves a live invert switch doing nothing · [x] reader background — **4 options, which is AnymeX's own count**; the 9 claimed here before was Komikku's number and reached this checklist unchecked · [ ] named filter presets · [ ] **e-ink flash** with duration/interval/colour · [x] keep screen on — `wakelock_plus`, taken when a chapter opens and released when it closes · [ ] fullscreen + cutout handling · [ ] orientation lock (7 modes) · [ ] secure screen (`FLAG_SECURE`)
 
 **Chrome** — [ ] reader control theme registry (default/iOS) · [x] page indicator — a pill that stays on screen once the controls are hidden, off by default as AnymeX's is · [ ] page slider with haptic tick · [ ] **page thumbnail strip** (slider ⇄ filmstrip) · [ ] full-page gallery grid · [ ] in-reader chapter list with search + asc/desc + list/grid · [ ] chapter transition cards with **missing-chapter gap warning** · [ ] reading timer overlay · [ ] battery + clock overlay · [ ] zoom indicator
 

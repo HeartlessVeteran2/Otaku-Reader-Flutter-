@@ -11,6 +11,9 @@ import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:otaku_reader/data/anilist/anilist_auth.dart';
 import 'package:otaku_reader/features/settings/screens/accounts_screen.dart';
 import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
+import 'package:otaku_reader/features/reader/display/colour_filter_screen.dart';
+import 'package:otaku_reader/features/reader/display/reader_display.dart';
+import 'package:otaku_reader/features/reader/display/reader_display_settings.dart';
 import 'package:otaku_reader/features/reader/tap_zones/tap_zone_editor_screen.dart';
 import 'package:otaku_reader/features/reader/tap_zones/tap_zone_settings.dart';
 
@@ -256,6 +259,90 @@ class _SettingsScreenState extends State<SettingsScreen> {
             // this screen would keep rendering the value it read on the way
             // in, and say the opposite of the screen it just opened -- the
             // `isReady` row, one feature over.
+            // The display group. Every key behind these rows was declared in
+            // `keys.dart` from the start and read by nothing -- the state
+            // `FEATURES.md` exists to catch, where a checklist counting
+            // declared keys reports parity for a feature nobody built.
+            ChromeTile.choice(
+              icon: Iconsax.gallery,
+              title: 'Page background',
+              subtitle: 'What sits behind a page that does not fill the screen',
+              labels: [for (final b in ReaderBackground.values) b.label],
+              selectedIndex: ReaderDisplaySettings.background.index,
+              onSelected: (i) => setState(
+                () => ReaderDisplaySettings.setBackground(
+                  ReaderBackground.values[i],
+                ),
+              ),
+            ),
+            ChromeTile.toggle(
+              icon: Iconsax.moon,
+              title: 'Dim the page',
+              // Named for what it does. AnymeX calls the same control
+              // brightness while its slider only ever darkens -- raising the
+              // screen needs the platform's own brightness and a plugin this
+              // app does not carry, so "brightness" here would be a switch
+              // promising something behind it that is not there.
+              subtitle: 'Darkens the artwork without touching the controls',
+              value: ReaderDisplaySettings.dimEnabled,
+              onChanged: (v) =>
+                  setState(() => ReaderDisplaySettings.setDimEnabled(v)),
+            ),
+            ChromeTile.slider(
+              icon: Iconsax.sun_1,
+              title: 'How much',
+              value: ReaderDisplaySettings.dim.toDouble(),
+              min: 0,
+              max: ReaderDisplaySettings.maxDim.toDouble(),
+              divisions: ReaderDisplaySettings.maxDim ~/ 5,
+              valueLabel: '${ReaderDisplaySettings.dim}%',
+              // Inert rather than hidden while the dim is off: a row that
+              // vanishes takes its own explanation with it, and the switch
+              // above has nothing left to point at.
+              enabled: ReaderDisplaySettings.dimEnabled,
+              onChanged: (v) =>
+                  setState(() => ReaderDisplaySettings.setDim(v.round())),
+            ),
+            ChromeTile.toggle(
+              icon: Iconsax.drop,
+              title: 'Greyscale',
+              subtitle: 'Drops colour from the artwork',
+              value: ReaderDisplaySettings.greyscale,
+              onChanged: (v) =>
+                  setState(() => ReaderDisplaySettings.setGreyscale(v)),
+            ),
+            ChromeTile.toggle(
+              icon: Iconsax.grid_1,
+              title: 'Invert colours',
+              // Composes with greyscale rather than replacing it, which is
+              // the correction to AnymeX: its reader reads these as
+              // `if (greyscale) ... else if (invert)`, so turning greyscale on
+              // leaves a live invert switch doing nothing.
+              subtitle: 'Combines with greyscale for an inverted grey page',
+              value: ReaderDisplaySettings.invert,
+              onChanged: (v) =>
+                  setState(() => ReaderDisplaySettings.setInvert(v)),
+            ),
+            // A row rather than a switch, because the tint and the blend mode
+            // are the setting -- a toggle alone would enable a colour nothing
+            // on this screen can choose. Rebuilds on return for the same
+            // reason the tap-zone row does: that screen carries the same
+            // enable switch through the same setter.
+            ChromeTile(
+              icon: Iconsax.colorfilter,
+              title: 'Colour filter',
+              subtitle: ReaderDisplaySettings.filterEnabled
+                  ? '${ReaderDisplaySettings.filterBlend.label}, over every page'
+                  : 'Tint the page — a warm cast for reading at night',
+              onTap: () async {
+                await Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const ColourFilterScreen(),
+                  ),
+                );
+                if (mounted) setState(() {});
+              },
+            ),
             ChromeTile(
               icon: Iconsax.mouse_square,
               title: 'Tap zone layout',
