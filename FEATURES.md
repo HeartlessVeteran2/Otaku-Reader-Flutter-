@@ -77,13 +77,22 @@ The single most important surface. Combined list from both apps.
 > screen on* and *Show the page number* — wrote a key the reader never read,
 > so they were inert UI. **Both are now wired**, and `webtoonDirection` was
 > added on 2026-09-21 with the two new reading axes, so `ReaderKeys` stands at
-> **18 honoured of 39** — the five `tapZones*` keys went live on 2026-09-21,
-> and the eight display keys (`customBrightnessEnabled`/`Value`,
+> **23 honoured of 42** — the five `tapZones*` keys went live on 2026-09-21,
+> the eight display keys (`customBrightnessEnabled`/`Value`,
 > `colorFilterEnabled`/`Value`/`Mode`, `grayscaleEnabled`,
-> `invertColorsEnabled`, `readerTheme`) on 2026-09-22. Every one of those eight
-> was **declared from the start and read by nothing**, which is the exact state
+> `invertColorsEnabled`, `readerTheme`) on 2026-09-22, and the screen group
+> (`orientationLock`, `immersiveMode`, `secureScreen`, plus
+> `displayRefreshEnabled`/`DurationMs`) the same day. Every one of those was
+> **declared from the start and read by nothing**, which is the exact state
 > this file exists to catch: a checklist counting declared keys reports parity
 > for a feature nobody built.
+>
+> That count is measured by `features_doc_test.dart`, and the guard itself had
+> to be fixed to take it: it split the enum body on commas and dropped any
+> chunk beginning `//`, so a member carrying a doc comment was thrown away with
+> its documentation. It read 20 where the code had 23. Correct only while no
+> member of this enum was documented, which stopped being true the moment three
+> were added.
 >
 > That count is **derived, not counted by hand**. It was hand-written wrong
 > three times in two days — "six" display keys for eight names, "four"

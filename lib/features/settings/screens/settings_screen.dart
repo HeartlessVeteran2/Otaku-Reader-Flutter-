@@ -10,6 +10,7 @@ import 'package:otaku_reader/core/theme/theme_controller.dart';
 import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:otaku_reader/data/anilist/anilist_auth.dart';
 import 'package:otaku_reader/features/library/screens/categories_screen.dart';
+import 'package:otaku_reader/features/reader/screen_controls.dart';
 import 'package:otaku_reader/features/settings/screens/accounts_screen.dart';
 import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
 import 'package:otaku_reader/features/reader/display/colour_filter_screen.dart';
@@ -357,6 +358,74 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 if (mounted) setState(() {});
               },
             ),
+            // Every row below decides what the *next* chapter does: the
+            // reader applies them in `onInit` and releases them unconditionally
+            // in `onClose`, so nothing here reaches a chapter already open.
+            ChromeTile.choice(
+              icon: Iconsax.rotate_left,
+              title: 'Orientation',
+              subtitle: 'How the reader sits when you turn the device',
+              labels: [for (final o in ReaderOrientation.values) o.label],
+              selectedIndex: _readerInt(
+                ReaderKeys.orientationLock,
+                ReaderDefaults.orientationLock,
+              ).clamp(0, ReaderOrientation.values.length - 1),
+              onSelected: (i) => _setInt(ReaderKeys.orientationLock, i),
+            ),
+            ChromeTile.toggle(
+              icon: Iconsax.maximize_4,
+              title: 'Full screen',
+              subtitle: 'Hides the status and navigation bars while reading',
+              value: _readerBool(
+                ReaderKeys.immersiveMode,
+                ReaderDefaults.immersiveMode,
+              ),
+              onChanged: (v) => _setBool(ReaderKeys.immersiveMode, v),
+            ),
+            ChromeTile.toggle(
+              icon: Iconsax.eye_slash,
+              title: 'Hide from screenshots',
+              subtitle: 'Also blanks the reader in the app switcher',
+              value: _readerBool(
+                ReaderKeys.secureScreen,
+                ReaderDefaults.secureScreen,
+              ),
+              onChanged: (v) => _setBool(ReaderKeys.secureScreen, v),
+            ),
+            // The e-ink pair, and they are two keys for the same reason the
+            // dim's magnitude and switch are: "zero means off" loses the
+            // duration every time the feature is toggled.
+            ChromeTile.toggle(
+              icon: Iconsax.refresh,
+              title: 'E-ink refresh',
+              subtitle:
+                  'Flashes the screen after a page turn to clear '
+                  'ghosting',
+              value: _readerBool(
+                ReaderKeys.displayRefreshEnabled,
+                ReaderDefaults.displayRefresh,
+              ),
+              onChanged: (v) => _setBool(ReaderKeys.displayRefreshEnabled, v),
+            ),
+            if (_readerBool(
+              ReaderKeys.displayRefreshEnabled,
+              ReaderDefaults.displayRefresh,
+            ))
+              ChromeTile.slider(
+                icon: Iconsax.timer_1,
+                title: 'Flash length',
+                value: _readerInt(
+                  ReaderKeys.displayRefreshDurationMs,
+                  ReaderDefaults.displayRefreshMs,
+                ).toDouble(),
+                min: 40,
+                max: 400,
+                divisions: 18,
+                valueLabel:
+                    '${_readerInt(ReaderKeys.displayRefreshDurationMs, ReaderDefaults.displayRefreshMs)} ms',
+                onChanged: (v) =>
+                    _setInt(ReaderKeys.displayRefreshDurationMs, v.round()),
+              ),
             // Taken when the reader opens and released when it closes, so the
             // switch only decides what the *next* chapter does.
             ChromeTile.toggle(

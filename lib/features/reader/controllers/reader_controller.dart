@@ -22,6 +22,7 @@ import 'package:otaku_reader/data/isar/manga_entry.dart';
 import 'package:otaku_reader/domain/repository/download_repository.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
+import 'package:otaku_reader/features/reader/screen_controls.dart';
 import 'package:otaku_reader/features/reader/screen_wakelock.dart';
 import 'package:otaku_reader/source/model/page_url.dart';
 
@@ -110,6 +111,7 @@ class ReaderController extends GetxController {
     required LibraryRepository library,
     required AniListProgressReporter anilistProgress,
     required ScreenWakelock wakelock,
+    required ReaderScreenControls screen,
     required this.sourceId,
     required this.mangaUrl,
     required String chapterUrl,
@@ -117,6 +119,7 @@ class ReaderController extends GetxController {
        _library = library,
        _anilistProgress = anilistProgress,
        _wakelock = wakelock,
+       _screen = screen,
        currentChapterUrl = chapterUrl.obs;
 
   final SourceRepository _sources;
@@ -131,6 +134,13 @@ class ReaderController extends GetxController {
   /// screen on" shipped as a switch the user could press with nothing behind
   /// it. An optional wakelock would let that happen again silently.
   final ScreenWakelock _wakelock;
+
+  /// Orientation, immersive mode and the secure-window flag.
+  ///
+  /// Required rather than optional, for the same reason the wakelock is: an
+  /// optional one lets a call site forget it and the setting goes quietly dead
+  /// again, which is the defect these three exist to close.
+  final ReaderScreenControls _screen;
   final int sourceId;
   final String mangaUrl;
   final RxString currentChapterUrl;
@@ -165,6 +175,26 @@ class ReaderController extends GetxController {
   /// reader holds before `onInit` runs cannot disagree with the one the
   /// Settings switch renders.
   final showPageIndicator = ReaderDefaults.showPageIndicator.obs;
+
+  /// The screen settings the reader holds while a chapter is open.
+  ///
+  /// Observable rather than read from the key at each use, so the reader's own
+  /// controls can change them mid-chapter without a reopen — and so a test can
+  /// read what the reader decided rather than what is on disk, which is the
+  /// distinction that let two dead switches ship.
+  final orientation = ReaderOrientation.system.obs;
+  final immersive = ReaderDefaults.immersiveMode.obs;
+  final einkFlash = ReaderDefaults.displayRefresh.obs;
+  final einkFlashMs = ReaderDefaults.displayRefreshMs.obs;
+
+  /// Whether the platform confirmed the secure flag.
+  ///
+  /// Three states, not two: unrequested, requested-and-applied, and
+  /// **requested-and-refused**. A reader who turned it on and got a silent no
+  /// believes screenshots are blocked when they are not, so the refusal has to
+  /// be something the UI can render.
+  final secureApplied = false.obs;
+  final secureRefused = false.obs;
   final chaptersInOrder = <Chapter>[].obs;
 
   /// Needed for the page requests, not for display: hotlink-protected CDNs
@@ -217,6 +247,33 @@ class ReaderController extends GetxController {
     if (ReaderKeys.keepScreenOn.get<bool>(ReaderDefaults.keepScreenOn)) {
       unawaited(_wakelock.enable());
     }
+
+    // Read first, apply second — the same order as the wakelock above, and for
+    // the same reason: applying a default and then correcting it once the
+    // preference loads holds the screen in a state the user did not choose for
+    // the width of that window.
+    orientation.value =
+        ReaderOrientation.values[ReaderKeys.orientationLock
+            .get<int>(ReaderDefaults.orientationLock)
+            .clamp(0, ReaderOrientation.values.length - 1)];
+    unawaited(_screen.setOrientation(orientation.value));
+
+    immersive.value = ReaderKeys.immersiveMode.get<bool>(
+      ReaderDefaults.immersiveMode,
+    );
+    unawaited(_screen.setImmersive(immersive.value));
+
+    if (ReaderKeys.secureScreen.get<bool>(ReaderDefaults.secureScreen)) {
+      unawaited(_applySecure(true));
+    }
+
+    einkFlash.value = ReaderKeys.displayRefreshEnabled.get<bool>(
+      ReaderDefaults.displayRefresh,
+    );
+    einkFlashMs.value = ReaderKeys.displayRefreshDurationMs
+        .get<int>(ReaderDefaults.displayRefreshMs)
+        .clamp(0, 2000);
+
     load();
   }
 
@@ -232,7 +289,34 @@ class ReaderController extends GetxController {
     // off while a chapter is open: the enable already happened, and the
     // release would then be skipped on the way out.
     unawaited(_wakelock.disable());
+    // All three released unconditionally, exactly as the wakelock is. Keying
+    // the release on the setting strands the state whenever the switch is
+    // turned off while a chapter is open: the apply already happened, and the
+    // restore would then be skipped on the way out. For orientation that
+    // leaves the whole app pinned sideways; for the secure flag it leaves a
+    // privacy flag set on a window the user thinks they left.
+    unawaited(_screen.setOrientation(ReaderOrientation.system));
+    unawaited(_screen.setImmersive(false));
+    unawaited(_screen.setSecure(false));
     super.onClose();
+  }
+
+  /// Requests the secure-window flag and records whether it took.
+  ///
+  /// The platform answer is kept rather than swallowed: `setSecure` returns
+  /// false on a build with no implementation and on a platform that refused,
+  /// and a privacy setting that claims a property it does not have is worse
+  /// than no setting.
+  Future<void> _applySecure(bool on) async {
+    final applied = await _screen.setSecure(on);
+    secureApplied.value = on && applied;
+    secureRefused.value = on && !applied;
+  }
+
+  /// Turns the secure-window flag on or off mid-chapter.
+  Future<void> setSecure(bool on) async {
+    ReaderKeys.secureScreen.set<bool>(on);
+    await _applySecure(on);
   }
 
   /// Writes any debounced progress immediately.

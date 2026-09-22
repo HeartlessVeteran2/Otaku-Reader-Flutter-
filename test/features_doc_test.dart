@@ -116,11 +116,25 @@ void main() {
     ).firstMatch(keysFile);
     expect(block, isNotNull, reason: 'ReaderKeys enum not found');
 
-    final members = block!
+    // Comment lines are stripped **before** the split, not filtered after it.
+    // Filtering after is what stood here, and it silently dropped every member
+    // carrying a doc comment: the chunk between two commas then begins with
+    // `///`, so `startsWith('//')` threw the member away along with its
+    // documentation. A doc comment containing a comma fragmented it further.
+    // It was correct only for as long as no member in this enum was
+    // documented, and the first three that were took the count from 23 to 20
+    // without failing anything — a guard against a drifting number, drifting.
+    final body = block!
         .group(1)!
+        .split('\n')
+        .map((l) => l.trim())
+        .where((l) => !l.startsWith('//'))
+        .join('\n');
+
+    final members = body
         .split(',')
         .map((m) => m.trim())
-        .where((m) => m.isNotEmpty && !m.startsWith('//'))
+        .where((m) => m.isNotEmpty)
         .toList();
 
     final sources = Directory('lib')

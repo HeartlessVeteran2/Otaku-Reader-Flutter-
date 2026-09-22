@@ -14,6 +14,8 @@ import 'package:otaku_reader/data/anilist/anilist_metadata_service.dart';
 import 'package:otaku_reader/data/anilist/anilist_progress_sync.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
+import 'package:otaku_reader/features/reader/display/eink_flash.dart';
+import 'package:otaku_reader/features/reader/screen_controls.dart';
 import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
 import 'package:otaku_reader/features/reader/screen_wakelock.dart';
 import 'package:otaku_reader/features/reader/display/reader_display_layer.dart';
@@ -112,6 +114,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
         Get.find<AniListListService>(),
       ),
       wakelock: Get.find<ScreenWakelock>(),
+      screen: Get.find<ReaderScreenControls>(),
       sourceId: widget.sourceId,
       mangaUrl: widget.mangaUrl,
       chapterUrl: widget.chapterUrl,
@@ -355,6 +358,17 @@ class _ReaderScreenState extends State<ReaderScreen> {
                   total: _c.pages.length,
                   visible: _c.showPageIndicator.value && !_chromeVisible,
                 ),
+              ),
+            ),
+            // Last, so it covers the chrome and the indicator too. Ghosting is
+            // a property of the whole panel, so a flash that clears the
+            // artwork and leaves the controls behind clears half the screen —
+            // which is the one thing this is for.
+            Positioned.fill(
+              child: EInkFlash(
+                page: _c.page.value,
+                enabled: _c.einkFlash.value,
+                duration: Duration(milliseconds: _c.einkFlashMs.value),
               ),
             ),
           ],

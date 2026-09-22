@@ -21,6 +21,9 @@ import 'package:otaku_reader/source/model/source.dart';
 import 'package:otaku_reader/source/model/source_preference.dart';
 import 'package:otaku_reader/source/source_methods.dart';
 
+import 'package:otaku_reader/features/reader/screen_controls.dart';
+
+import 'helpers/screen_controls_fake.dart';
 import 'helpers/isar_test_env.dart';
 
 /// Records what the reader asked the platform for.
@@ -166,20 +169,29 @@ void main() {
 
   late _FakeWakelock wakelock;
 
+  /// The screen controls the reader asked for — orientation, immersive and
+  /// secure. Held so a test can assert the **request**, never the stored key:
+  /// a round-trip test is exactly what passed the whole time two switches here
+  /// shipped with nothing behind them.
+  late FakeScreenControls screen;
+
   Future<(ReaderController, _Methods)> open(
     String chapterUrl, {
     Map<String, List<PageUrl>>? pages,
+    bool secureSucceeds = true,
   }) async {
     final methods = _Methods(_row())
       ..pagesByChapter =
           pages ?? {'/c-1': _pages(3), '/c-2': _pages(4), '/c-3': _pages(2)};
     reporter = _SpyReporter();
     wakelock = _FakeWakelock();
+    screen = FakeScreenControls(secureSucceeds: secureSucceeds);
     final c = ReaderController(
       sources: _Sources(methods, _row()),
       library: library,
       anilistProgress: reporter,
       wakelock: wakelock,
+      screen: screen,
       sourceId: _sourceId,
       mangaUrl: _manga,
       chapterUrl: chapterUrl,
@@ -194,6 +206,99 @@ void main() {
     }
     return (c, methods);
   }
+
+  group('the screen settings a chapter holds', () {
+    // Every assertion here reads the **request** the reader made, not the key
+    // it stored. That is the whole reason `ReaderScreenControls` is a seam:
+    // `SystemChrome` is static, so a host-VM test can neither call it nor
+    // watch it, and the two Settings switches that shipped dead here both
+    // round-tripped their key perfectly the entire time.
+
+    test('applies the stored orientation on open', () async {
+      ReaderKeys.orientationLock.set<int>(ReaderOrientation.landscape.index);
+
+      final (c, _) = await open('/c-1');
+
+      expect(screen.orientations.first, ReaderOrientation.landscape);
+      expect(c.orientation.value, ReaderOrientation.landscape);
+      c.onClose();
+    });
+
+    test('an out-of-range stored orientation is clamped, not thrown', () async {
+      // The `int status = 5` row of the mistakes table: a build that removes a
+      // member must not brick the reader for anyone whose stored index named
+      // it. Clamped against `values.length`, never a literal.
+      ReaderKeys.orientationLock.set<int>(99);
+
+      final (c, _) = await open('/c-1');
+
+      expect(c.orientation.value, ReaderOrientation.values.last);
+      c.onClose();
+    });
+
+    test('releases orientation and immersive on close, whatever was set', () async {
+      final (c, _) = await open('/c-1');
+      screen.orientations.clear();
+      screen.immersive.clear();
+
+      c.onClose();
+      await Future<void>.delayed(Duration.zero);
+
+      // Unconditional on purpose. Keying the release on the setting strands
+      // the whole app sideways when the switch is turned off mid-chapter: the
+      // apply already happened and the restore would be skipped on the way out.
+      expect(screen.orientations, [ReaderOrientation.system]);
+      expect(screen.immersive, [false]);
+    });
+
+    test('the secure flag is not requested unless the setting is on', () async {
+      final (c, _) = await open('/c-1');
+
+      expect(screen.secure, isEmpty, reason: 'nothing asked for on open');
+      c.onClose();
+    });
+
+    test('a refused secure flag is reported, not swallowed', () async {
+      // The state that matters. A reader who turned this on and got a silent
+      // no believes screenshots are blocked when they are not, so "requested
+      // and refused" has to be distinguishable from "applied".
+      ReaderKeys.secureScreen.set<bool>(true);
+
+      final (c, _) = await open('/c-1', secureSucceeds: false);
+      for (var i = 0; i < 10 && !c.secureRefused.value; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      expect(screen.secure.first, isTrue, reason: 'it was asked for');
+      expect(c.secureApplied.value, isFalse);
+      expect(c.secureRefused.value, isTrue);
+      c.onClose();
+    });
+
+    test('an applied secure flag reports applied and not refused', () async {
+      ReaderKeys.secureScreen.set<bool>(true);
+
+      final (c, _) = await open('/c-1');
+      for (var i = 0; i < 10 && !c.secureApplied.value; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      expect(c.secureApplied.value, isTrue);
+      expect(c.secureRefused.value, isFalse);
+      c.onClose();
+    });
+
+    test('the e-ink duration is read and clamped', () async {
+      ReaderKeys.displayRefreshEnabled.set<bool>(true);
+      ReaderKeys.displayRefreshDurationMs.set<int>(99999);
+
+      final (c, _) = await open('/c-1');
+
+      expect(c.einkFlash.value, isTrue);
+      expect(c.einkFlashMs.value, 2000);
+      c.onClose();
+    });
+  });
 
   test('loads pages and orders chapters ascending', () async {
     await seed();
@@ -524,6 +629,7 @@ void main() {
       library: library,
       anilistProgress: _SpyReporter(),
       wakelock: _FakeWakelock(),
+      screen: FakeScreenControls(),
       sourceId: _sourceId,
       mangaUrl: _manga,
       chapterUrl: '/c-1',

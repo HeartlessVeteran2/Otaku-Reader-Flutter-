@@ -31,6 +31,9 @@ import 'package:otaku_reader/source/model/source.dart';
 import 'package:otaku_reader/source/model/source_preference.dart';
 import 'package:otaku_reader/source/source_methods.dart';
 
+import 'package:otaku_reader/features/reader/screen_controls.dart';
+
+import 'helpers/screen_controls_fake.dart';
 import 'helpers/anilist_fakes.dart';
 import 'helpers/isar_test_env.dart';
 
@@ -170,6 +173,7 @@ void main() {
       AniListMetadataService(anilist: _NoAniList()),
     );
     Get.put<ScreenWakelock>(_FakeWakelock());
+    Get.put<ReaderScreenControls>(FakeScreenControls());
   });
 
   tearDown(Get.reset);
