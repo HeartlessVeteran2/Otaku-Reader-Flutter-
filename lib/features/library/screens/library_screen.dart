@@ -6,6 +6,8 @@ import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:otaku_reader/data/isar/manga_entry.dart';
 import 'package:otaku_reader/features/details/screens/manga_details_screen.dart';
 import 'package:otaku_reader/features/library/controllers/library_controller.dart';
+import 'package:otaku_reader/features/library/screens/categories_screen.dart';
+import 'package:otaku_reader/features/library/widgets/category_filter_bar.dart';
 import 'package:otaku_reader/features/library/widgets/library_card.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/core/ui/greeting_text.dart';
@@ -66,6 +68,10 @@ class _LibraryScreenState extends State<LibraryScreen>
       searchController: _search,
       onSearchChanged: _c.setQuery,
       searchHint: 'Search your library',
+      // Under the pills and hidden with them, which is where AnymeX hangs its
+      // own `ChipTabs`. It renders nothing until a category exists, so a
+      // library that has never been filed loses no height to it.
+      bottom: CategoryFilterBar(controller: _c, onManage: _openCategories),
       actions: [
         PopupMenuButton<LibrarySort>(
           icon: const Icon(Iconsax.sort),
@@ -130,6 +136,16 @@ class _LibraryScreenState extends State<LibraryScreen>
         }),
       ],
     );
+  }
+
+  Future<void> _openCategories() async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const CategoriesScreen()));
+    // The controller watches the category stream, so the pills are already
+    // current. The grid is not: a category deleted on that screen drops the
+    // selection, and `visible` has to be recomputed against the scrubbed rows.
+    await _c.load();
   }
 
   Widget _card(MangaEntry entry) {

@@ -57,48 +57,48 @@ void main() {
 
   group('creating', () {
     test('appends to the order', () async {
-      final a = await repo.create('Reading');
-      final b = await repo.create('On hold');
+      final a = repo.create('Reading');
+      final b = repo.create('On hold');
       expect(a!.order, 0);
       expect(b!.order, 1);
-      expect((await repo.all()).map((c) => c.name), ['Reading', 'On hold']);
+      expect(repo.all().map((c) => c.name), ['Reading', 'On hold']);
     });
 
     test('refuses a blank name', () async {
-      expect(await repo.create(''), isNull);
-      expect(await repo.create('   '), isNull);
-      expect(await repo.all(), isEmpty);
+      expect(repo.create(''), isNull);
+      expect(repo.create('   '), isNull);
+      expect(repo.all(), isEmpty);
     });
 
     test('trims, and allows a duplicate name', () async {
-      await repo.create('  Reading  ');
-      await repo.create('Reading');
+      repo.create('  Reading  ');
+      repo.create('Reading');
       // Two categories with one name is a mess the user can see and fix. A
       // silent refusal reads as the button being broken.
-      expect((await repo.all()).map((c) => c.name), ['Reading', 'Reading']);
+      expect(repo.all().map((c) => c.name), ['Reading', 'Reading']);
     });
 
     test('numbers from the count, so a gap does not collide', () async {
-      final a = await repo.create('A');
-      await repo.create('B');
-      await repo.delete(a!.id);
-      final c = await repo.create('C');
+      final a = repo.create('A');
+      repo.create('B');
+      repo.delete(a!.id);
+      final c = repo.create('C');
       // `last.order + 1` would be 2 here and collide with B. The count is 1.
       expect(c!.order, 1);
-      expect((await repo.all()).map((c) => c.name), ['B', 'C']);
+      expect(repo.all().map((c) => c.name), ['B', 'C']);
     });
   });
 
   group('deleting', () {
     test('scrubs the id from every library row that names it', () async {
-      final keep = await repo.create('Keep');
-      final drop = await repo.create('Drop');
+      final keep = repo.create('Keep');
+      final drop = repo.create('Drop');
 
       await addManga('/a', categories: [keep!.id, drop!.id]);
       await addManga('/b', categories: [drop.id]);
       await addManga('/c', categories: [keep.id]);
 
-      await repo.delete(drop.id);
+      repo.delete(drop.id);
 
       // The whole point. A row still naming a deleted category is invisible to
       // a grid that filters by membership.
@@ -108,97 +108,97 @@ void main() {
     });
 
     test('leaves rows that never named it untouched', () async {
-      final keep = await repo.create('Keep');
-      final drop = await repo.create('Drop');
+      final keep = repo.create('Keep');
+      final drop = repo.create('Drop');
       await addManga('/untouched', categories: [keep!.id]);
 
-      await repo.delete(drop!.id);
+      repo.delete(drop!.id);
 
       expect(await categoriesFor('/untouched'), [keep.id]);
     });
 
     test('removes the category itself', () async {
-      final row = await repo.create('Gone');
-      await repo.delete(row!.id);
-      expect(await repo.all(), isEmpty);
+      final row = repo.create('Gone');
+      repo.delete(row!.id);
+      expect(repo.all(), isEmpty);
     });
   });
 
   group('reordering', () {
     test('rewrites order to match the list', () async {
-      final a = await repo.create('A');
-      final b = await repo.create('B');
-      final c = await repo.create('C');
+      final a = repo.create('A');
+      final b = repo.create('B');
+      final c = repo.create('C');
 
-      await repo.reorder([c!.id, a!.id, b!.id]);
+      repo.reorder([c!.id, a!.id, b!.id]);
 
-      expect((await repo.all()).map((r) => r.name), ['C', 'A', 'B']);
+      expect(repo.all().map((r) => r.name), ['C', 'A', 'B']);
     });
 
     test('skips an id that no longer exists rather than failing', () async {
-      final a = await repo.create('A');
-      final b = await repo.create('B');
-      await repo.delete(a!.id);
+      final a = repo.create('A');
+      final b = repo.create('B');
+      repo.delete(a!.id);
 
       // The list came from a drag on a snapshot. A stale id must not strand
       // the surviving rows at their old positions.
-      await repo.reorder([a.id, b!.id]);
+      repo.reorder([a.id, b!.id]);
 
-      expect((await repo.all()).map((r) => r.name), ['B']);
-      expect((await repo.all()).first.order, 0);
+      expect(repo.all().map((r) => r.name), ['B']);
+      expect(repo.all().first.order, 0);
     });
 
     test('leaves an id the caller omitted alone', () async {
-      final a = await repo.create('A');
-      final b = await repo.create('B');
-      await repo.create('C');
+      final a = repo.create('A');
+      final b = repo.create('B');
+      repo.create('C');
 
-      await repo.reorder([b!.id, a!.id]);
+      repo.reorder([b!.id, a!.id]);
 
       // C keeps its row. A reorder that silently deletes what the caller
       // forgot to list is data loss wearing a drag gesture.
-      expect((await repo.all()).map((r) => r.name), contains('C'));
-      expect(await repo.all(), hasLength(3));
+      expect(repo.all().map((r) => r.name), contains('C'));
+      expect(repo.all(), hasLength(3));
     });
   });
 
   group('membership', () {
     test('round-trips through the manga row', () async {
-      final a = await repo.create('A');
-      final b = await repo.create('B');
+      final a = repo.create('A');
+      final b = repo.create('B');
       await addManga('/x');
 
-      await repo.setCategoriesFor(11, '/x', [a!.id, b!.id]);
+      repo.setCategoriesFor(11, '/x', [a!.id, b!.id]);
 
-      expect(await repo.categoriesOf(11, '/x'), [a.id, b.id]);
+      expect(repo.categoriesOf(11, '/x'), [a.id, b.id]);
     });
 
     test('drops an id naming no existing category', () async {
-      final a = await repo.create('A');
-      final gone = await repo.create('Gone');
+      final a = repo.create('A');
+      final gone = repo.create('Gone');
       await addManga('/x');
-      await repo.delete(gone!.id);
+      repo.delete(gone!.id);
 
       // The picker is built off a snapshot; a category deleted between opening
       // it and saving would otherwise be written straight back onto the row --
       // the same dangling reference `delete` exists to prevent, arriving from
       // the other direction.
-      await repo.setCategoriesFor(11, '/x', [a!.id, gone.id]);
+      repo.setCategoriesFor(11, '/x', [a!.id, gone.id]);
 
-      expect(await repo.categoriesOf(11, '/x'), [a.id]);
+      expect(repo.categoriesOf(11, '/x'), [a.id]);
     });
 
     test('drops a repeated id', () async {
-      final a = await repo.create('A');
+      final a = repo.create('A');
       await addManga('/x');
-      await repo.setCategoriesFor(11, '/x', [a!.id, a.id]);
-      expect(await repo.categoriesOf(11, '/x'), [a.id]);
+      repo.setCategoriesFor(11, '/x', [a!.id, a.id]);
+      expect(repo.categoriesOf(11, '/x'), [a.id]);
     });
 
     test('a row that is not in the library is a no-op, not a throw', () async {
-      final a = await repo.create('A');
-      await repo.setCategoriesFor(11, '/missing', [a!.id]);
-      expect(await repo.categoriesOf(11, '/missing'), isEmpty);
+      final a = repo.create('A');
+      repo.setCategoriesFor(11, '/missing', [a!.id]);
+      expect(repo.categoriesOf(11, '/missing'), isEmpty);
     });
   });
 
@@ -209,7 +209,7 @@ void main() {
     // nothing. A first draft left gaps after both a delete and a skipped
     // reorder while its own comment claimed otherwise.
     Future<void> expectContiguous() async {
-      final orders = (await repo.all()).map((c) => c.order).toList();
+      final orders = repo.all().map((c) => c.order).toList();
       expect(
         orders,
         List.generate(orders.length, (i) => i),
@@ -218,69 +218,73 @@ void main() {
     }
 
     test('after deleting from the middle', () async {
-      await repo.create('A');
-      final b = await repo.create('B');
-      await repo.create('C');
-      await repo.delete(b!.id);
+      repo.create('A');
+      final b = repo.create('B');
+      repo.create('C');
+      repo.delete(b!.id);
       await expectContiguous();
 
       // The collision the gap would have caused.
-      final d = await repo.create('D');
-      expect(
-        (await repo.all()).where((c) => c.order == d!.order),
-        hasLength(1),
-      );
+      final d = repo.create('D');
+      expect(repo.all().where((c) => c.order == d!.order), hasLength(1));
     });
 
     test('after a reorder that skipped a stale id', () async {
-      final a = await repo.create('A');
-      final b = await repo.create('B');
-      await repo.delete(a!.id);
-      await repo.reorder([a.id, b!.id]);
+      final a = repo.create('A');
+      final b = repo.create('B');
+      repo.delete(a!.id);
+      repo.reorder([a.id, b!.id]);
       await expectContiguous();
     });
 
     test('after a reorder that omitted an id', () async {
-      final a = await repo.create('A');
-      final b = await repo.create('B');
-      await repo.create('C');
-      await repo.reorder([b!.id, a!.id]);
+      final a = repo.create('A');
+      final b = repo.create('B');
+      repo.create('C');
+      repo.reorder([b!.id, a!.id]);
       await expectContiguous();
     });
   });
 
-  group('concurrent writes', () {
+  group('atomicity is structural, not locked', () {
     // Every mutation reads the table and then writes a value derived from what
-    // it read, with a genuine yield point in between -- so two callers can
-    // interleave. These two cases were measured against the unlocked version
-    // before the lock was written, because the inverse mistake (a lock added
-    // by analogy where the reads were synchronous, guarding nothing) is also
-    // in this project's mistakes table.
+    // it read -- `create` takes its position from the row count, `delete`
+    // renumbers what is left. An async draft of this repository had a genuine
+    // yield point between those two halves, and it raced: measured, two
+    // `create` calls fired together produced `[A=0, B=0]`, and a `delete`
+    // racing a `create` produced `[B=0, C=1, D=3]`, leaving a gap at 2 for the
+    // *next* create to collide with.
     //
-    // They assert the *order column*, not the return values: both calls
-    // succeed either way, and the damage is two categories sharing one
-    // position with nothing to sort them against.
+    // It is synchronous now, matching every other repository in this app, so
+    // there is no yield point for a second caller to land in. **That is why
+    // there is no lock**, and it is the precondition `CLAUDE.md` states: a
+    // lock is for an `await` between the read and the write, and one added
+    // without that guards nothing while reading as though concurrency had been
+    // handled.
+    //
+    // The guard for that is the **type system**, not a runtime assertion. The
+    // two cases above cannot even be written any more: `Future.wait([...])`
+    // does not accept a `CategoryEntry?`. Making any of these methods return a
+    // `Future` again breaks this file at compile time, which is a harder
+    // failure than a test.
 
-    test('two creates fired together take different positions', () async {
-      // Unlocked this produced `[A=0, B=0]`.
-      await Future.wait([repo.create('A'), repo.create('B')]);
+    test('a full read-modify-write cycle needs no await', () {
+      // Deliberately a synchronous test body -- no `async`, so the analyzer
+      // rejects an `await` here and the compiler rejects a `Future` return.
+      // Every call below is one turn of the event loop, start to finish.
+      final a = repo.create('A');
+      repo.create('B');
+      repo.create('C');
+      repo.delete(a!.id);
+      final d = repo.create('D');
 
-      final orders = (await repo.all()).map((r) => r.order).toList()..sort();
-      expect(orders, [0, 1]);
-    });
-
-    test('a create racing a delete does not land in the gap', () async {
-      // Unlocked this produced `[B=0, C=1, D=3]` -- the delete renumbered
-      // while the create was reading, so the new row took a position past the
-      // end and left 2 empty for the *next* create to collide with.
-      final a = await repo.create('A');
-      await repo.create('B');
-      await repo.create('C');
-
-      await Future.wait([repo.delete(a!.id), repo.create('D')]);
-
-      final orders = (await repo.all()).map((r) => r.order).toList()..sort();
+      // The positions that the async version got wrong: the delete closed its
+      // gap before the create read the count, because nothing could run in
+      // between.
+      final orders = repo.all().map((r) => r.order).toList()..sort();
       expect(orders, [0, 1, 2]);
+      expect(d, isNotNull);
+      expect(repo.all().map((r) => r.name), ['B', 'C', 'D']);
     });
   });
 
@@ -292,10 +296,10 @@ void main() {
     final sub = repo.changes.listen(seen.add);
     addTearDown(sub.cancel);
 
-    final row = await repo.create('A');
-    await repo.rename(row!.id, 'B');
-    await repo.reorder([row.id]);
-    await repo.delete(row.id);
+    final row = repo.create('A');
+    repo.rename(row!.id, 'B');
+    repo.reorder([row.id]);
+    repo.delete(row.id);
     await Future<void>.delayed(Duration.zero);
 
     // Three writes: create, rename, delete. The reorder is a no-op at one item

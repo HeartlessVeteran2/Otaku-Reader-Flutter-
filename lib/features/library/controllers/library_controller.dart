@@ -68,7 +68,7 @@ class LibraryController extends GetxController {
             .clamp(0, LibrarySort.values.length - 1)];
     ascending.value = LibraryKeys.sortAscending.get<bool>(true);
     load();
-    unawaited(loadCategories());
+    loadCategories();
     _startWatching();
   }
 
@@ -105,9 +105,7 @@ class LibraryController extends GetxController {
     // The library's debounce exists because a refresh writes a row per series;
     // a category write is one deliberate tap, and delaying it by 300ms after
     // the user renames a chip is a visible lag for no benefit.
-    _categoryWatch = _categories.changes.listen(
-      (_) => unawaited(loadCategories()),
-    );
+    _categoryWatch = _categories.changes.listen((_) => loadCategories());
   }
 
   Future<void> load() async {
@@ -183,12 +181,32 @@ class LibraryController extends GetxController {
   /// naming nothing — and `visible` would then answer **empty**, which is a
   /// library that looks wiped. The repository scrubs the ids off the rows;
   /// this scrubs the one held in memory.
-  Future<void> loadCategories() async {
-    categories.value = await _categories.all();
+  void loadCategories() {
+    categories.value = _categories.all();
     final selected = selectedCategory.value;
     if (selected != null && !categories.any((c) => c.id == selected)) {
       selectedCategory.value = null;
     }
+  }
+
+  /// How many favourites sit in each category, keyed by category id.
+  ///
+  /// Derived from [entries] rather than counted in the database, so it is the
+  /// same list the grid is about and cannot disagree with it. A count that
+  /// says 4 over a grid showing 3 is worse than no count, and a second query
+  /// is exactly how the two drift.
+  ///
+  /// A category nobody has filed anything into is simply absent from the map,
+  /// which is why callers read it with a `?? 0` — that is the honest answer
+  /// for a category that exists and is empty.
+  Map<int, int> get categoryCounts {
+    final counts = <int, int>{};
+    for (final entry in entries) {
+      for (final id in entry.categoryIds) {
+        counts[id] = (counts[id] ?? 0) + 1;
+      }
+    }
+    return counts;
   }
 
   void selectCategory(int? id) => selectedCategory.value = id;

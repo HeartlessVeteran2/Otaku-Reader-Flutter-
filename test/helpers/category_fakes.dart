@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:otaku_reader/data/isar/category_entry.dart';
 import 'package:otaku_reader/domain/repository/category_repository.dart';
 
@@ -21,23 +19,23 @@ class EmptyCategories implements CategoryRepository {
   Stream<void> get changes => const Stream<void>.empty();
 
   @override
-  Future<List<CategoryEntry>> all() async => const [];
+  List<CategoryEntry> all() => const [];
 
   @override
-  Future<CategoryEntry?> create(String name) async => null;
+  CategoryEntry? create(String name) => null;
 
   @override
-  Future<bool> rename(int id, String name) async => false;
+  bool rename(int id, String name) => false;
 
   @override
-  Future<void> delete(int id) async {}
+  void delete(int id) {}
 
   @override
-  Future<void> reorder(List<int> ids) async {}
+  void reorder(List<int> ids) {}
 
   @override
-  Future<List<int>> categoriesOf(int sourceId, String url) async => const [];
+  List<int> categoriesOf(int sourceId, String url) => const [];
 
   @override
-  Future<void> setCategoriesFor(int s, String url, List<int> ids) async {}
+  void setCategoriesFor(int s, String url, List<int> ids) {}
 }
