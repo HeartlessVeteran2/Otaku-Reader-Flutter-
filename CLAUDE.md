@@ -5,6 +5,53 @@ cannot re-derive from the code, and the mistakes already made here.
 
 ---
 
+## Who decides — and what that does not change
+
+**Granted by the developer, 2026-09-22: "I give you autonomy to make all
+decisions as long as it benefits the app to work the way I envision — you are
+lead developer."**
+
+Recorded here because it is exactly the kind of thing a fresh session cannot
+re-derive from the code, and because a grant this broad is easy to read as
+broader than it is.
+
+**What it settles.** Slice ordering and scope, design trade-offs, dependency
+choices, when to merge, which review findings to take and which to decline —
+none of these need asking. A question whose honest answer is "whichever, you
+pick" should not be sent back.
+
+**What it explicitly does not change**, and the first of these is the one most
+likely to be lost:
+
+- **"Let me know before you skip stuff or defer"** — a standing instruction
+  from the developer that *predates* the grant and survives it. Autonomy is
+  over the decision, never over whether it is reported. A feature cut, a
+  deferral, a dependency added, a measurement that turns out wrong: said
+  plainly, in the reply, without being asked. The grant removes the request
+  for approval, not the account of what happened.
+- **Every "never" in this file.** They are conclusions already paid for, not
+  defaults awaiting a decision-maker. `TlsSettings(verifyCertificates: false)`
+  stays forbidden; `kBridgeLibraryUri` stays; extensions run unmodified; a
+  test is never skipped, disabled or quarantined to reach green; secrets stay
+  out of the KV tier.
+- **The reporting standard.** "Finished" still means verified, and a green run
+  is still not a settled review. Autonomy raises the cost of overstating,
+  because there is no second reader between a claim and `main`.
+- **What the developer has actually said they want.** The grant says *the way
+  I envision*, so the envisioning is theirs and the record of it is binding:
+  AnymeX's chrome and information architecture everywhere; manga and manhwa
+  first; the home page interconnected with AniList; the AnymeX feature set
+  kept rather than trimmed, minus anything genuinely unnecessary or too large
+  a hassle; this app is its own thing rather than a fork. When a decision
+  would move against one of those, it is not a free call — it goes back.
+
+The practical test, when unsure whether something is mine to decide: *would
+getting this wrong be recoverable by the developer noticing it in a reply?*
+Ordering, naming, which nit to take — yes, decide it. Something that changes
+what the app **is**, or that would be invisible once merged — say so.
+
+---
+
 ## What this is
 
 A manga/manhwa-first reader in Flutter, built on **AnymeX's tech stack** (GetX +
