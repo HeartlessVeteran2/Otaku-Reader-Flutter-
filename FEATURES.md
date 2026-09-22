@@ -31,10 +31,12 @@ The audit corrected two things that had been stated as fact:
    had no page indicator in the reader. Both wrote their key and were never
    read. That is live UI wired to nothing, which `CLAUDE.md` forbids, and it
    shipped. **Fixed 2026-09-20** — both are ticked below, and the reader went
-   from honouring two keys to four. It honours **five** since 2026-09-21,
-   when `webtoonDirection` arrived with the two new reading axes, and **nine**
-   since the tap-zone editor landed the same day: the four `tapZones*` keys all
-   have a control behind them and all reach the reader.
+   from honouring two keys to four. It has grown since: `webtoonDirection` with
+   the two reading axes, the `tapZones*` group, and the display group.
+   **The live number is stated once**, in the audit note below, and
+   `features_doc_test.dart` derives it from `keys.dart` rather than trusting
+   the sentence — because a running tally kept in prose is a tally that drifts,
+   and this one drifted three times in two days.
 
 A checklist that counts declarations rather than behaviour is how both got
 missed. Tick what renders, not what compiles.
@@ -46,7 +48,7 @@ missed. Tick what renders, not what compiles.
 - [x] **0 — Skeleton.** Isar + recovery ladder, `KvHelper`, typed enum keys, M3 theming, `LazyIndexedStack` shell, explicit DI.
 - [x] **1 — Source runtime.** Mangayomi Dart extensions via d4rt. 55/55 evaluate, 6 complete the full chain.
 - [~] **2 — Browse, details, library, home.** Browse, global search, details with AniList carousels and the list editor all ship. Library is a grid with 4 sorts and a search box — no filters, categories, display modes or badges.
-- [~] **3 — Reader.** Paged and webtoon, all four directions in both, progress persistence and resume, keep-screen-on and a persistent page indicator. Six of ~40 reader settings are honoured.
+- [~] **3 — Reader.** Paged and webtoon, all four directions in both, progress persistence and resume, keep-screen-on, a persistent page indicator, tap zones with an editor, and the display group. The honoured-key count is in the audit note below rather than repeated here.
 - [~] **4 — Downloads, updates, history.** Queue with cancel/delete and storage usage; updates with mark-read and undo; history with search, remove, undo and resume. None of the depth below.
 - [ ] **5 — Smart Prefetch, Smart Panels.** AniList metadata shipped; the other two have not started.
 - [ ] **6 — Tracking fan-out, migration, stats, Komikku parity.**
@@ -75,14 +77,21 @@ The single most important surface. Combined list from both apps.
 > screen on* and *Show the page number* — wrote a key the reader never read,
 > so they were inert UI. **Both are now wired**, and `webtoonDirection` was
 > added on 2026-09-21 with the two new reading axes, so `ReaderKeys` stands at
-> **15 honoured of 39** — the four `tapZones*` keys went live on 2026-09-21,
-> and the six display keys (`customBrightnessEnabled`/`Value`,
+> **18 honoured of 39** — the five `tapZones*` keys went live on 2026-09-21,
+> and the eight display keys (`customBrightnessEnabled`/`Value`,
 > `colorFilterEnabled`/`Value`/`Mode`, `grayscaleEnabled`,
-> `invertColorsEnabled`, `readerTheme`) on 2026-09-22. Every one of those six
+> `invertColorsEnabled`, `readerTheme`) on 2026-09-22. Every one of those eight
 > was **declared from the start and read by nothing**, which is the exact state
 > this file exists to catch: a checklist counting declared keys reports parity
-> for a feature nobody built. The rest have no control behind them and are
-> ordinary
+> for a feature nobody built.
+>
+> That count is **derived, not counted by hand**. It was hand-written wrong
+> three times in two days — "six" display keys for eight names, "four"
+> `tapZones*` for five, and a total that inherited both — so
+> `features_doc_test.dart` now reads `keys.dart`, greps `lib/` for each
+> member, and fails when this sentence disagrees. Found by `codeant-ai`, which
+> counted the names in the list against the number in front of them. The rest
+> have no control behind them and are ordinary
 > unbuilt features rather than dead UI. `ReaderDefaults` holds the fallback for
 > the two that have a switch, because the reader and the Settings row both need
 > it and a disagreeing pair renders a switch showing the opposite of what the

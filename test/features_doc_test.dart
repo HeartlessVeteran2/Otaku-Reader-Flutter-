@@ -94,4 +94,68 @@ void main() {
       );
     }
   });
+
+  test('the honoured-key count is the one the code actually has', () {
+    // Derived, never restated. This sentence was hand-written wrong three
+    // times in two days -- "six" display keys listed against eight names,
+    // "four" `tapZones*` against five, and a total that inherited both. A
+    // number a human recounts each time is a number that drifts, and this file
+    // is the one whose entire job is not overstating.
+    //
+    // "Honoured" means *something outside `keys.dart` names the member*. That
+    // is deliberately generous: a key written by a Settings row and read by
+    // nothing still counts here, because this assertion is about the sentence
+    // being arithmetically true, not about the feature being wired. The guard
+    // against a dead control is a rendered test in the feature's own suite --
+    // see the display group's reader tests.
+    final keysFile = File('lib/core/database/data_keys/keys.dart')
+        .readAsStringSync();
+    final block = RegExp(
+      r'enum ReaderKeys\s*\{(.*?)\n\}',
+      dotAll: true,
+    ).firstMatch(keysFile);
+    expect(block, isNotNull, reason: 'ReaderKeys enum not found');
+
+    final members = block!
+        .group(1)!
+        .split(',')
+        .map((m) => m.trim())
+        .where((m) => m.isNotEmpty && !m.startsWith('//'))
+        .toList();
+
+    final sources = Directory('lib')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where(
+          (f) =>
+              f.path.endsWith('.dart') &&
+              !f.path.endsWith('data_keys/keys.dart'),
+        )
+        .map((f) => f.readAsStringSync())
+        .toList();
+
+    final honoured = members
+        .where(
+          (m) =>
+              sources.any((src) => RegExp('ReaderKeys\\.$m\\b').hasMatch(src)),
+        )
+        .length;
+
+    final claim = RegExp(r'\*\*(\d+) honoured of (\d+)\*\*').firstMatch(doc);
+    expect(claim, isNotNull, reason: 'the honoured-key sentence is missing');
+    expect(
+      int.parse(claim!.group(1)!),
+      honoured,
+      reason:
+          'FEATURES.md claims ${claim.group(1)} honoured; the code has '
+          '$honoured',
+    );
+    expect(
+      int.parse(claim.group(2)!),
+      members.length,
+      reason:
+          'FEATURES.md claims ${claim.group(2)} declared; ReaderKeys has '
+          '${members.length}',
+    );
+  });
 }
