@@ -22,6 +22,7 @@ import 'package:otaku_reader/data/isar/manga_entry.dart';
 import 'package:otaku_reader/domain/repository/download_repository.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
+import 'package:otaku_reader/features/reader/display/page_layout.dart';
 import 'package:otaku_reader/features/reader/screen_controls.dart';
 import 'package:otaku_reader/features/reader/screen_wakelock.dart';
 import 'package:otaku_reader/source/model/page_url.dart';
@@ -182,6 +183,24 @@ class ReaderController extends GetxController {
   /// controls can change them mid-chapter without a reopen — and so a test can
   /// read what the reader decided rather than what is on disk, which is the
   /// distinction that let two dead switches ship.
+  /// How a page is sized. Read once at init, so both bodies ask the same
+  /// object rather than each reaching for the key it happens to want.
+  final pageLayout = const PageLayout(
+    fitToScreen: ReaderDefaults.fitToScreen,
+    widthFactor: ReaderDefaults.imageWidth,
+    spaced: ReaderDefaults.spacedPages,
+  ).obs;
+
+  /// True when the layout currently in force was chosen by long-strip
+  /// detection rather than by the reader.
+  ///
+  /// It exists to stop that choice being **written back**. Without it, opening
+  /// one manhwa rewrites the stored default, and every paged series afterwards
+  /// opens as a strip — the setting silently changed by a series rather than
+  /// by a person. AnymeX guards the same thing in `_savePreferences`; this is
+  /// that guard, named.
+  final layoutIsAuto = false.obs;
+
   final orientation = ReaderOrientation.system.obs;
   final immersive = ReaderDefaults.immersiveMode.obs;
   final einkFlash = ReaderDefaults.displayRefresh.obs;
@@ -266,6 +285,17 @@ class ReaderController extends GetxController {
     if (ReaderKeys.secureScreen.get<bool>(ReaderDefaults.secureScreen)) {
       unawaited(_applySecure(true));
     }
+
+    pageLayout.value = PageLayout(
+      fitToScreen: ReaderKeys.fitToScreen.get<bool>(ReaderDefaults.fitToScreen),
+      // Clamped to the range the slider offers, not to an open one: a stored
+      // value above 1 would push a strip page past a viewport the continuous
+      // body cannot pan, and a value at 0 would erase the page outright.
+      widthFactor: ReaderKeys.imageWidth
+          .get<double>(ReaderDefaults.imageWidth)
+          .clamp(0.5, 1.0),
+      spaced: ReaderKeys.spacedPages.get<bool>(ReaderDefaults.spacedPages),
+    );
 
     einkFlash.value = ReaderKeys.displayRefreshEnabled.get<bool>(
       ReaderDefaults.displayRefresh,
@@ -352,6 +382,7 @@ class ReaderController extends GetxController {
     try {
       final entry = await _library.find(sourceId, mangaUrl);
       if (entry != null) {
+        _applyLongStripLayout(entry);
         // Ascending, so "next chapter" means the next one to read. The details
         // screen shows newest first; the reader must not inherit that or Next
         // would walk backwards.
@@ -615,9 +646,39 @@ class ReaderController extends GetxController {
     await load();
   }
 
+  /// Switches layout **and** persists it — this is the reader choosing.
+  ///
+  /// Clearing [layoutIsAuto] is the point: once the reader has said what they
+  /// want for this chapter, detection stops owning the value, and the write
+  /// below is theirs rather than a series'.
   void setLayout(ReadingLayout value) {
+    layoutIsAuto.value = false;
     layout.value = value;
     ReaderKeys.readingLayout.set<int>(value.index);
+  }
+
+  /// Opens a long-strip series in the continuous reader.
+  ///
+  /// Two things it deliberately does **not** do:
+  ///
+  /// - **It never writes the key.** The layout is in force for this chapter
+  ///   only; the stored default belongs to the reader. Persisting it is how a
+  ///   single manhwa quietly turns every later series into a strip.
+  /// - **It does not touch direction.** AnymeX force-sets its one direction to
+  ///   `down` here, which it has to, because it keeps a single value for both
+  ///   layouts — that override is itself the admission that one value is wrong
+  ///   for a strip. This app already stores paged and continuous directions
+  ///   separately, so switching the layout is enough and `activeDirection`
+  ///   picks the right one by construction.
+  void _applyLongStripLayout(MangaEntry entry) {
+    if (!ReaderKeys.autoWebtoonMode.get<bool>(ReaderDefaults.autoWebtoonMode)) {
+      return;
+    }
+    if (layout.value == ReadingLayout.webtoon) return;
+    if (!readsAsLongStrip(entry)) return;
+
+    layoutIsAuto.value = true;
+    layout.value = ReadingLayout.webtoon;
   }
 
   void setDirection(ReadingDirection value) {

@@ -125,6 +125,22 @@ abstract final class ReaderDefaults {
   /// Long enough for a panel to settle on the slow displays this is for, and
   /// short enough not to read as a dropped frame on the fast ones.
   static const displayRefreshMs = 120;
+
+  /// On. A manhwa opened in a paged reader is the wrong reader, and the signal
+  /// (a genre) is free and available before a page has been fetched.
+  static const autoWebtoonMode = true;
+
+  /// On: fill the width. This is what a phone-shaped reader wants by default —
+  /// a page shrunk to fit the height leaves margins on the one axis that is
+  /// already tight.
+  static const fitToScreen = true;
+
+  /// Full width. The slider only narrows from here; see `PageLayout`.
+  static const imageWidth = 1.0;
+
+  /// Off. A long strip is meant to be continuous, so a gap between pages is a
+  /// preference rather than the default — the artwork usually joins up.
+  static const spacedPages = false;
 }
 
 enum LibraryKeys {

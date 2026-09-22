@@ -396,7 +396,18 @@ class _ReaderScreenState extends State<ReaderScreen> {
         child: Center(
           child: KeyedSubtree(
             key: _pageKey(i),
-            child: _Page(page: _c.pages[i], baseUrl: _c.sourceBaseUrl.value),
+            child: _Page(
+              page: _c.pages[i],
+              baseUrl: _c.sourceBaseUrl.value,
+              // Fill the width, letting a tall page run past the screen; or
+              // show the whole page. Either way the `InteractiveViewer` above
+              // is what makes the overflowing case reachable, which is why
+              // this option belongs to the paged body and the strip's does
+              // not.
+              fit: _c.pageLayout.value.fitToScreen
+                  ? BoxFit.fitWidth
+                  : BoxFit.contain,
+            ),
           ),
         ),
       ),
@@ -431,13 +442,35 @@ class _ReaderScreenState extends State<ReaderScreen> {
             reverse: direction.reversed,
             itemCount: _c.pages.length,
             itemBuilder: (context, i) {
-              final page = KeyedSubtree(
+              final layout = _c.pageLayout.value;
+              Widget page = KeyedSubtree(
                 key: _pageKey(i),
                 child: _Page(
                   page: _c.pages[i],
                   baseUrl: _c.sourceBaseUrl.value,
+                  // Always `fitWidth` in a strip. The page's width is decided
+                  // by the factor below and its height follows the artwork, so
+                  // `contain` would shrink a tall page to a height nothing is
+                  // constraining and leave it floating in its own column.
+                  fit: BoxFit.fitWidth,
                 ),
               );
+              // Narrows the column, never widens it — the continuous body has
+              // no `InteractiveViewer`, so anything past the viewport could not
+              // be reached. `1.0` skips the widget rather than wrapping in a
+              // no-op fraction.
+              if (layout.widthFactor < 1) {
+                page = FractionallySizedBox(
+                  widthFactor: layout.widthFactor,
+                  child: page,
+                );
+              }
+              if (layout.gap > 0) {
+                page = Padding(
+                  padding: EdgeInsets.symmetric(vertical: layout.gap),
+                  child: page,
+                );
+              }
               // A vertical strip constrains width and lets each page take the
               // height its aspect ratio asks for. Turned on its side that
               // reverses, and an image with an unbounded main axis falls back
@@ -771,10 +804,22 @@ class _ReaderScreenState extends State<ReaderScreen> {
 }
 
 class _Page extends StatelessWidget {
-  const _Page({required this.page, required this.baseUrl});
+  const _Page({
+    required this.page,
+    required this.baseUrl,
+    this.fit = BoxFit.contain,
+  });
 
   final PageUrl page;
   final String baseUrl;
+
+  /// How the artwork fills the box it is given.
+  ///
+  /// Passed in rather than read from a key here, so both bodies get it from
+  /// the one object the controller resolved — the `activeDirection` rule, one
+  /// layer down. A widget that reads its own setting is a widget each body can
+  /// disagree with.
+  final BoxFit fit;
 
   static const _broken = SizedBox(
     height: 200,
@@ -789,7 +834,7 @@ class _Page extends StatelessWidget {
     if (!page.url.startsWith('http')) {
       return Image.file(
         File(page.url),
-        fit: BoxFit.contain,
+        fit: fit,
         errorBuilder: (_, _, _) => _broken,
       );
     }
@@ -802,7 +847,7 @@ class _Page extends StatelessWidget {
       // because a source that bothered to set a header knows something a
       // default does not.
       httpHeaders: MClient.pageImageHeaders(page.headers, baseUrl),
-      fit: BoxFit.contain,
+      fit: fit,
       placeholder: (_, _) => const SizedBox(
         height: 400,
         child: Center(child: CircularProgressIndicator(strokeWidth: 2)),

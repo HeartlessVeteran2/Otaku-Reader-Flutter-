@@ -207,6 +207,137 @@ void main() {
     return (c, methods);
   }
 
+  group('long-strip auto-detection', () {
+    test('a manhwa opens in the continuous reader', () async {
+      ReaderKeys.readingLayout.set<int>(ReadingLayout.paged.index);
+      ReaderKeys.autoWebtoonMode.set<bool>(true);
+      await library.upsertFromSource(
+        sourceId: _sourceId,
+        url: _manga,
+        manga: MManga(
+          name: 'Example',
+          genre: ['Action', 'Manhwa'],
+          chapters: [MChapter(url: '/c-1', name: 'Chapter 1')],
+        ),
+      );
+
+      final (c, _) = await open('/c-1');
+
+      expect(c.layout.value, ReadingLayout.webtoon);
+      expect(c.layoutIsAuto.value, isTrue);
+      c.onClose();
+    });
+
+    test('**it never writes the stored default**', () async {
+      // The guard that carries this feature. Without it, opening one manhwa
+      // rewrites the reader's default and every paged series afterwards opens
+      // as a strip — a setting changed by a series rather than by a person.
+      // AnymeX guards the same thing inside `_savePreferences`.
+      ReaderKeys.readingLayout.set<int>(ReadingLayout.paged.index);
+      ReaderKeys.autoWebtoonMode.set<bool>(true);
+      await library.upsertFromSource(
+        sourceId: _sourceId,
+        url: _manga,
+        manga: MManga(
+          name: 'Example',
+          genre: ['Webtoon'],
+          chapters: [MChapter(url: '/c-1', name: 'Chapter 1')],
+        ),
+      );
+
+      final (c, _) = await open('/c-1');
+      expect(c.layout.value, ReadingLayout.webtoon, reason: 'in force');
+      expect(
+        ReaderKeys.readingLayout.get<int>(0),
+        ReadingLayout.paged.index,
+        reason: 'but the stored default is untouched',
+      );
+      c.onClose();
+    });
+
+    test(
+      'choosing a layout by hand does persist, and clears the flag',
+      () async {
+        ReaderKeys.readingLayout.set<int>(ReadingLayout.paged.index);
+        ReaderKeys.autoWebtoonMode.set<bool>(true);
+        await library.upsertFromSource(
+          sourceId: _sourceId,
+          url: _manga,
+          manga: MManga(
+            name: 'Example',
+            genre: ['Webtoon'],
+            chapters: [MChapter(url: '/c-1', name: 'Chapter 1')],
+          ),
+        );
+
+        final (c, _) = await open('/c-1');
+        c.setLayout(ReadingLayout.paged);
+
+        expect(c.layoutIsAuto.value, isFalse);
+        expect(ReaderKeys.readingLayout.get<int>(0), ReadingLayout.paged.index);
+        c.onClose();
+      },
+    );
+
+    test('an ordinary manga is left alone', () async {
+      ReaderKeys.readingLayout.set<int>(ReadingLayout.paged.index);
+      ReaderKeys.autoWebtoonMode.set<bool>(true);
+      await library.upsertFromSource(
+        sourceId: _sourceId,
+        url: _manga,
+        manga: MManga(
+          name: 'Example',
+          genre: ['Action', 'Seinen'],
+          chapters: [MChapter(url: '/c-1', name: 'Chapter 1')],
+        ),
+      );
+
+      final (c, _) = await open('/c-1');
+
+      expect(c.layout.value, ReadingLayout.paged);
+      expect(c.layoutIsAuto.value, isFalse);
+      c.onClose();
+    });
+
+    test('the switch turns it off', () async {
+      ReaderKeys.readingLayout.set<int>(ReadingLayout.paged.index);
+      ReaderKeys.autoWebtoonMode.set<bool>(false);
+      await library.upsertFromSource(
+        sourceId: _sourceId,
+        url: _manga,
+        manga: MManga(
+          name: 'Example',
+          genre: ['Webtoon'],
+          chapters: [MChapter(url: '/c-1', name: 'Chapter 1')],
+        ),
+      );
+
+      final (c, _) = await open('/c-1');
+
+      expect(c.layout.value, ReadingLayout.paged);
+      c.onClose();
+    });
+
+    test('a stored page width outside the slider range is clamped', () async {
+      // A value above 1 would push a strip page past a viewport the continuous
+      // body cannot pan; a 0 would erase the page outright.
+      ReaderKeys.imageWidth.set<double>(2.5);
+      await library.upsertFromSource(
+        sourceId: _sourceId,
+        url: _manga,
+        manga: MManga(
+          name: 'Example',
+          chapters: [MChapter(url: '/c-1', name: 'Chapter 1')],
+        ),
+      );
+
+      final (c, _) = await open('/c-1');
+
+      expect(c.pageLayout.value.widthFactor, 1.0);
+      c.onClose();
+    });
+  });
+
   group('the screen settings a chapter holds', () {
     // Every assertion here reads the **request** the reader made, not the key
     // it stored. That is the whole reason `ReaderScreenControls` is a seam:

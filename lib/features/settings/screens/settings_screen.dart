@@ -72,6 +72,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// the reader reads them at open time, and there may be no reader alive.
   int _readerInt(ReaderKeys key, int fallback) => key.get<int>(fallback);
   bool _readerBool(ReaderKeys key, bool fallback) => key.get<bool>(fallback);
+  double _readerDouble(ReaderKeys key, double fallback) =>
+      key.get<double>(fallback);
 
   void _setInt(ReaderKeys key, int value) {
     key.set<int>(value);
@@ -358,6 +360,55 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 );
                 if (mounted) setState(() {});
               },
+            ),
+            ChromeTile.toggle(
+              icon: Iconsax.document_text,
+              title: 'Detect long strips',
+              subtitle: 'Opens manhwa and webtoons in the continuous reader',
+              value: _readerBool(
+                ReaderKeys.autoWebtoonMode,
+                ReaderDefaults.autoWebtoonMode,
+              ),
+              onChanged: (v) => _setBool(ReaderKeys.autoWebtoonMode, v),
+            ),
+            ChromeTile.toggle(
+              icon: Iconsax.maximize_3,
+              title: 'Fill the width',
+              subtitle: 'Off shows the whole page instead',
+              value: _readerBool(
+                ReaderKeys.fitToScreen,
+                ReaderDefaults.fitToScreen,
+              ),
+              onChanged: (v) => _setBool(ReaderKeys.fitToScreen, v),
+            ),
+            ChromeTile.slider(
+              icon: Iconsax.arrow_3,
+              title: 'Page width',
+              // Narrowing only. The continuous body has no pan, so a page
+              // wider than the viewport would have an unreachable edge.
+              valueLabel:
+                  '${(_readerDouble(ReaderKeys.imageWidth, ReaderDefaults.imageWidth) * 100).round()}%',
+              value: _readerDouble(
+                ReaderKeys.imageWidth,
+                ReaderDefaults.imageWidth,
+              ).clamp(0.5, 1.0),
+              min: 0.5,
+              max: 1.0,
+              divisions: 10,
+              onChanged: (v) {
+                ReaderKeys.imageWidth.set<double>(v);
+                setState(() {});
+              },
+            ),
+            ChromeTile.toggle(
+              icon: Iconsax.row_vertical,
+              title: 'Space out pages',
+              subtitle: 'A gap between pages in the continuous reader',
+              value: _readerBool(
+                ReaderKeys.spacedPages,
+                ReaderDefaults.spacedPages,
+              ),
+              onChanged: (v) => _setBool(ReaderKeys.spacedPages, v),
             ),
             // Every row below decides what the *next* chapter does: the
             // reader applies them in `onInit` and releases them unconditionally

@@ -77,12 +77,14 @@ The single most important surface. Combined list from both apps.
 > screen on* and *Show the page number* — wrote a key the reader never read,
 > so they were inert UI. **Both are now wired**, and `webtoonDirection` was
 > added on 2026-09-21 with the two new reading axes, so `ReaderKeys` stands at
-> **23 honoured of 42** — the five `tapZones*` keys went live on 2026-09-21,
+> **27 honoured of 42** — the five `tapZones*` keys went live on 2026-09-21,
 > the eight display keys (`customBrightnessEnabled`/`Value`,
 > `colorFilterEnabled`/`Value`/`Mode`, `grayscaleEnabled`,
 > `invertColorsEnabled`, `readerTheme`) on 2026-09-22, and the screen group
 > (`orientationLock`, `immersiveMode`, `secureScreen`, plus
-> `displayRefreshEnabled`/`DurationMs`) the same day. Every one of those was
+> `displayRefreshEnabled`/`DurationMs`) and the page-layout group
+> (`autoWebtoonMode`, `fitToScreen`, `imageWidth`, `spacedPages`) the same
+> day. Every one of those was
 > **declared from the start and read by nothing**, which is the exact state
 > this file exists to catch: a checklist counting declared keys reports parity
 > for a feature nobody built.
@@ -106,7 +108,7 @@ The single most important surface. Combined list from both apps.
 > it and a disagreeing pair renders a switch showing the opposite of what the
 > reader does.
 
-**Modes & layout** — [x] paged and continuous · [x] 4 directions — `ReadingDirection` carries an axis and a sign, and **both layouts honour both**: paged reads vertically, continuous reads sideways. The two keep *separate* stored directions, which AnymeX does not · [ ] dual-page (off/auto-landscape/force) with **shift double pages** · [ ] auto webtoon mode (switches to vertical from page aspect ratios) · [ ] fit-to-screen-width · [ ] webtoon side padding and page gap · [ ] image width multiplier + desktop max-width clamp · [ ] spaced pages
+**Modes & layout** — [x] paged and continuous · [x] 4 directions — `ReadingDirection` carries an axis and a sign, and **both layouts honour both**: paged reads vertically, continuous reads sideways. The two keep *separate* stored directions, which AnymeX does not · [ ] dual-page (off/auto-landscape/force) with **shift double pages** · [x] auto webtoon mode — **from genre metadata, not page aspect ratios**, which is AnymeX's approach and is knowable before an image is fetched; `manhua` is deliberately excluded as too mixed a signal. It never writes the stored layout, so one manhwa cannot change the default · [x] fit-to-screen-width · [~] page gap *(gap yes; webtoon side padding no)* · [~] image width multiplier — **narrows only** (0.5-1.0), because the continuous body has no `InteractiveViewer` and a page wider than the viewport would have an unreachable edge; no desktop max-width clamp · [x] spaced pages
 
 **Rendering** — [ ] tiled/subsampled decoding for tall strips (AnymeX's `subsampling_scale_image_view/` + FFI decoder) · [ ] crop borders (white/black margin removal) · [ ] image filter quality incl. Lanczos pre-scale · [ ] image quality / data-saver downscaling · [ ] pinch + double-tap zoom, disable-zoom-out option
 
