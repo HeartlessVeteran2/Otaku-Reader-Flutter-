@@ -41,6 +41,8 @@ import 'package:otaku_reader/source/model/source.dart';
 import 'package:otaku_reader/source/model/source_preference.dart';
 import 'package:otaku_reader/source/source_methods.dart';
 
+import 'helpers/category_fakes.dart';
+
 import 'helpers/anilist_fakes.dart';
 import 'helpers/fake_source_repository.dart';
 import 'helpers/isar_test_env.dart';
@@ -116,7 +118,11 @@ void main() {
     Get.put<LibraryRepository>(library);
     Get.put<SourceRepository>(const NoSources());
     Get.put<LibraryController>(
-      LibraryController(library: library, sources: const NoSources()),
+      LibraryController(
+        library: library,
+        sources: const NoSources(),
+        categories: const EmptyCategories(),
+      ),
     );
     Get.put<UpdatesController>(
       UpdatesController(library: library, sources: const NoSources()),
@@ -352,7 +358,11 @@ void main() {
     // the grid without a reselect". What this test is for is the sliver grid.
     await Get.delete<LibraryController>();
     Get.put<LibraryController>(
-      LibraryController(library: library, sources: const NoSources()),
+      LibraryController(
+        library: library,
+        sources: const NoSources(),
+        categories: const EmptyCategories(),
+      ),
     );
 
     await tester.pumpWidget(wrap(const LibraryScreen()));

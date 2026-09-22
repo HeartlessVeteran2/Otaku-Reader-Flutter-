@@ -15,6 +15,8 @@ import 'package:otaku_reader/data/repository/library_repository_impl.dart';
 import 'package:otaku_reader/data/repository/source_repository_impl.dart';
 import 'package:otaku_reader/domain/repository/extension_repository.dart';
 import 'package:otaku_reader/domain/repository/anilist_repository.dart';
+import 'package:otaku_reader/data/repository/category_repository_impl.dart';
+import 'package:otaku_reader/domain/repository/category_repository.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/features/browse/controllers/extensions_controller.dart';
@@ -72,6 +74,7 @@ class AppBindings extends Bindings {
     Get.put<ExtensionRepository>(ExtensionRepositoryImpl(), permanent: true);
     Get.put<SourceRepository>(SourceRepositoryImpl(), permanent: true);
     Get.put<LibraryRepository>(LibraryRepositoryImpl(), permanent: true);
+    Get.put<CategoryRepository>(CategoryRepositoryImpl(), permanent: true);
     Get.put<AniListRepository>(AniListRepositoryImpl(), permanent: true);
     // Permanent for the same reason as the source repository: it owns a live
     // queue, and a download must not stop because the screen that started it
@@ -122,6 +125,7 @@ class AppBindings extends Bindings {
       () => LibraryController(
         library: Get.find<LibraryRepository>(),
         sources: Get.find<SourceRepository>(),
+        categories: Get.find<CategoryRepository>(),
       ),
       fenix: true,
     );

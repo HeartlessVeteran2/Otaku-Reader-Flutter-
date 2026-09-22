@@ -18,6 +18,8 @@ import 'package:otaku_reader/features/updates/controllers/updates_controller.dar
 import 'package:otaku_reader/source/model/m_chapter.dart';
 import 'package:otaku_reader/source/model/m_manga.dart';
 
+import 'helpers/category_fakes.dart';
+
 import 'helpers/fake_source_repository.dart';
 import 'helpers/isar_test_env.dart';
 
@@ -64,6 +66,7 @@ void main() {
       LibraryController(
         library: LibraryRepositoryImpl(),
         sources: const NoSources(),
+        categories: const EmptyCategories(),
       ),
     );
     // So is the Home tab, which is the shell's default landing tab.
