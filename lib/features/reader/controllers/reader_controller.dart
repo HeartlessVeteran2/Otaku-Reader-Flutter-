@@ -437,9 +437,11 @@ class ReaderController extends GetxController {
       final local = await _localPages();
       if (generation != _generation) return;
       if (local != null) {
+        // Resolved **before** the list publishes, and the order is the whole
+        // behaviour -- see `_afterPagesLoaded`.
+        _afterPagesLoaded(local.length);
         pages.value = local;
         isOffline.value = true;
-        _afterPagesLoaded(local.length);
         await _persist(markRead: false);
         return;
       }
@@ -465,8 +467,8 @@ class ReaderController extends GetxController {
         return;
       }
 
-      pages.value = list;
       _afterPagesLoaded(list.length);
+      pages.value = list;
       // `markRead: false` explicitly. Opening a one-page chapter puts page 0 at
       // the last page, so an unguarded save here would mark it read before the
       // user has done anything. Only a page turn or a scroll finishes a
@@ -482,8 +484,20 @@ class ReaderController extends GetxController {
     }
   }
 
-  /// Resolves the resume position once the page list is known, whichever
+  /// Resolves the resume position once the page count is known, whichever
   /// source it came from.
+  ///
+  /// **Called before `pages` is published, never after.** The screen rebuilds
+  /// its `PageController` and `ScrollController` from `ever(_c.pages)`, and
+  /// GetX dispatches that worker *synchronously* out of the `pages.value =`
+  /// assignment — so anything this method sets has to be settled by then or
+  /// the controllers are built from the previous chapter's answer, which on a
+  /// fresh open is zero. That is how the paged reader came to ignore every
+  /// stored resume position: `page` was correct and the view under it opened
+  /// at the first page anyway, with the counter reading "3 / 3" over page one.
+  ///
+  /// Nothing here reads `pages`; the count arrives as [total] precisely so it
+  /// does not have to.
   void _afterPagesLoaded(int total) {
     initialPage = _resumePage(total);
     page.value = initialPage;

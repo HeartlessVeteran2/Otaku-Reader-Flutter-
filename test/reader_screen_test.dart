@@ -16,6 +16,7 @@ import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/data/anilist/title_matcher.dart';
 import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
 import 'package:otaku_reader/features/reader/screen_wakelock.dart';
+import 'package:otaku_reader/features/reader/display/eink_flash.dart';
 import 'package:otaku_reader/features/reader/display/reader_display.dart';
 import 'package:otaku_reader/features/reader/display/reader_display_layer.dart';
 import 'package:otaku_reader/features/reader/display/reader_display_settings.dart';
@@ -947,6 +948,125 @@ void main() {
         tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
         Colors.white,
       );
+    });
+  });
+  group('the e-ink flash on open', () {
+    // `codeant-ai` filed this against the reader: "the flash is triggered when
+    // asynchronous loading changes `page` from zero to a saved resume page, so
+    // opening a resumed chapter flashes even though no page was turned."
+    //
+    // It does not happen, and the reason is worth pinning rather than
+    // restating. Two things have to hold at once, and neither is local to
+    // `EInkFlash`:
+    //
+    //   1. the body is gated on `isLoading && pages.isEmpty`, so nothing in
+    //      the `Stack` -- `EInkFlash` included -- is mounted until the pages
+    //      are there; and
+    //   2. `load()` runs `pages.value = list` and `_afterPagesLoaded`, which
+    //      sets `page.value`, in the **same synchronous turn**. Both `Rx`
+    //      writes coalesce into one `Obx` rebuild, so `EInkFlash`'s first
+    //      build already carries the resumed page -- and `didUpdateWidget`,
+    //      which is the entire trigger, does not run on a first build.
+    //
+    // Put an `await` between those two writes and the finding becomes real,
+    // which is exactly the mutation this test is written against. The existing
+    // `eink_flash_test.dart` cases cannot see any of it: they construct the
+    // widget by hand, so they test the mechanism and not whether the reader
+    // ever asks it to fire.
+    //
+    // The flash duration is set to the controller's own ceiling -- it clamps
+    // the stored value to 2000ms, so asking for more is a number that never
+    // reaches the widget -- which is still far longer than the load. A flash
+    // that fired during the load is therefore still painted when the assertion
+    // looks, where sampling for it would make the guard depend on pump
+    // granularity.
+    Future<void> seedResume() => library.updateChapterProgress(
+      sourceId: _sourceId,
+      url: _manga,
+      chapterUrl: '/c-1',
+      lastPageRead: 2,
+      totalPages: 3,
+    );
+
+    /// True while the flash is painting. Scoped to `EInkFlash`, because
+    /// `MaterialApp` renders a transparent `ColoredBox` of its own and an
+    /// unscoped finder would answer about the harness.
+    bool flashing(WidgetTester tester) => find
+        .descendant(
+          of: find.byType(EInkFlash),
+          matching: find.byType(ColoredBox),
+        )
+        .evaluate()
+        .isNotEmpty;
+
+    testWidgets('resuming mid-chapter does not flash', (tester) async {
+      ReaderKeys.displayRefreshEnabled.set<bool>(true);
+      ReaderKeys.displayRefreshDurationMs.set<int>(2000);
+      await seedResume();
+
+      await openReader(tester);
+
+      expect(find.byType(EInkFlash), findsOneWidget);
+      expect(tester.widget<EInkFlash>(find.byType(EInkFlash)).page, 2);
+      expect(flashing(tester), isFalse);
+    });
+
+    testWidgets('a resumed chapter opens on the stored page', (tester) async {
+      // Found while writing the test above, and it is a different defect from
+      // the one CodeAnt filed -- the reader's `page` was right all along; the
+      // `PageView` under it was not.
+      //
+      // `_ReaderScreenState` rebuilds the `PageController` from
+      // `ever(_c.pages)`, and GetX dispatches that **synchronously** from the
+      // `pages.value =` assignment. `load()` assigned `pages` and *then* called
+      // `_afterPagesLoaded`, which is what computes `initialPage` -- so the
+      // controller was always built from the previous value, which on a fresh
+      // open is 0. The counter said "3 / 3" over page one.
+      //
+      // Asserted on the `PageController`, not on `_c.page`, because `_c.page`
+      // was correct the whole time the view was wrong. That is the whole shape
+      // of the bug.
+      await seedResume();
+
+      await openReader(tester);
+
+      expect(
+        tester
+            .widget<PageView>(find.byType(PageView))
+            .controller!
+            .page!
+            .round(),
+        2,
+      );
+    });
+
+    testWidgets('the first real page turn does flash', (tester) async {
+      // The other half. Without it the test above passes with the flash wired
+      // to nothing at all -- which is this repo's most-repeated defect, and
+      // the reason a "does not fire" assertion is never enough on its own.
+      ReaderKeys.displayRefreshEnabled.set<bool>(true);
+      ReaderKeys.displayRefreshDurationMs.set<int>(2000);
+      await seedResume();
+
+      await openReader(tester);
+      expect(flashing(tester), isFalse);
+
+      // Dragged rather than poked through the controller, which is tagged per
+      // screen instance and so is not reachable by a bare `Get.find` anyway.
+      // The resume page is the *last* one, so the turn that exists here is
+      // backwards -- and a backwards turn ghosts exactly as much as a forwards
+      // one, which is the point of the feature.
+      // Turned through the `PageView`'s own controller rather than through a
+      // synthetic drag. A drag has to win a gesture arena against the
+      // `InteractiveViewer` wrapping every page and the reader's own tap
+      // detector, and losing it would make this test fail for a reason that
+      // has nothing to do with the flash. `jumpToPage` still goes the whole
+      // way round -- `onPageChanged` -> `ReaderController.onPageChanged` ->
+      // `page` -> `didUpdateWidget` -- which is the path under test.
+      tester.widget<PageView>(find.byType(PageView)).controller!.jumpToPage(1);
+      await tester.pump();
+
+      expect(flashing(tester), isTrue);
     });
   });
 }

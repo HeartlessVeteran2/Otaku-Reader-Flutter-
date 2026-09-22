@@ -16,6 +16,7 @@ import 'package:otaku_reader/source/model/filter.dart';
 import 'package:otaku_reader/source/model/m_chapter.dart';
 import 'package:otaku_reader/source/model/m_manga.dart';
 import 'package:otaku_reader/source/model/m_pages.dart';
+import 'package:get/get.dart';
 import 'package:otaku_reader/source/model/page_url.dart';
 import 'package:otaku_reader/source/model/source.dart';
 import 'package:otaku_reader/source/model/source_preference.dart';
@@ -631,6 +632,65 @@ void main() {
 
     expect(c.initialPage, 2);
     expect(c.page.value, 2);
+  });
+
+  test('the resume position is settled before the page list publishes', () async {
+    // The screen rebuilds its `PageController` and `ScrollController` from
+    // `ever(_c.pages)`, and GetX dispatches that worker **synchronously** out
+    // of the `pages.value =` assignment. So whatever `initialPage` and
+    // `initialOffset` hold at that instant is what the views are built from —
+    // and `load()` used to publish the list first and resolve the resume
+    // afterwards, handing both controllers the previous chapter's answer,
+    // which on a fresh open is zero.
+    //
+    // The three `initialPage` tests above passed throughout, because they read
+    // the value after the load had finished. The decision was right the whole
+    // time; the moment it became right was not. This asserts the moment.
+    await seed();
+    await library.updateChapterProgress(
+      sourceId: _sourceId,
+      url: _manga,
+      chapterUrl: '/c-2',
+      lastPageRead: 2,
+      totalPages: 4,
+      currentOffset: 640,
+      maxOffset: 1200,
+    );
+
+    // Built by hand rather than through `open`, which runs `onInit` for you —
+    // the worker has to be attached before the load starts, exactly as the
+    // screen attaches it before `ReaderController` is put.
+    final c = ReaderController(
+      sources: _Sources(
+        _Methods(_row())..pagesByChapter = {'/c-2': _pages(4)},
+        _row(),
+      ),
+      library: library,
+      anilistProgress: _SpyReporter(),
+      wakelock: _FakeWakelock(),
+      screen: FakeScreenControls(),
+      sourceId: _sourceId,
+      mangaUrl: _manga,
+      chapterUrl: '/c-2',
+    );
+
+    int? pageAtPublish;
+    double? offsetAtPublish;
+    final worker = ever<List<PageUrl>>(c.pages, (list) {
+      if (list.isEmpty) return;
+      pageAtPublish ??= c.initialPage;
+      offsetAtPublish ??= c.initialOffset;
+    });
+
+    c.onInit();
+    for (var i = 0; i < 200 && c.isLoading.value; i++) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    worker.dispose();
+
+    expect(pageAtPublish, 2, reason: 'the paged view is built from this');
+    expect(offsetAtPublish, 640, reason: 'the continuous one from this');
+    c.onClose();
   });
 
   test('a finished chapter restarts at the top, not on its last page', () async {
