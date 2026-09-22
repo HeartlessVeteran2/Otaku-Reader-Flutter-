@@ -351,6 +351,14 @@ class ReaderController extends GetxController {
     if (generation != _secureGeneration) return;
     secureApplied.value = on && applied;
     secureRefused.value = on && !applied;
+
+    // Remembered, so the Settings switch can say so too. The reader is the
+    // only place the flag is ever requested, so without this the refusal is
+    // discoverable *only* by opening a chapter — and the switch a user
+    // actually toggles goes on implying screenshots are blocked. Recorded on
+    // a request that was made, either way, so a device that starts honouring
+    // it clears the note rather than carrying it forever.
+    if (on) General.secureScreenUnsupported.set<bool>(!applied);
   }
 
   /// Turns the secure-window flag on or off mid-chapter.

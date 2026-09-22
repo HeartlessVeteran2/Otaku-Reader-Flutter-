@@ -434,15 +434,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               onChanged: (v) => _setBool(ReaderKeys.immersiveMode, v),
             ),
+            // The subtitle carries the **refusal**, not just the promise.
+            // `codeant-ai` filed this: a switch that stays on after the
+            // platform declined tells the user screenshots are blocked when
+            // they are not, and that is worse than not offering the setting.
+            // The reader records the answer (it is the only place the flag is
+            // requested); this reads it back, so the refusal is visible where
+            // the switch is rather than only to someone who opens a chapter.
             ChromeTile.toggle(
               icon: Iconsax.eye_slash,
               title: 'Hide from screenshots',
-              subtitle: 'Also blanks the reader in the app switcher',
+              subtitle:
+                  _readerBool(
+                        ReaderKeys.secureScreen,
+                        ReaderDefaults.secureScreen,
+                      ) &&
+                      General.secureScreenUnsupported.get<bool>(false)
+                  ? 'This device refused — screenshots are still possible'
+                  : 'Also blanks the reader in the app switcher',
               value: _readerBool(
                 ReaderKeys.secureScreen,
                 ReaderDefaults.secureScreen,
               ),
-              onChanged: (v) => _setBool(ReaderKeys.secureScreen, v),
+              onChanged: (v) {
+                // Clearing the note on a fresh "on" is deliberate: the answer
+                // belongs to a request, and the next reader open makes one.
+                // Carrying a stale refusal would make a device that started
+                // honouring the flag look permanently broken.
+                if (v) General.secureScreenUnsupported.set<bool>(false);
+                _setBool(ReaderKeys.secureScreen, v);
+              },
             ),
             // The e-ink pair, and they are two keys for the same reason the
             // dim's magnitude and switch are: "zero means off" loses the

@@ -12,6 +12,16 @@ enum General {
   lastOpenedTab,
   imageCacheThresholdGb,
   incognitoMode,
+
+  /// Set once the platform has refused `FLAG_SECURE`.
+  ///
+  /// A **device** property rather than a reader one, which is why it lives
+  /// here: whether a window can be marked secure does not change between
+  /// chapters. It is written by the reader, because that is the only place
+  /// the flag is ever requested, and read by the Settings switch — which
+  /// otherwise goes on claiming screenshots are blocked to anyone who turns
+  /// it on and does not happen to open a chapter afterwards.
+  secureScreenUnsupported,
 }
 
 enum ThemeKeys {

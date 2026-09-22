@@ -406,6 +406,38 @@ void main() {
       c.onClose();
     });
 
+    test('a refusal is remembered for the Settings switch to read', () async {
+      // The reader is the only place the flag is ever requested, so without
+      // this the refusal is discoverable only by opening a chapter — and the
+      // switch a user actually toggles goes on implying screenshots are
+      // blocked. `codeant-ai` filed it against the switch; this is the half
+      // that lets the switch answer.
+      ReaderKeys.secureScreen.set<bool>(true);
+
+      final (c, _) = await open('/c-1', secureSucceeds: false);
+      for (var i = 0; i < 10 && !c.secureRefused.value; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      expect(General.secureScreenUnsupported.get<bool>(false), isTrue);
+      c.onClose();
+    });
+
+    test('a device that honours the flag leaves no note behind', () async {
+      // The answer belongs to a request. Carrying a stale refusal would make
+      // a device that started honouring the flag look permanently broken.
+      General.secureScreenUnsupported.set<bool>(true);
+      ReaderKeys.secureScreen.set<bool>(true);
+
+      final (c, _) = await open('/c-1');
+      for (var i = 0; i < 10 && !c.secureApplied.value; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      expect(General.secureScreenUnsupported.get<bool>(true), isFalse);
+      c.onClose();
+    });
+
     test('a stale secure answer cannot overwrite a newer one', () async {
       // Two toggles in flight: the older channel round trip must not land last
       // and describe a request that has since been replaced. These are a
