@@ -15,7 +15,7 @@ import 'helpers/isar_test_env.dart';
 
 /// The reader's colour treatment: the tint, the desaturation and the dim.
 ///
-/// Six keys that were declared from the start and read by nothing, which is the
+/// Keys that were declared from the start and read by nothing, which is the
 /// state `FEATURES.md` exists to catch. So the guards that matter here are the
 /// ones about *reaching a surface*, not the ones about storing a value — a
 /// round-trip test is exactly what would have passed the whole time these were

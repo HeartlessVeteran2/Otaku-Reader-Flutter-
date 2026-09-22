@@ -259,7 +259,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             // this screen would keep rendering the value it read on the way
             // in, and say the opposite of the screen it just opened -- the
             // `isReady` row, one feature over.
-            // The display group. Every one of these six keys was declared in
+            // The display group. Every key behind these rows was declared in
             // `keys.dart` from the start and read by nothing -- the state
             // `FEATURES.md` exists to catch, where a checklist counting
             // declared keys reports parity for a feature nobody built.

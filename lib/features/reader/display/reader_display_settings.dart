@@ -9,10 +9,15 @@ import 'package:otaku_reader/features/reader/display/reader_display.dart';
 /// either call site is how a switch comes to show the opposite of what the
 /// reader does with every file staying self-consistent.
 ///
-/// **All six keys already existed and nothing read them.** They were declared
+/// **These keys all existed already, and nothing read them.** They were declared
 /// in `keys.dart` from the start, which is exactly the state `FEATURES.md` was
 /// rebuilt to catch — a checklist that counts declared keys reports parity for
 /// a feature nobody built.
+///
+/// The count is deliberately not restated here. `FEATURES.md` carries it once,
+/// derived from the enum by `features_doc_test.dart`; a number repeated in a
+/// doc comment is a number that drifts, which is the defect this very slice
+/// shipped and then had pointed out twice.
 class ReaderDisplaySettings {
   const ReaderDisplaySettings._();
 
