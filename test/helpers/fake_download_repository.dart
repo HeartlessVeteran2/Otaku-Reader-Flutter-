@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:otaku_reader/core/database/data_keys/keys.dart';
+import 'package:otaku_reader/core/database/kv_helper.dart';
 import 'package:otaku_reader/data/isar/manga_entry.dart';
 import 'package:otaku_reader/domain/repository/download_repository.dart';
 
@@ -23,6 +25,27 @@ class FakeDownloads implements DownloadRepository {
 
   /// Publishes a change, as a real download would while it runs.
   void emit() => _changes.add(null);
+
+  /// What [heldForWifi] answers. Set by a test to render the held banner.
+  bool held = false;
+
+  @override
+  bool get heldForWifi => held;
+
+  /// Records the calls, because what Settings owes the queue is the *call* —
+  /// the stored value is the part that already worked.
+  final List<bool> wifiOnlyWrites = [];
+
+  @override
+  Future<void> setWifiOnly(bool value) async {
+    wifiOnlyWrites.add(value);
+    DownloadKeys.downloadOnWifiOnly.set<bool>(value);
+  }
+
+  @override
+  void dispose() {
+    if (!_changes.isClosed) _changes.close();
+  }
 
   @override
   Future<void> enqueue({
