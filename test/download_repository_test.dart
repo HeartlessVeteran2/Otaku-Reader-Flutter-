@@ -23,6 +23,7 @@ import 'package:otaku_reader/source/model/source_preference.dart';
 import 'package:otaku_reader/source/source_methods.dart';
 
 import 'helpers/isar_test_env.dart';
+import 'helpers/network_status_fake.dart';
 
 const _sourceId = 7;
 const _url = '/manga/example';
@@ -179,12 +180,19 @@ void main() {
   );
   tearDownAll(() async => env?.close());
 
+  /// Fresh per test, because the Wi-Fi cases script it — and a shared one
+  /// would let a test that dropped the connection decide what the next test's
+  /// queue does.
+  late FakeNetworkStatus network;
+
   setUp(() {
     env!.clear();
     root = Directory.systemTemp.createTempSync('otaku-downloads');
+    network = FakeNetworkStatus();
   });
   tearDown(() {
     if (root.existsSync()) root.deleteSync(recursive: true);
+    network.close();
   });
 
   final library = LibraryRepositoryImpl();
@@ -217,6 +225,7 @@ void main() {
         sources: _Sources(methods),
         library: library,
         root: root,
+        network: network,
         fetch: fetch ?? (url, headers) async => [1, 2, 3],
       );
 
@@ -620,6 +629,7 @@ void main() {
       sources: _Sources(methods),
       library: _FailingWrite(library),
       root: root,
+      network: network,
       fetch: (url, headers) async => [1, 2, 3],
     );
 
@@ -698,6 +708,343 @@ void main() {
 
       expect(resolved.path, chosen);
       expect(resolved.existsSync(), isTrue);
+    });
+  });
+  group('how many at once', () {
+    /// A fetcher that blocks until released, recording the highest number of
+    /// pages in flight at the same moment.
+    ///
+    /// The **peak** is the measurement, not the total: a limit of one and a
+    /// limit of four fetch exactly the same pages in the end, so anything that
+    /// counts calls passes with the limit ignored. Pages within a chapter are
+    /// fetched one at a time, so concurrent pages means concurrent *chapters*.
+    ({PageFetcher fetch, int Function() peak, void Function() release})
+    gatedFetcher() {
+      // **Re-armed on every release, not a one-shot.** A single `Completer`
+      // lets everything through for the rest of the test, so nothing after the
+      // first release ever overlaps and the peak can only ever be whatever the
+      // first batch reached -- which made the "read per slot" case below
+      // unable to observe the very raise it is named for.
+      var gate = Completer<void>();
+      var inFlight = 0;
+      var peak = 0;
+      Future<List<int>> fetch(Uri url, Map<String, String> headers) async {
+        inFlight++;
+        if (inFlight > peak) peak = inFlight;
+        await gate.future;
+        inFlight--;
+        return [1, 2, 3];
+      }
+
+      return (
+        fetch: fetch,
+        peak: () => peak,
+        release: () {
+          final open = gate;
+          gate = Completer<void>();
+          if (!open.isCompleted) open.complete();
+        },
+      );
+    }
+
+    Future<void> enqueueAll(
+      DownloadRepositoryImpl downloads,
+      List<String> chapters,
+    ) async {
+      for (final c in chapters) {
+        await downloads.enqueue(
+          sourceId: _sourceId,
+          mangaUrl: _url,
+          chapter: await chapterOf(c),
+          mangaTitle: 'Example',
+        );
+      }
+    }
+
+    /// Lets the queue start whatever it is going to start.
+    Future<void> spin() async {
+      for (var i = 0; i < 20; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+    }
+
+    /// Opens the gate repeatedly until the queue is empty.
+    ///
+    /// One release only frees the batch currently blocked, because the gate
+    /// re-arms; a queue deeper than one batch needs as many as it has batches.
+    Future<void> releaseAll(
+      void Function() release,
+      DownloadRepository downloads,
+    ) async {
+      for (var i = 0; i < 40; i++) {
+        release();
+        await spin();
+        final busy = downloads.tasks.any(
+          (t) =>
+              t.state == DownloadState.queued ||
+              t.state == DownloadState.running,
+        );
+        if (!busy) return;
+      }
+      fail('the gated queue never drained');
+    }
+
+    test('the stored limit is what runs, not the old constant', () async {
+      DownloadKeys.concurrentDownloads.set<int>(4);
+      addTearDown(DownloadKeys.concurrentDownloads.delete);
+
+      final methods = await seed(['/c-1', '/c-2', '/c-3', '/c-4', '/c-5']);
+      for (final c in ['/c-1', '/c-2', '/c-3', '/c-4', '/c-5']) {
+        methods.pages[c] = ['https://cdn.test/$c.jpg'];
+      }
+      final g = gatedFetcher();
+      final downloads = build(methods, fetch: g.fetch);
+      addTearDown(downloads.dispose);
+
+      await enqueueAll(downloads, ['/c-1', '/c-2', '/c-3', '/c-4', '/c-5']);
+      await spin();
+
+      expect(
+        g.peak(),
+        4,
+        reason: 'four chapters in flight, and the fifth waiting for a slot',
+      );
+      await releaseAll(g.release, downloads);
+    });
+
+    test('the limit is read per slot, not once at construction', () async {
+      // The guard that separates a live setting from a dead one. Caching the
+      // value in the constructor passes every test above: the queue still
+      // honours whatever was stored when the app started, and the slider only
+      // appears to do nothing until the next launch -- which is the shape of
+      // the two dead switches in this project's history.
+      DownloadKeys.concurrentDownloads.set<int>(1);
+      addTearDown(DownloadKeys.concurrentDownloads.delete);
+
+      final methods = await seed(['/c-1', '/c-2', '/c-3']);
+      for (final c in ['/c-1', '/c-2', '/c-3']) {
+        methods.pages[c] = ['https://cdn.test/$c.jpg'];
+      }
+      final g = gatedFetcher();
+      final downloads = build(methods, fetch: g.fetch);
+      addTearDown(downloads.dispose);
+
+      await enqueueAll(downloads, ['/c-1', '/c-2', '/c-3']);
+      await spin();
+      expect(g.peak(), 1, reason: 'one slot while the key says one');
+
+      // Raised while a download is in flight. The next free slot is where it
+      // takes effect, so releasing the first is what proves it.
+      DownloadKeys.concurrentDownloads.set<int>(3);
+      await releaseAll(g.release, downloads);
+
+      expect(
+        g.peak(),
+        greaterThan(1),
+        reason: 'the raise reached the queue without a restart',
+      );
+    });
+
+    test('a stored zero does not stop the queue for ever', () async {
+      // Nothing in the app writes this; a restore or a hand-edited row can.
+      // Unclamped it is a queue that accepts work and never runs any of it,
+      // with no failure and nothing on screen to say why.
+      DownloadKeys.concurrentDownloads.set<int>(0);
+      addTearDown(DownloadKeys.concurrentDownloads.delete);
+
+      final methods = await seed(['/c-1']);
+      methods.pages['/c-1'] = ['https://cdn.test/a.jpg'];
+      final downloads = build(methods);
+      addTearDown(downloads.dispose);
+
+      await downloads.enqueue(
+        sourceId: _sourceId,
+        mangaUrl: _url,
+        chapter: await chapterOf('/c-1'),
+        mangaTitle: 'Example',
+      );
+      await settle(downloads);
+
+      expect(downloads.tasks.single.state, DownloadState.done);
+    });
+
+    test('a stored number above the ceiling is capped', () async {
+      DownloadKeys.concurrentDownloads.set<int>(99);
+      addTearDown(DownloadKeys.concurrentDownloads.delete);
+
+      final chapters = ['/c-1', '/c-2', '/c-3', '/c-4', '/c-5', '/c-6', '/c-7'];
+      final methods = await seed(chapters);
+      for (final c in chapters) {
+        methods.pages[c] = ['https://cdn.test/$c.jpg'];
+      }
+      final g = gatedFetcher();
+      final downloads = build(methods, fetch: g.fetch);
+      addTearDown(downloads.dispose);
+
+      await enqueueAll(downloads, chapters);
+      await spin();
+
+      expect(g.peak(), DownloadDefaults.maxConcurrentDownloads);
+      await releaseAll(g.release, downloads);
+    });
+  });
+
+  group('only on Wi-Fi', () {
+    Future<void> spin() async {
+      for (var i = 0; i < 20; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+    }
+
+    test(
+      'a metered connection holds the queue instead of failing it',
+      () async {
+        DownloadKeys.downloadOnWifiOnly.set<bool>(true);
+        addTearDown(DownloadKeys.downloadOnWifiOnly.delete);
+        network.unmetered = false;
+
+        final methods = await seed(['/c-1']);
+        methods.pages['/c-1'] = ['https://cdn.test/a.jpg'];
+        var fetched = 0;
+        final downloads = build(
+          methods,
+          fetch: (url, headers) async {
+            fetched++;
+            return [1, 2, 3];
+          },
+        );
+        addTearDown(downloads.dispose);
+
+        await downloads.enqueue(
+          sourceId: _sourceId,
+          mangaUrl: _url,
+          chapter: await chapterOf('/c-1'),
+          mangaTitle: 'Example',
+        );
+        await spin();
+
+        expect(fetched, 0, reason: 'nothing left the device');
+        expect(
+          downloads.tasks.single.state,
+          DownloadState.queued,
+          reason: 'held, not failed -- a failure would need re-queuing by hand',
+        );
+        expect(downloads.heldForWifi, isTrue);
+      },
+    );
+
+    test(
+      'Wi-Fi coming back starts the queue with no other prompting',
+      () async {
+        // The guard for the whole reason `NetworkStatus.onChanged` exists. The
+        // queue re-pumps when a task finishes, and when everything is held
+        // nothing finishes -- so without the event this queue waits for ever,
+        // and every test above still passes.
+        DownloadKeys.downloadOnWifiOnly.set<bool>(true);
+        addTearDown(DownloadKeys.downloadOnWifiOnly.delete);
+        network.unmetered = false;
+
+        final methods = await seed(['/c-1']);
+        methods.pages['/c-1'] = ['https://cdn.test/a.jpg'];
+        final downloads = build(methods);
+        addTearDown(downloads.dispose);
+
+        await downloads.enqueue(
+          sourceId: _sourceId,
+          mangaUrl: _url,
+          chapter: await chapterOf('/c-1'),
+          mangaTitle: 'Example',
+        );
+        await spin();
+        expect(downloads.tasks.single.state, DownloadState.queued);
+
+        network.change(unmetered: true);
+        await settle(downloads);
+
+        expect(downloads.tasks.single.state, DownloadState.done);
+        expect(downloads.heldForWifi, isFalse);
+      },
+    );
+
+    test('losing Wi-Fi mid-chapter does not discard the pages already got', () async {
+      // A download here is all-or-nothing, so stopping one part-way throws
+      // away every page fetched and leaves nothing readable. Honouring a
+      // switch flipped afterwards by destroying the reader's work is the worse
+      // answer, and `cancel` is there for when they mean it.
+      DownloadKeys.downloadOnWifiOnly.set<bool>(true);
+      addTearDown(DownloadKeys.downloadOnWifiOnly.delete);
+
+      final methods = await seed(['/c-1']);
+      methods.pages['/c-1'] = [
+        'https://cdn.test/a.jpg',
+        'https://cdn.test/b.jpg',
+      ];
+      var fetched = 0;
+      final downloads = build(
+        methods,
+        fetch: (url, headers) async {
+          fetched++;
+          // The connection drops between the first page and the second.
+          if (fetched == 1) network.change(unmetered: false);
+          return [1, 2, 3];
+        },
+      );
+      addTearDown(downloads.dispose);
+
+      await downloads.enqueue(
+        sourceId: _sourceId,
+        mangaUrl: _url,
+        chapter: await chapterOf('/c-1'),
+        mangaTitle: 'Example',
+      );
+      await settle(downloads);
+
+      expect(fetched, 2, reason: 'the chapter in flight finished');
+      expect(downloads.tasks.single.state, DownloadState.done);
+    });
+
+    test(
+      'the switch off means a metered connection downloads anyway',
+      () async {
+        network.unmetered = false;
+
+        final methods = await seed(['/c-1']);
+        methods.pages['/c-1'] = ['https://cdn.test/a.jpg'];
+        final downloads = build(methods);
+        addTearDown(downloads.dispose);
+
+        await downloads.enqueue(
+          sourceId: _sourceId,
+          mangaUrl: _url,
+          chapter: await chapterOf('/c-1'),
+          mangaTitle: 'Example',
+        );
+        await settle(downloads);
+
+        expect(downloads.tasks.single.state, DownloadState.done);
+        expect(downloads.heldForWifi, isFalse);
+      },
+    );
+
+    test('an empty queue is never reported as held', () async {
+      // Otherwise the banner outlives the thing it explains: a screen opened
+      // on mobile data with nothing queued would say chapters are waiting.
+      DownloadKeys.downloadOnWifiOnly.set<bool>(true);
+      addTearDown(DownloadKeys.downloadOnWifiOnly.delete);
+      network.unmetered = false;
+
+      final methods = await seed(['/c-1']);
+      final downloads = build(methods);
+      addTearDown(downloads.dispose);
+
+      // Spun on purpose. `_unmetered` is refreshed asynchronously from the
+      // constructor, so asserting straight away passes because the answer has
+      // not arrived yet rather than because the queue is empty -- which is
+      // exactly what this was doing until the mutation that drops the
+      // empty-queue check failed to fail.
+      await spin();
+
+      expect(downloads.heldForWifi, isFalse);
     });
   });
 }

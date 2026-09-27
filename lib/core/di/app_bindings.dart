@@ -78,6 +78,11 @@ class AppBindings extends Bindings {
     Get.put<LibraryRepository>(LibraryRepositoryImpl(), permanent: true);
     Get.put<CategoryRepository>(CategoryRepositoryImpl(), permanent: true);
     Get.put<AniListRepository>(AniListRepositoryImpl(), permanent: true);
+    // Registered once rather than constructed at each call site, now that two
+    // things read it — the library refresh and the download queue. Two inline
+    // `const ConnectivityNetworkStatus()`es would be two answers to one
+    // question, which is the shape this project keeps having to correct.
+    Get.put<NetworkStatus>(const ConnectivityNetworkStatus(), permanent: true);
     // Permanent for the same reason as the source repository: it owns a live
     // queue, and a download must not stop because the screen that started it
     // was popped.
@@ -86,6 +91,7 @@ class AppBindings extends Bindings {
         sources: Get.find<SourceRepository>(),
         library: Get.find<LibraryRepository>(),
         root: downloadRoot,
+        network: Get.find<NetworkStatus>(),
       ),
       permanent: true,
     );
@@ -124,7 +130,7 @@ class AppBindings extends Bindings {
       () => UpdatesController(
         library: Get.find<LibraryRepository>(),
         sources: Get.find<SourceRepository>(),
-        network: const ConnectivityNetworkStatus(),
+        network: Get.find<NetworkStatus>(),
       ),
       fenix: true,
     );

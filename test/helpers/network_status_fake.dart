@@ -1,6 +1,8 @@
+import 'dart:async';
+
 import 'package:otaku_reader/core/platform/network_status.dart';
 
-/// A `NetworkStatus` with a fixed answer, recording how often it was asked.
+/// A scriptable `NetworkStatus` that records how often it was asked.
 ///
 /// The call *count* matters as much as the answer: `refreshIfDue` deliberately
 /// does not query the platform until the schedule has already said yes, so a
@@ -10,8 +12,28 @@ import 'package:otaku_reader/core/platform/network_status.dart';
 class FakeNetworkStatus implements NetworkStatus {
   FakeNetworkStatus({this.unmetered = true});
 
-  final bool unmetered;
+  /// Mutable, because the download queue's whole Wi-Fi behaviour is about the
+  /// answer *changing*: a held queue has to start when Wi-Fi arrives, and a
+  /// fixed answer cannot produce the only state that matters.
+  bool unmetered;
   int asked = 0;
+
+  final _changes = StreamController<void>.broadcast();
+
+  @override
+  Stream<void> get onChanged => _changes.stream;
+
+  /// Sets the answer and fires the event, in that order.
+  ///
+  /// The order is the point rather than convenience: a listener that calls
+  /// `isUnmetered` on the event must see the new answer, which is exactly how
+  /// the platform behaves and is the sequence the queue depends on.
+  void change({required bool unmetered}) {
+    this.unmetered = unmetered;
+    _changes.add(null);
+  }
+
+  void close() => _changes.close();
 
   @override
   Future<bool> isUnmetered() async {

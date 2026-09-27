@@ -18,6 +18,15 @@ class DownloadsController extends GetxController {
   final tasks = <DownloadTask>[].obs;
   final usedBytes = 0.obs;
 
+  /// Whether the queue is being held back for an unmetered connection.
+  ///
+  /// Mirrored into an `Rx` rather than read through the repository at build
+  /// time, because the repository is not observable and the fact changes
+  /// without the task list changing — the queue publishes on the same
+  /// `changes` stream when the connection flips, and a getter reading straight
+  /// through would leave `Obx` with nothing to rebuild on.
+  final heldForWifi = false.obs;
+
   StreamSubscription<void>? _watch;
 
   @override
@@ -39,6 +48,7 @@ class DownloadsController extends GetxController {
 
   void _read() {
     tasks.value = _downloads.tasks;
+    heldForWifi.value = _downloads.heldForWifi;
     // Deliberately not recomputed here: walking the download directory is
     // filesystem work, and this fires once per page of every active download.
   }

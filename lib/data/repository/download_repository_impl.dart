@@ -13,6 +13,7 @@ import 'package:otaku_reader/core/database/kv_helper.dart';
 import 'package:otaku_reader/data/isar/manga_entry.dart';
 import 'package:otaku_reader/domain/repository/download_repository.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
+import 'package:otaku_reader/core/platform/network_status.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
 import 'package:otaku_reader/source/http/m_client.dart';
 import 'package:otaku_reader/source/util/log.dart';
@@ -42,23 +43,66 @@ class DownloadRepositoryImpl implements DownloadRepository {
     required SourceRepository sources,
     required LibraryRepository library,
     required Directory root,
+    required NetworkStatus network,
     PageFetcher? fetch,
   }) : _sources = sources,
        _library = library,
        _root = root,
-       _fetch = fetch ?? _httpGetBytes;
+       _network = network,
+       _fetch = fetch ?? _httpGetBytes {
+    // Asked once up front and then only on a change, so `_pump` never has to
+    // `await` to decide. See [_unmetered].
+    _networkChanges = _network.onChanged.listen(
+      (_) => unawaited(_refreshNetwork()),
+    );
+    unawaited(_refreshNetwork());
+  }
 
   final SourceRepository _sources;
   final LibraryRepository _library;
   final Directory _root;
+  final NetworkStatus _network;
   final PageFetcher _fetch;
 
-  /// Concurrent chapter downloads. The same reasoning as everywhere else that
-  /// fans out over sources: a site that is handed twenty parallel requests
-  /// rate-limits the user rather than serving them faster. Pages *within* a
-  /// chapter are fetched one at a time for the same reason, and because page
-  /// order is the only thing that makes a chapter readable.
-  static const maxConcurrent = 2;
+  late final StreamSubscription<void> _networkChanges;
+
+  /// The last answer the platform gave, **cached on purpose**.
+  ///
+  /// `_pump` is called from `enqueue`, from every task completing, and from a
+  /// connectivity event, and its whole job is to decide how many slots are
+  /// free. Asking the platform inside that decision would put an `await`
+  /// between reading `_running` and incrementing it — read-then-act across a
+  /// suspension point, in a method any of three callers can re-enter, which is
+  /// the race this repository has already shipped twice elsewhere. A lock
+  /// would guard it; a cached field removes the `await` entirely, which is the
+  /// better answer when the `await` did not need to be there.
+  ///
+  /// It starts `true` for the same reason `ConnectivityNetworkStatus` answers
+  /// `true` on failure: a queue that refuses to start because the platform has
+  /// not answered yet is a feature that silently never runs.
+  var _unmetered = true;
+
+  Future<void> _refreshNetwork() async {
+    final answer = await _network.isUnmetered();
+    if (answer == _unmetered) return;
+    _unmetered = answer;
+    // A change in either direction is worth publishing: one releases the
+    // queue, and the other is what the held banner renders.
+    if (!_changes.isClosed) _changes.add(null);
+    if (answer) unawaited(_pump());
+  }
+
+  /// How many chapters may download at once, read **lazily, per slot**.
+  ///
+  /// Read here rather than cached at construction so moving the slider takes
+  /// effect on the next free slot instead of on the next app launch — the
+  /// stored-value-wins idiom this app already uses for source preferences.
+  /// Clamped, because the key is a stored number and a restore or a hand-edit
+  /// can hold anything; a zero would stop the queue forever with nothing on
+  /// screen to say why.
+  int get _maxConcurrent => DownloadKeys.concurrentDownloads
+      .get<int>(DownloadDefaults.concurrentDownloads)
+      .clamp(1, DownloadDefaults.maxConcurrentDownloads);
 
   final _changes = StreamController<void>.broadcast();
   final _tasks = <String, DownloadTask>{};
@@ -119,8 +163,32 @@ class DownloadRepositoryImpl implements DownloadRepository {
     unawaited(_pump());
   }
 
+  @override
+  bool get heldForWifi =>
+      _pending.isNotEmpty &&
+      !_unmetered &&
+      DownloadKeys.downloadOnWifiOnly.get<bool>(
+        DownloadDefaults.downloadOnWifiOnly,
+      );
+
+  @override
+  void dispose() {
+    _networkChanges.cancel();
+    if (!_changes.isClosed) _changes.close();
+  }
+
   /// Starts as many queued tasks as the concurrency limit allows.
+  ///
+  /// **The Wi-Fi gate holds pending tasks; it never stops a running one.**
+  /// Turning the switch on mid-download, or losing Wi-Fi, leaves whatever is
+  /// in flight to finish — because a download here is all-or-nothing, so
+  /// stopping one part-way throws away every page already fetched and leaves
+  /// nothing readable behind. Discarding the reader's work to honour a switch
+  /// they flipped afterwards is a worse answer than one chapter's worth of
+  /// mobile data, and `cancel` is there for when they mean it.
   Future<void> _pump() async {
+    if (heldForWifi) return;
+    final maxConcurrent = _maxConcurrent;
     while (_running < maxConcurrent && _pending.isNotEmpty) {
       final key = _pending.removeAt(0);
       final task = _tasks[key];

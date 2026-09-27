@@ -106,9 +106,30 @@ abstract interface class DownloadRepository {
     required String chapterUrl,
   });
 
+  /// Whether pending tasks are being held back waiting for an unmetered
+  /// connection.
+  ///
+  /// A property of the **queue**, not of a task, and that is the whole reason
+  /// it is not a [DownloadState]. Every pending task is held by the same one
+  /// fact, so a per-task state would write the same answer onto N rows and
+  /// clear it again on every connectivity event, and the screen would render N
+  /// identical rows each explaining the same thing. One flag renders one
+  /// banner. The distinction it buys is the one `UpdateDecision` already
+  /// makes: "waiting for Wi-Fi" is something the reader can act on, where a
+  /// queue that merely sits still reads as broken.
+  bool get heldForWifi;
+
   /// Drops finished and failed entries from the queue. Files are kept.
   void clearFinished();
 
   /// Total bytes currently held by downloads.
   Future<int> usedBytes();
+
+  /// Releases the connectivity subscription.
+  ///
+  /// The app holds one of these for its whole life, so this exists for tests
+  /// rather than for production — but a listener with no way to be cancelled
+  /// is how a suite ends up with one test's repository reacting to another
+  /// test's connectivity event.
+  void dispose();
 }

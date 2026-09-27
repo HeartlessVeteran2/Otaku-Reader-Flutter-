@@ -112,6 +112,7 @@ void main() {
         sources: const NoSources(),
         library: library,
         root: root,
+        network: FakeNetworkStatus(),
       ),
     );
     // History builds its own controller from these; Library and Updates
@@ -642,6 +643,41 @@ void main() {
     expect(find.textContaining('Nothing downloading'), findsOneWidget);
   });
 
+  testWidgets('a held queue says what it is waiting for', (tester) async {
+    // The banner exists because the alternative is chapters sitting at 0% with
+    // nothing on screen to say why, which reads as the downloader being
+    // broken. Asserted on the *rendered sentence*, because the flag reaching
+    // the controller is what `download_repository_test` already covers and a
+    // flag with nothing rendering it is this project's most-repeated defect.
+    await Get.delete<DownloadRepository>();
+    Get.put<DownloadRepository>(
+      _FixedQueue([_task('Chapter 1', DownloadState.queued)])..held = true,
+    );
+
+    await tester.pumpWidget(wrap(const DownloadsScreen()));
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(find.textContaining('Waiting for Wi-Fi'), findsOneWidget);
+  });
+
+  testWidgets('a queue that is not held says nothing about Wi-Fi', (
+    tester,
+  ) async {
+    // The other half. Without it the test above passes with the banner
+    // unconditional, which is a permanent notice about a state the reader is
+    // not in.
+    await Get.delete<DownloadRepository>();
+    Get.put<DownloadRepository>(
+      _FixedQueue([_task('Chapter 1', DownloadState.running)]),
+    );
+
+    await tester.pumpWidget(wrap(const DownloadsScreen()));
+    await tester.pump();
+
+    expect(find.textContaining('Waiting for Wi-Fi'), findsNothing);
+  });
+
   testWidgets('pull-to-refresh fires on a Downloads list that fits', (
     tester,
   ) async {
@@ -774,6 +810,15 @@ class _FixedQueue implements DownloadRepository {
 
   @override
   Stream<void> get changes => const Stream<void>.empty();
+
+  /// What [heldForWifi] answers, so a test can render the held banner.
+  bool held = false;
+
+  @override
+  bool get heldForWifi => held;
+
+  @override
+  void dispose() {}
 
   @override
   Future<int> usedBytes() async {

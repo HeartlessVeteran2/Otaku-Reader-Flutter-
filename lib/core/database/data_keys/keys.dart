@@ -187,6 +187,42 @@ enum DownloadKeys {
   deleteAfterRead,
 }
 
+/// Fallbacks for the download keys, for the reason [ReaderDefaults] exists.
+///
+/// Two files need each of these — the queue reads the key and a Settings
+/// control renders it — and a pair that disagrees puts a slider on screen
+/// showing a number the downloader is not using, with nothing failing,
+/// because each file is perfectly self-consistent on its own.
+abstract final class DownloadDefaults {
+  /// Two at a time, which is what the queue has always run at.
+  ///
+  /// Kept as the default rather than raised now that it is adjustable: the
+  /// reasoning in `DownloadRepositoryImpl` is that a scanlation site handed
+  /// many parallel requests rate-limits the reader rather than serving them
+  /// faster, and that argument does not weaken just because there is now a
+  /// slider. What the slider buys is the reader's own judgement about their
+  /// own sources, not a better default.
+  static const concurrentDownloads = 2;
+
+  /// The most the slider will offer, and a **deliberate departure** from
+  /// AnymeX's ceiling of 10.
+  ///
+  /// Read in `settings_downloads.dart`, whose *Global Concurrency Limit* is
+  /// the same concept at 1-10 — so this is narrowing the reference rather
+  /// than misreading it. The reason is what is being fetched: AnymeX's
+  /// downloads are video from CDNs, where ten parallel tasks is ordinary,
+  /// while this app fetches manga pages from scanlation aggregators that
+  /// rate-limit by IP. Five also sits with the bounds this app already
+  /// chose for the same hazard elsewhere — four at a time for global search,
+  /// three for a library refresh.
+  static const maxConcurrentDownloads = 5;
+
+  /// Off. A reader who taps download has asked for it now, and a switch that
+  /// silently holds that request until they are on Wi-Fi is something to opt
+  /// into rather than something to discover having happened.
+  static const downloadOnWifiOnly = false;
+}
+
 enum ServiceKeys { serviceType, homePageCards, homePageCardsMal }
 
 enum UpdateKeys {

@@ -72,6 +72,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// the reader reads them at open time, and there may be no reader alive.
   int _readerInt(ReaderKeys key, int fallback) => key.get<int>(fallback);
   bool _readerBool(ReaderKeys key, bool fallback) => key.get<bool>(fallback);
+
+  /// Clamped on the way *out* as well as in the downloader.
+  ///
+  /// Both readers clamp because both would otherwise be wrong about a stored
+  /// number they did not write — a restore, a hand-edited row. The slider is
+  /// the worse of the two: `Slider` throws outright when `value` is outside
+  /// `min..max`, so an out-of-range row would take down the whole Settings
+  /// screen rather than render oddly.
+  int get _concurrentDownloads => DownloadKeys.concurrentDownloads
+      .get<int>(DownloadDefaults.concurrentDownloads)
+      .clamp(1, DownloadDefaults.maxConcurrentDownloads);
   double _readerDouble(ReaderKeys key, double fallback) =>
       key.get<double>(fallback);
 
@@ -565,6 +576,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
               value: UpdateKeys.updateOnlyOngoing.get<bool>(false),
               onChanged: (v) {
                 UpdateKeys.updateOnlyOngoing.set<bool>(v);
+                setState(() {});
+              },
+            ),
+          ],
+        ),
+        SliverChromeSection(
+          label: 'Downloads',
+          children: [
+            // Two more keys declared since the enum was written and read by
+            // nothing. AnymeX's own download screen has the concurrency
+            // slider (`settings_downloads.dart`, *Global Concurrency Limit*)
+            // and does **not** have the Wi-Fi gate — that half comes from the
+            // Kotlin Otaku-Reader, which is the parity target.
+            ChromeTile.slider(
+              icon: Iconsax.arrow_down_2,
+              title: 'Chapters at once',
+              // Says what the number costs rather than restating it: the
+              // reason this tops out below AnymeX's ten is that the sites are
+              // scanlation aggregators, and a reader who raises it is trading
+              // speed against being rate-limited.
+              subtitle: 'More is faster until a source starts refusing you',
+              value: _concurrentDownloads.toDouble(),
+              min: 1,
+              max: DownloadDefaults.maxConcurrentDownloads.toDouble(),
+              // Derived from the range rather than written as a literal. A
+              // fixed count here is the defect this repo already shipped on
+              // the tap-zone sliders, where `divisions: 20` silently became a
+              // 3% step because `Slider` divides its own `max - min`.
+              divisions: DownloadDefaults.maxConcurrentDownloads - 1,
+              valueLabel: '$_concurrentDownloads',
+              onChanged: (v) {
+                DownloadKeys.concurrentDownloads.set<int>(v.round());
+                setState(() {});
+              },
+            ),
+            ChromeTile.toggle(
+              icon: Iconsax.wifi,
+              title: 'Only download on Wi-Fi',
+              // The honest description of the behaviour, because "only on
+              // Wi-Fi" alone reads as though the download is refused. It is
+              // held, and it starts by itself when Wi-Fi comes back.
+              subtitle: 'Queued chapters wait rather than fail',
+              value: DownloadKeys.downloadOnWifiOnly.get<bool>(
+                DownloadDefaults.downloadOnWifiOnly,
+              ),
+              onChanged: (v) {
+                DownloadKeys.downloadOnWifiOnly.set<bool>(v);
                 setState(() {});
               },
             ),

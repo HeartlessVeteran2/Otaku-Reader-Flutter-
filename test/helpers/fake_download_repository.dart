@@ -24,6 +24,17 @@ class FakeDownloads implements DownloadRepository {
   /// Publishes a change, as a real download would while it runs.
   void emit() => _changes.add(null);
 
+  /// What [heldForWifi] answers. Set by a test to render the held banner.
+  bool held = false;
+
+  @override
+  bool get heldForWifi => held;
+
+  @override
+  void dispose() {
+    if (!_changes.isClosed) _changes.close();
+  }
+
   @override
   Future<void> enqueue({
     required int sourceId,

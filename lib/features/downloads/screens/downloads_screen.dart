@@ -54,6 +54,13 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                 _UsageHeader(bytes: _c.usedBytes.value, active: _c.activeCount),
           ),
         ),
+        // One banner for a fact that belongs to the whole queue, rather than
+        // the same sentence repeated on every held row. `heldForWifi` is false
+        // when nothing is pending, so a paused-looking banner never outlives
+        // the thing it explains.
+        SliverToBoxAdapter(
+          child: Obx(() => _WifiHold(visible: _c.heldForWifi.value)),
+        ),
         // Its own `Obx`, and its own sliver: `itemBuilder` runs during layout,
         // after an enclosing build closure has already finished, so a read of
         // `tasks` there would register no dependency and the queue would never
@@ -75,6 +82,49 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
           );
         }),
       ],
+    );
+  }
+}
+
+/// Says why a queue with work in it is not moving.
+///
+/// It exists because the alternative is a list of chapters sitting at 0% with
+/// nothing on screen to say what they are waiting for, which reads as the
+/// downloader being broken — the same reason `UpdateDecision` keeps
+/// `waitingForWifi` apart from `notDue`.
+class _WifiHold extends StatelessWidget {
+  const _WifiHold({required this.visible});
+
+  final bool visible;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!visible) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      child: ChromeCard(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              Icon(
+                Iconsax.wifi_square,
+                size: 20,
+                color: theme.colorScheme.primary,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Waiting for Wi-Fi. These start on their own once you are '
+                  'back on an unmetered connection.',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

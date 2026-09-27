@@ -106,6 +106,8 @@ void main() {
       'Continuous direction',
       'Keep the screen on',
       'Show the page number',
+      'Chapters at once',
+      'Only download on Wi-Fi',
       'Show 18+ sources',
       'AniList',
     ]) {
@@ -356,5 +358,71 @@ void main() {
         expectNoHiddenText(tester, screen: screen);
       });
     }
+  });
+  group('the download settings', () {
+    testWidgets('the slider shows the stored limit and writing it sticks', (
+      tester,
+    ) async {
+      // Asserted on the **rendered** number and then on the queue's own
+      // reading of the key, not on the row's value in between. A slider that
+      // renders correctly and stores nothing is the defect this screen has
+      // already shipped twice, and it looks identical on screen.
+      DownloadKeys.concurrentDownloads.set<int>(4);
+      addTearDown(DownloadKeys.concurrentDownloads.delete);
+
+      await open(tester);
+      await scrollTo(tester, 'Chapters at once');
+
+      expect(find.text('4'), findsOneWidget);
+
+      final slider = tester.widget<Slider>(find.byType(Slider).last);
+      expect(slider.max, DownloadDefaults.maxConcurrentDownloads.toDouble());
+      expect(
+        slider.divisions,
+        DownloadDefaults.maxConcurrentDownloads - 1,
+        reason: 'one division per step, derived from the range',
+      );
+
+      slider.onChanged!(2);
+      await tester.pumpAndSettle();
+
+      expect(DownloadKeys.concurrentDownloads.get<int>(0), 2);
+      expect(find.text('2'), findsOneWidget);
+    });
+
+    testWidgets('a stored number outside the range does not throw', (
+      tester,
+    ) async {
+      // `Slider` asserts when `value` is outside `min..max`, so an
+      // out-of-range row would take the whole Settings screen down rather
+      // than render oddly. Nothing in the app writes one; a restore can.
+      DownloadKeys.concurrentDownloads.set<int>(99);
+      addTearDown(DownloadKeys.concurrentDownloads.delete);
+
+      await open(tester);
+      await scrollTo(tester, 'Chapters at once');
+
+      expect(tester.takeException(), isNull);
+      expect(
+        find.text('${DownloadDefaults.maxConcurrentDownloads}'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the Wi-Fi switch writes what the queue reads', (tester) async {
+      await open(tester);
+      await scrollTo(tester, 'Only download on Wi-Fi');
+
+      expect(
+        DownloadKeys.downloadOnWifiOnly.get<bool>(false),
+        isFalse,
+        reason: 'off by default -- a tap on download means now',
+      );
+
+      await tester.tap(find.text('Only download on Wi-Fi'));
+      await tester.pumpAndSettle();
+
+      expect(DownloadKeys.downloadOnWifiOnly.get<bool>(false), isTrue);
+    });
   });
 }
