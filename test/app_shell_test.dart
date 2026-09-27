@@ -18,6 +18,7 @@ import 'package:otaku_reader/features/updates/controllers/updates_controller.dar
 import 'package:otaku_reader/source/model/m_chapter.dart';
 import 'package:otaku_reader/source/model/m_manga.dart';
 
+import 'helpers/network_status_fake.dart';
 import 'helpers/category_fakes.dart';
 
 import 'helpers/fake_source_repository.dart';
@@ -151,6 +152,7 @@ void main() {
     final updates = UpdatesController(
       library: library,
       sources: const NoSources(),
+      network: FakeNetworkStatus(),
     )..onInit();
     Get.put<UpdatesController>(updates);
     await tester.pumpAndSettle();

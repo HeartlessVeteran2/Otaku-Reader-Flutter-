@@ -22,6 +22,8 @@ import 'package:otaku_reader/data/isar/manga_entry.dart';
 import 'package:otaku_reader/domain/repository/download_repository.dart';
 import 'package:otaku_reader/domain/repository/library_repository.dart';
 import 'package:otaku_reader/domain/repository/source_repository.dart';
+import 'package:otaku_reader/features/reader/display/page_layout.dart';
+import 'package:otaku_reader/features/reader/screen_controls.dart';
 import 'package:otaku_reader/features/reader/screen_wakelock.dart';
 import 'package:otaku_reader/source/model/page_url.dart';
 
@@ -110,6 +112,7 @@ class ReaderController extends GetxController {
     required LibraryRepository library,
     required AniListProgressReporter anilistProgress,
     required ScreenWakelock wakelock,
+    required ReaderScreenControls screen,
     required this.sourceId,
     required this.mangaUrl,
     required String chapterUrl,
@@ -117,6 +120,7 @@ class ReaderController extends GetxController {
        _library = library,
        _anilistProgress = anilistProgress,
        _wakelock = wakelock,
+       _screen = screen,
        currentChapterUrl = chapterUrl.obs;
 
   final SourceRepository _sources;
@@ -131,6 +135,13 @@ class ReaderController extends GetxController {
   /// screen on" shipped as a switch the user could press with nothing behind
   /// it. An optional wakelock would let that happen again silently.
   final ScreenWakelock _wakelock;
+
+  /// Orientation, immersive mode and the secure-window flag.
+  ///
+  /// Required rather than optional, for the same reason the wakelock is: an
+  /// optional one lets a call site forget it and the setting goes quietly dead
+  /// again, which is the defect these three exist to close.
+  final ReaderScreenControls _screen;
   final int sourceId;
   final String mangaUrl;
   final RxString currentChapterUrl;
@@ -165,6 +176,44 @@ class ReaderController extends GetxController {
   /// reader holds before `onInit` runs cannot disagree with the one the
   /// Settings switch renders.
   final showPageIndicator = ReaderDefaults.showPageIndicator.obs;
+
+  /// The screen settings the reader holds while a chapter is open.
+  ///
+  /// Observable rather than read from the key at each use, so the reader's own
+  /// controls can change them mid-chapter without a reopen — and so a test can
+  /// read what the reader decided rather than what is on disk, which is the
+  /// distinction that let two dead switches ship.
+  /// How a page is sized. Read once at init, so both bodies ask the same
+  /// object rather than each reaching for the key it happens to want.
+  final pageLayout = const PageLayout(
+    fitToScreen: ReaderDefaults.fitToScreen,
+    widthFactor: ReaderDefaults.imageWidth,
+    spaced: ReaderDefaults.spacedPages,
+  ).obs;
+
+  /// True when the layout currently in force was chosen by long-strip
+  /// detection rather than by the reader.
+  ///
+  /// It exists to stop that choice being **written back**. Without it, opening
+  /// one manhwa rewrites the stored default, and every paged series afterwards
+  /// opens as a strip — the setting silently changed by a series rather than
+  /// by a person. AnymeX guards the same thing in `_savePreferences`; this is
+  /// that guard, named.
+  final layoutIsAuto = false.obs;
+
+  final orientation = ReaderOrientation.system.obs;
+  final immersive = ReaderDefaults.immersiveMode.obs;
+  final einkFlash = ReaderDefaults.displayRefresh.obs;
+  final einkFlashMs = ReaderDefaults.displayRefreshMs.obs;
+
+  /// Whether the platform confirmed the secure flag.
+  ///
+  /// Three states, not two: unrequested, requested-and-applied, and
+  /// **requested-and-refused**. A reader who turned it on and got a silent no
+  /// believes screenshots are blocked when they are not, so the refusal has to
+  /// be something the UI can render.
+  final secureApplied = false.obs;
+  final secureRefused = false.obs;
   final chaptersInOrder = <Chapter>[].obs;
 
   /// Needed for the page requests, not for display: hotlink-protected CDNs
@@ -217,6 +266,44 @@ class ReaderController extends GetxController {
     if (ReaderKeys.keepScreenOn.get<bool>(ReaderDefaults.keepScreenOn)) {
       unawaited(_wakelock.enable());
     }
+
+    // Read first, apply second — the same order as the wakelock above, and for
+    // the same reason: applying a default and then correcting it once the
+    // preference loads holds the screen in a state the user did not choose for
+    // the width of that window.
+    orientation.value =
+        ReaderOrientation.values[ReaderKeys.orientationLock
+            .get<int>(ReaderDefaults.orientationLock)
+            .clamp(0, ReaderOrientation.values.length - 1)];
+    unawaited(_screen.setOrientation(orientation.value));
+
+    immersive.value = ReaderKeys.immersiveMode.get<bool>(
+      ReaderDefaults.immersiveMode,
+    );
+    unawaited(_screen.setImmersive(immersive.value));
+
+    if (ReaderKeys.secureScreen.get<bool>(ReaderDefaults.secureScreen)) {
+      unawaited(_applySecure(true));
+    }
+
+    pageLayout.value = PageLayout(
+      fitToScreen: ReaderKeys.fitToScreen.get<bool>(ReaderDefaults.fitToScreen),
+      // Clamped to the range the slider offers, not to an open one: a stored
+      // value above 1 would push a strip page past a viewport the continuous
+      // body cannot pan, and a value at 0 would erase the page outright.
+      widthFactor: ReaderKeys.imageWidth
+          .get<double>(ReaderDefaults.imageWidth)
+          .clamp(0.5, 1.0),
+      spaced: ReaderKeys.spacedPages.get<bool>(ReaderDefaults.spacedPages),
+    );
+
+    einkFlash.value = ReaderKeys.displayRefreshEnabled.get<bool>(
+      ReaderDefaults.displayRefresh,
+    );
+    einkFlashMs.value = ReaderKeys.displayRefreshDurationMs
+        .get<int>(ReaderDefaults.displayRefreshMs)
+        .clamp(0, 2000);
+
     load();
   }
 
@@ -232,7 +319,52 @@ class ReaderController extends GetxController {
     // off while a chapter is open: the enable already happened, and the
     // release would then be skipped on the way out.
     unawaited(_wakelock.disable());
+    // All three released unconditionally, exactly as the wakelock is. Keying
+    // the release on the setting strands the state whenever the switch is
+    // turned off while a chapter is open: the apply already happened, and the
+    // restore would then be skipped on the way out. For orientation that
+    // leaves the whole app pinned sideways; for the secure flag it leaves a
+    // privacy flag set on a window the user thinks they left.
+    unawaited(_screen.setOrientation(ReaderOrientation.system));
+    unawaited(_screen.setImmersive(false));
+    unawaited(_screen.setSecure(false));
     super.onClose();
+  }
+
+  /// Requests the secure-window flag and records whether it took.
+  ///
+  /// The platform answer is kept rather than swallowed: `setSecure` returns
+  /// false on a build with no implementation and on a platform that refused,
+  /// and a privacy setting that claims a property it does not have is worse
+  /// than no setting.
+  /// Bumped per request, so a slow answer cannot describe a newer one.
+  int _secureGeneration = 0;
+
+  Future<void> _applySecure(bool on) async {
+    final generation = ++_secureGeneration;
+    final applied = await _screen.setSecure(on);
+    // A platform channel round trip can be outrun by a second toggle, and the
+    // two observables below are a *privacy claim* — an older answer landing
+    // last would tell the reader screenshots are blocked because of a request
+    // that has since been replaced. Same guard as `MangaDetailsController.load`
+    // uses for its own out-of-order writes. Found by `codeant-ai`.
+    if (generation != _secureGeneration) return;
+    secureApplied.value = on && applied;
+    secureRefused.value = on && !applied;
+
+    // Remembered, so the Settings switch can say so too. The reader is the
+    // only place the flag is ever requested, so without this the refusal is
+    // discoverable *only* by opening a chapter — and the switch a user
+    // actually toggles goes on implying screenshots are blocked. Recorded on
+    // a request that was made, either way, so a device that starts honouring
+    // it clears the note rather than carrying it forever.
+    if (on) General.secureScreenUnsupported.set<bool>(!applied);
+  }
+
+  /// Turns the secure-window flag on or off mid-chapter.
+  Future<void> setSecure(bool on) async {
+    ReaderKeys.secureScreen.set<bool>(on);
+    await _applySecure(on);
   }
 
   /// Writes any debounced progress immediately.
@@ -268,6 +400,7 @@ class ReaderController extends GetxController {
     try {
       final entry = await _library.find(sourceId, mangaUrl);
       if (entry != null) {
+        _applyLongStripLayout(entry);
         // Ascending, so "next chapter" means the next one to read. The details
         // screen shows newest first; the reader must not inherit that or Next
         // would walk backwards.
@@ -304,9 +437,11 @@ class ReaderController extends GetxController {
       final local = await _localPages();
       if (generation != _generation) return;
       if (local != null) {
+        // Resolved **before** the list publishes, and the order is the whole
+        // behaviour -- see `_afterPagesLoaded`.
+        _afterPagesLoaded(local.length);
         pages.value = local;
         isOffline.value = true;
-        _afterPagesLoaded(local.length);
         await _persist(markRead: false);
         return;
       }
@@ -332,8 +467,8 @@ class ReaderController extends GetxController {
         return;
       }
 
-      pages.value = list;
       _afterPagesLoaded(list.length);
+      pages.value = list;
       // `markRead: false` explicitly. Opening a one-page chapter puts page 0 at
       // the last page, so an unguarded save here would mark it read before the
       // user has done anything. Only a page turn or a scroll finishes a
@@ -349,8 +484,20 @@ class ReaderController extends GetxController {
     }
   }
 
-  /// Resolves the resume position once the page list is known, whichever
+  /// Resolves the resume position once the page count is known, whichever
   /// source it came from.
+  ///
+  /// **Called before `pages` is published, never after.** The screen rebuilds
+  /// its `PageController` and `ScrollController` from `ever(_c.pages)`, and
+  /// GetX dispatches that worker *synchronously* out of the `pages.value =`
+  /// assignment — so anything this method sets has to be settled by then or
+  /// the controllers are built from the previous chapter's answer, which on a
+  /// fresh open is zero. That is how the paged reader came to ignore every
+  /// stored resume position: `page` was correct and the view under it opened
+  /// at the first page anyway, with the counter reading "3 / 3" over page one.
+  ///
+  /// Nothing here reads `pages`; the count arrives as [total] precisely so it
+  /// does not have to.
   void _afterPagesLoaded(int total) {
     initialPage = _resumePage(total);
     page.value = initialPage;
@@ -531,9 +678,39 @@ class ReaderController extends GetxController {
     await load();
   }
 
+  /// Switches layout **and** persists it — this is the reader choosing.
+  ///
+  /// Clearing [layoutIsAuto] is the point: once the reader has said what they
+  /// want for this chapter, detection stops owning the value, and the write
+  /// below is theirs rather than a series'.
   void setLayout(ReadingLayout value) {
+    layoutIsAuto.value = false;
     layout.value = value;
     ReaderKeys.readingLayout.set<int>(value.index);
+  }
+
+  /// Opens a long-strip series in the continuous reader.
+  ///
+  /// Two things it deliberately does **not** do:
+  ///
+  /// - **It never writes the key.** The layout is in force for this chapter
+  ///   only; the stored default belongs to the reader. Persisting it is how a
+  ///   single manhwa quietly turns every later series into a strip.
+  /// - **It does not touch direction.** AnymeX force-sets its one direction to
+  ///   `down` here, which it has to, because it keeps a single value for both
+  ///   layouts — that override is itself the admission that one value is wrong
+  ///   for a strip. This app already stores paged and continuous directions
+  ///   separately, so switching the layout is enough and `activeDirection`
+  ///   picks the right one by construction.
+  void _applyLongStripLayout(MangaEntry entry) {
+    if (!ReaderKeys.autoWebtoonMode.get<bool>(ReaderDefaults.autoWebtoonMode)) {
+      return;
+    }
+    if (layout.value == ReadingLayout.webtoon) return;
+    if (!readsAsLongStrip(entry)) return;
+
+    layoutIsAuto.value = true;
+    layout.value = ReadingLayout.webtoon;
   }
 
   void setDirection(ReadingDirection value) {

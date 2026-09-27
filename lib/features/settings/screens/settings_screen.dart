@@ -10,6 +10,8 @@ import 'package:otaku_reader/core/theme/theme_controller.dart';
 import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:otaku_reader/data/anilist/anilist_auth.dart';
 import 'package:otaku_reader/features/library/screens/categories_screen.dart';
+import 'package:otaku_reader/features/reader/screen_controls.dart';
+import 'package:otaku_reader/features/updates/scheduling/update_schedule.dart';
 import 'package:otaku_reader/features/settings/screens/accounts_screen.dart';
 import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
 import 'package:otaku_reader/features/reader/display/colour_filter_screen.dart';
@@ -70,6 +72,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// the reader reads them at open time, and there may be no reader alive.
   int _readerInt(ReaderKeys key, int fallback) => key.get<int>(fallback);
   bool _readerBool(ReaderKeys key, bool fallback) => key.get<bool>(fallback);
+  double _readerDouble(ReaderKeys key, double fallback) =>
+      key.get<double>(fallback);
 
   void _setInt(ReaderKeys key, int value) {
     key.set<int>(value);
@@ -357,6 +361,144 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 if (mounted) setState(() {});
               },
             ),
+            ChromeTile.toggle(
+              icon: Iconsax.document_text,
+              title: 'Detect long strips',
+              subtitle: 'Opens manhwa and webtoons in the continuous reader',
+              value: _readerBool(
+                ReaderKeys.autoWebtoonMode,
+                ReaderDefaults.autoWebtoonMode,
+              ),
+              onChanged: (v) => _setBool(ReaderKeys.autoWebtoonMode, v),
+            ),
+            ChromeTile.toggle(
+              icon: Iconsax.maximize_3,
+              title: 'Fill the width',
+              subtitle: 'Off shows the whole page instead',
+              value: _readerBool(
+                ReaderKeys.fitToScreen,
+                ReaderDefaults.fitToScreen,
+              ),
+              onChanged: (v) => _setBool(ReaderKeys.fitToScreen, v),
+            ),
+            ChromeTile.slider(
+              icon: Iconsax.arrow_3,
+              title: 'Page width',
+              // Narrowing only. The continuous body has no pan, so a page
+              // wider than the viewport would have an unreachable edge.
+              valueLabel:
+                  '${(_readerDouble(ReaderKeys.imageWidth, ReaderDefaults.imageWidth) * 100).round()}%',
+              value: _readerDouble(
+                ReaderKeys.imageWidth,
+                ReaderDefaults.imageWidth,
+              ).clamp(0.5, 1.0),
+              min: 0.5,
+              max: 1.0,
+              divisions: 10,
+              onChanged: (v) {
+                ReaderKeys.imageWidth.set<double>(v);
+                setState(() {});
+              },
+            ),
+            ChromeTile.toggle(
+              icon: Iconsax.row_vertical,
+              title: 'Space out pages',
+              subtitle: 'A gap between pages in the continuous reader',
+              value: _readerBool(
+                ReaderKeys.spacedPages,
+                ReaderDefaults.spacedPages,
+              ),
+              onChanged: (v) => _setBool(ReaderKeys.spacedPages, v),
+            ),
+            // Every row below decides what the *next* chapter does: the
+            // reader applies them in `onInit` and releases them unconditionally
+            // in `onClose`, so nothing here reaches a chapter already open.
+            ChromeTile.choice(
+              icon: Iconsax.rotate_left,
+              title: 'Orientation',
+              subtitle: 'How the reader sits when you turn the device',
+              labels: [for (final o in ReaderOrientation.values) o.label],
+              selectedIndex: _readerInt(
+                ReaderKeys.orientationLock,
+                ReaderDefaults.orientationLock,
+              ).clamp(0, ReaderOrientation.values.length - 1),
+              onSelected: (i) => _setInt(ReaderKeys.orientationLock, i),
+            ),
+            ChromeTile.toggle(
+              icon: Iconsax.maximize_4,
+              title: 'Full screen',
+              subtitle: 'Hides the status and navigation bars while reading',
+              value: _readerBool(
+                ReaderKeys.immersiveMode,
+                ReaderDefaults.immersiveMode,
+              ),
+              onChanged: (v) => _setBool(ReaderKeys.immersiveMode, v),
+            ),
+            // The subtitle carries the **refusal**, not just the promise.
+            // `codeant-ai` filed this: a switch that stays on after the
+            // platform declined tells the user screenshots are blocked when
+            // they are not, and that is worse than not offering the setting.
+            // The reader records the answer (it is the only place the flag is
+            // requested); this reads it back, so the refusal is visible where
+            // the switch is rather than only to someone who opens a chapter.
+            ChromeTile.toggle(
+              icon: Iconsax.eye_slash,
+              title: 'Hide from screenshots',
+              subtitle:
+                  _readerBool(
+                        ReaderKeys.secureScreen,
+                        ReaderDefaults.secureScreen,
+                      ) &&
+                      General.secureScreenUnsupported.get<bool>(false)
+                  ? 'This device refused — screenshots are still possible'
+                  : 'Also blanks the reader in the app switcher',
+              value: _readerBool(
+                ReaderKeys.secureScreen,
+                ReaderDefaults.secureScreen,
+              ),
+              onChanged: (v) {
+                // Clearing the note on a fresh "on" is deliberate: the answer
+                // belongs to a request, and the next reader open makes one.
+                // Carrying a stale refusal would make a device that started
+                // honouring the flag look permanently broken.
+                if (v) General.secureScreenUnsupported.set<bool>(false);
+                _setBool(ReaderKeys.secureScreen, v);
+              },
+            ),
+            // The e-ink pair, and they are two keys for the same reason the
+            // dim's magnitude and switch are: "zero means off" loses the
+            // duration every time the feature is toggled.
+            ChromeTile.toggle(
+              icon: Iconsax.refresh,
+              title: 'E-ink refresh',
+              subtitle:
+                  'Flashes the screen after a page turn to clear '
+                  'ghosting',
+              value: _readerBool(
+                ReaderKeys.displayRefreshEnabled,
+                ReaderDefaults.displayRefresh,
+              ),
+              onChanged: (v) => _setBool(ReaderKeys.displayRefreshEnabled, v),
+            ),
+            if (_readerBool(
+              ReaderKeys.displayRefreshEnabled,
+              ReaderDefaults.displayRefresh,
+            ))
+              ChromeTile.slider(
+                icon: Iconsax.timer_1,
+                title: 'Flash length',
+                value: _readerInt(
+                  ReaderKeys.displayRefreshDurationMs,
+                  ReaderDefaults.displayRefreshMs,
+                ).toDouble(),
+                min: 40,
+                max: 400,
+                divisions: 18,
+                valueLabel:
+                    '${_readerInt(ReaderKeys.displayRefreshDurationMs, ReaderDefaults.displayRefreshMs)} ms',
+                onChanged: (v) =>
+                    _setInt(ReaderKeys.displayRefreshDurationMs, v.round()),
+              ),
             // Taken when the reader opens and released when it closes, so the
             // switch only decides what the *next* chapter does.
             ChromeTile.toggle(
@@ -381,6 +523,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ReaderDefaults.showPageIndicator,
               ),
               onChanged: (v) => _setBool(ReaderKeys.showPageIndicator, v),
+            ),
+          ],
+        ),
+        SliverChromeSection(
+          label: 'Library updates',
+          children: [
+            // Three keys that have been declared since the enum was written
+            // and read by nothing. The Updates tab could always be pulled to
+            // refresh; nothing ever refreshed on its own.
+            ChromeTile.choice(
+              icon: Iconsax.refresh_circle,
+              title: 'Check for new chapters',
+              subtitle: 'Runs when you open the app, if it is due',
+              labels: [for (final i in UpdateInterval.values) i.label],
+              selectedIndex: UpdateKeys.updateInterval
+                  .get<int>(UpdateInterval.manual.index)
+                  .clamp(0, UpdateInterval.values.length - 1),
+              onSelected: (i) {
+                UpdateKeys.updateInterval.set<int>(i);
+                setState(() {});
+              },
+            ),
+            ChromeTile.toggle(
+              icon: Iconsax.wifi,
+              title: 'Only on Wi-Fi',
+              subtitle: 'A refresh asks every source you have installed',
+              value: UpdateKeys.updateOnWifiOnly.get<bool>(true),
+              onChanged: (v) {
+                UpdateKeys.updateOnWifiOnly.set<bool>(v);
+                setState(() {});
+              },
+            ),
+            ChromeTile.toggle(
+              icon: Iconsax.tick_circle,
+              title: 'Skip finished series',
+              // `unknown` counts as ongoing, because most sources do not
+              // report status and treating "I don't know" as finished would
+              // quietly stop updating most of a library.
+              subtitle: 'Only refreshes series still getting chapters',
+              value: UpdateKeys.updateOnlyOngoing.get<bool>(false),
+              onChanged: (v) {
+                UpdateKeys.updateOnlyOngoing.set<bool>(v);
+                setState(() {});
+              },
             ),
           ],
         ),

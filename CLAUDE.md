@@ -5,6 +5,53 @@ cannot re-derive from the code, and the mistakes already made here.
 
 ---
 
+## Who decides — and what that does not change
+
+**Granted by the developer, 2026-09-22: "I give you autonomy to make all
+decisions as long as it benefits the app to work the way I envision — you are
+lead developer."**
+
+Recorded here because it is exactly the kind of thing a fresh session cannot
+re-derive from the code, and because a grant this broad is easy to read as
+broader than it is.
+
+**What it settles.** Slice ordering and scope, design trade-offs, dependency
+choices, when to merge, which review findings to take and which to decline —
+none of these need asking. A question whose honest answer is "whichever, you
+pick" should not be sent back.
+
+**What it explicitly does not change**, and the first of these is the one most
+likely to be lost:
+
+- **"Let me know before you skip stuff or defer"** — a standing instruction
+  from the developer that *predates* the grant and survives it. Autonomy is
+  over the decision, never over whether it is reported. A feature cut, a
+  deferral, a dependency added, a measurement that turns out wrong: said
+  plainly, in the reply, without being asked. The grant removes the request
+  for approval, not the account of what happened.
+- **Every "never" in this file.** They are conclusions already paid for, not
+  defaults awaiting a decision-maker. `TlsSettings(verifyCertificates: false)`
+  stays forbidden; `kBridgeLibraryUri` stays; extensions run unmodified; a
+  test is never skipped, disabled or quarantined to reach green; secrets stay
+  out of the KV tier.
+- **The reporting standard.** "Finished" still means verified, and a green run
+  is still not a settled review. Autonomy raises the cost of overstating,
+  because there is no second reader between a claim and `main`.
+- **What the developer has actually said they want.** The grant says *the way
+  I envision*, so the envisioning is theirs and the record of it is binding:
+  AnymeX's chrome and information architecture everywhere; manga and manhwa
+  first; the home page interconnected with AniList; the AnymeX feature set
+  kept rather than trimmed, minus anything genuinely unnecessary or too large
+  a hassle; this app is its own thing rather than a fork. When a decision
+  would move against one of those, it is not a free call — it goes back.
+
+The practical test, when unsure whether something is mine to decide: *would
+getting this wrong be recoverable by the developer noticing it in a reply?*
+Ordering, naming, which nit to take — yes, decide it. Something that changes
+what the app **is**, or that would be invisible once merged — say so.
+
+---
+
 ## What this is
 
 A manga/manhwa-first reader in Flutter, built on **AnymeX's tech stack** (GetX +
@@ -1287,6 +1334,7 @@ Kept because they repeat.
 | A test that asserted on the harness because its finder was unscoped | "a zero dim renders nothing" asserted `find.byType(ColoredBox)` found nothing, and failed: `MaterialApp` renders a **transparent** `ColoredBox` of its own. The widget under test was correct the whole time. Scoping the finder with `find.descendant(of: find.byType(ReaderDimVeil), …)` is what makes the assertion about the thing the test is named for — and it is the same lesson as the `MediaQueryData()` row two above, arriving inside the very test written to apply it. |
 | A running tally kept in prose, wrong in three places at once | `FEATURES.md` claimed **"six display keys"** above a list of **eight names**, **"four `tapZones*`"** where there are **five**, and a total that inherited both — so "15 honoured of 39" shipped when the code has **18**. Found by `codeant-ai`, which simply counted the names against the number in front of them; the arithmetic was checkable in ten seconds and had been restated by hand four times instead. Two of the three were *already wrong before this PR*, riding along because each update recounted from the previous sentence rather than from the enum. This is the third counting defect in this file in two days, after the 30/40/30 thirds and the 169-vs-166 grid, and the pattern across all three is identical: **a number restated is a number nobody re-measured.** The fix is not a fourth careful count. `features_doc_test.dart` now reads the `ReaderKeys` enum, greps `lib/` for each member, and fails when the sentence disagrees — mutating it back to the 15 that actually shipped fails it (`+3 -1`, grep-confirmed). The prose elsewhere in the file stopped carrying its own running tally and now points at the one sentence the test checks, because a number that appears in three places is a number that will disagree with itself. |
 | The fix for a wrong count left the same wrong count in three neighbours | Having corrected `FEATURES.md` and *specifically* stripped the running tally out of two other paragraphs there, the same "six keys" sat untouched in `reader_display_settings.dart`, `settings_screen.dart` and `reader_display_test.dart` — the files the slice itself had just written. `codeant-ai` found it on the very commit whose message argued that a number in several places will disagree with itself. **Ninth** instance of a rule holding in one file and not its neighbour, and the shortest gap yet: the rule and its violation were in the same push. The remedy taken is the one the rule implies rather than the one the finding suggested — CodeAnt offered "say eight instead", and the count was **deleted** from all three, because correcting a restated number leaves a restated number. The habit that closes this class is mechanical and was skipped: after fixing a fact in one file, `grep` the repo for the old wording *before* committing, not after a bot reads the diff. |
+| A publish order that was load-bearing, and three tests that read the answer too late to see it | `_ReaderScreenState` rebuilds its `PageController` and `ScrollController` from `ever(_c.pages)`, and **GetX dispatches that worker synchronously out of the `pages.value =` assignment** — so whatever `initialPage` and `initialOffset` hold at that instant is what both scroll views are built from. `load()` assigned `pages` and *then* called `_afterPagesLoaded`, which is what computes them, so both controllers took the previous value: zero on a fresh open. The paged reader ignored **every** stored resume position, showing "3 / 3" over page one and restarting every half-read chapter, while `_c.page` was correct the whole time. Three `initialPage` tests existed and passed throughout, because each reads the value once the load has finished — the decision was right; the *moment* it became right was not, and nothing asserted a moment. The fix is the two lines in the other order (nothing in `_afterPagesLoaded` reads `pages`: the count arrives as an argument). Two guards, because one would not do: the seam test attaches an `ever` worker **before** `onInit`, as the screen does, and captures both values at the instant the list publishes — that is the one that reaches continuous mode's `initialOffset`, which no rendered test can; the rendered test asserts the `PageController`, deliberately **not** `_c.page`, since `_c.page` is what was right while the view was wrong. Both fail when the ordering is restored (`+100 -2`, exactly those two). Three rules meet here. The new one: **when a framework dispatches a listener synchronously, the order of two adjacent assignments is behaviour, and the diff that swaps them back says nothing** — so the doc comment has to claim the ordering, not just the values. The old ones: a rendered test is not a decision test and the reverse also holds, here in its sharpest form yet; and it was found only because an integration test was written for an *adjacent* review finding that turned out not to apply. | 
 | A test whose name and comment contradicted the assertions directly beneath them | "the boundary belongs to the band **before** it" sat two lines above `expect(profile.actionAt(0.3), toggleChrome)` — the band *after* the seam. `actionAt` returns on the first band whose running edge is past the position, so a seam has not passed the band before it. The assertions were right for their whole life and the prose above them was not. Caught by `codeant-ai`. This is the closing lesson of this table pointed at a test: a comment describing the rule is not evidence the assertion under it checks that rule, and here they were not even describing the same rule. |
 
 | A second persistence idiom in one repository, which deadlocked the harness rather than failing it | `CategoryRepositoryImpl` was written async — `findAll`, `writeTxn` — while `LibraryRepository`, `SourceRepository`, `ExtensionRepository` and `KvHelper` are every one of them `findFirstSync`/`putSync`/`writeTxnSync`. It analysed clean and its 19 plain-`test` cases passed. What it did was **hang `testWidgets`**: the widget suite never completed its first frame, and a probe counting builds of the widget under test reported **zero**, which reads as the widget not being wired rather than as the database never answering. Two lessons, and the second is the one that generalises. First, this file's own rule — match the app's existing idiom before inventing a second one — has a failure mode beyond inconsistency: the harness cannot run the second idiom at all. Second, the async version needed a **lock**, and the lock was real (measured: two `create` calls fired together produced `[A=0, B=0]`; a `delete` racing a `create` left a gap at 2 for the next create to collide with) — and going sync deleted the lock's own precondition along with the `await`, so the whole apparatus vanished rather than being fixed. The guard that replaced it is the **type system**: the two race cases cannot be expressed, because `Future.wait` does not accept a `CategoryEntry?`. When a lock looks necessary, check whether the `await` it guards needs to be there at all. |

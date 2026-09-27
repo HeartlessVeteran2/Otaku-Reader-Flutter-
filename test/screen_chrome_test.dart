@@ -41,6 +41,7 @@ import 'package:otaku_reader/source/model/source.dart';
 import 'package:otaku_reader/source/model/source_preference.dart';
 import 'package:otaku_reader/source/source_methods.dart';
 
+import 'helpers/network_status_fake.dart';
 import 'helpers/category_fakes.dart';
 
 import 'helpers/anilist_fakes.dart';
@@ -125,7 +126,11 @@ void main() {
       ),
     );
     Get.put<UpdatesController>(
-      UpdatesController(library: library, sources: const NoSources()),
+      UpdatesController(
+        library: library,
+        sources: const NoSources(),
+        network: FakeNetworkStatus(),
+      ),
     );
     // Every AniList lookup answers "nothing", which is also the path a first
     // launch with no network takes — and the one that renders the empty state.

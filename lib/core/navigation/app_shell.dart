@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:iconsax/iconsax.dart';
@@ -9,6 +11,7 @@ import 'package:otaku_reader/features/home/screens/home_screen.dart';
 import 'package:otaku_reader/features/library/screens/library_screen.dart';
 import 'package:otaku_reader/features/more/screens/more_screen.dart';
 import 'package:otaku_reader/features/updates/controllers/updates_controller.dart';
+import 'package:otaku_reader/features/updates/scheduling/update_schedule.dart';
 import 'package:otaku_reader/features/updates/screens/updates_screen.dart';
 import 'package:otaku_reader/widgets/common/lazy_indexed_stack.dart';
 
@@ -41,7 +44,7 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> {
+class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   static const _breakpoint = 600.0;
 
   static final _tabs = <_Tab>[
@@ -71,6 +74,52 @@ class _AppShellState extends State<AppShell> {
   late int _index = General.lastOpenedTab
       .get<int>(0)
       .clamp(0, _tabs.length - 1);
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _refreshIfDue();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Launch and resume, which is the whole schedule. Without a background
+    // worker there is no other moment to run one, and this is the honest
+    // version of "automatic": the app checks whenever you come back to it,
+    // rather than promising a refresh while it is closed.
+    if (state == AppLifecycleState.resumed) _refreshIfDue();
+  }
+
+  /// Asks the Updates tab whether a scheduled refresh is due, and lets it run.
+  ///
+  /// Guarded on registration for the same reason the badge is: the shell is
+  /// built by tests and by any entry point that does not run `AppBindings`,
+  /// and a library refresh is not worth taking the app down for.
+  ///
+  /// Deliberately unawaited and silent. It is a background courtesy — the
+  /// Updates tab shows its own progress and its own errors, and a snackbar on
+  /// every resume would be the app talking about itself.
+  void _refreshIfDue() {
+    if (!Get.isRegistered<UpdatesController>()) return;
+    // Caught, not merely unawaited. This fires from `initState` and from a
+    // resume, so a throw has nobody above it and becomes an unhandled async
+    // error at startup — the same shape as `AniListAuth.restore` being
+    // launched unawaited from `AppBindings`, which is already a row in the
+    // mistakes table. A refresh that cannot run is not worth a crash: the
+    // Updates tab surfaces its own errors, and the next resume tries again.
+    unawaited(
+      Get.find<UpdatesController>().refreshIfDue().catchError(
+        (_) => UpdateDecision.notDue,
+      ),
+    );
+  }
 
   void _select(int i) {
     if (i == _index) return;

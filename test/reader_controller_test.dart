@@ -16,11 +16,15 @@ import 'package:otaku_reader/source/model/filter.dart';
 import 'package:otaku_reader/source/model/m_chapter.dart';
 import 'package:otaku_reader/source/model/m_manga.dart';
 import 'package:otaku_reader/source/model/m_pages.dart';
+import 'package:get/get.dart';
 import 'package:otaku_reader/source/model/page_url.dart';
 import 'package:otaku_reader/source/model/source.dart';
 import 'package:otaku_reader/source/model/source_preference.dart';
 import 'package:otaku_reader/source/source_methods.dart';
 
+import 'package:otaku_reader/features/reader/screen_controls.dart';
+
+import 'helpers/screen_controls_fake.dart';
 import 'helpers/isar_test_env.dart';
 
 /// Records what the reader asked the platform for.
@@ -166,20 +170,29 @@ void main() {
 
   late _FakeWakelock wakelock;
 
+  /// The screen controls the reader asked for — orientation, immersive and
+  /// secure. Held so a test can assert the **request**, never the stored key:
+  /// a round-trip test is exactly what passed the whole time two switches here
+  /// shipped with nothing behind them.
+  late FakeScreenControls screen;
+
   Future<(ReaderController, _Methods)> open(
     String chapterUrl, {
     Map<String, List<PageUrl>>? pages,
+    bool secureSucceeds = true,
   }) async {
     final methods = _Methods(_row())
       ..pagesByChapter =
           pages ?? {'/c-1': _pages(3), '/c-2': _pages(4), '/c-3': _pages(2)};
     reporter = _SpyReporter();
     wakelock = _FakeWakelock();
+    screen = FakeScreenControls(secureSucceeds: secureSucceeds);
     final c = ReaderController(
       sources: _Sources(methods, _row()),
       library: library,
       anilistProgress: reporter,
       wakelock: wakelock,
+      screen: screen,
       sourceId: _sourceId,
       mangaUrl: _manga,
       chapterUrl: chapterUrl,
@@ -194,6 +207,284 @@ void main() {
     }
     return (c, methods);
   }
+
+  group('long-strip auto-detection', () {
+    test('a manhwa opens in the continuous reader', () async {
+      ReaderKeys.readingLayout.set<int>(ReadingLayout.paged.index);
+      ReaderKeys.autoWebtoonMode.set<bool>(true);
+      await library.upsertFromSource(
+        sourceId: _sourceId,
+        url: _manga,
+        manga: MManga(
+          name: 'Example',
+          genre: ['Action', 'Manhwa'],
+          chapters: [MChapter(url: '/c-1', name: 'Chapter 1')],
+        ),
+      );
+
+      final (c, _) = await open('/c-1');
+
+      expect(c.layout.value, ReadingLayout.webtoon);
+      expect(c.layoutIsAuto.value, isTrue);
+      c.onClose();
+    });
+
+    test('**it never writes the stored default**', () async {
+      // The guard that carries this feature. Without it, opening one manhwa
+      // rewrites the reader's default and every paged series afterwards opens
+      // as a strip — a setting changed by a series rather than by a person.
+      // AnymeX guards the same thing inside `_savePreferences`.
+      ReaderKeys.readingLayout.set<int>(ReadingLayout.paged.index);
+      ReaderKeys.autoWebtoonMode.set<bool>(true);
+      await library.upsertFromSource(
+        sourceId: _sourceId,
+        url: _manga,
+        manga: MManga(
+          name: 'Example',
+          genre: ['Webtoon'],
+          chapters: [MChapter(url: '/c-1', name: 'Chapter 1')],
+        ),
+      );
+
+      final (c, _) = await open('/c-1');
+      expect(c.layout.value, ReadingLayout.webtoon, reason: 'in force');
+      expect(
+        ReaderKeys.readingLayout.get<int>(0),
+        ReadingLayout.paged.index,
+        reason: 'but the stored default is untouched',
+      );
+      c.onClose();
+    });
+
+    test(
+      'choosing a layout by hand does persist, and clears the flag',
+      () async {
+        ReaderKeys.readingLayout.set<int>(ReadingLayout.paged.index);
+        ReaderKeys.autoWebtoonMode.set<bool>(true);
+        await library.upsertFromSource(
+          sourceId: _sourceId,
+          url: _manga,
+          manga: MManga(
+            name: 'Example',
+            genre: ['Webtoon'],
+            chapters: [MChapter(url: '/c-1', name: 'Chapter 1')],
+          ),
+        );
+
+        final (c, _) = await open('/c-1');
+        c.setLayout(ReadingLayout.paged);
+
+        expect(c.layoutIsAuto.value, isFalse);
+        expect(ReaderKeys.readingLayout.get<int>(0), ReadingLayout.paged.index);
+        c.onClose();
+      },
+    );
+
+    test('an ordinary manga is left alone', () async {
+      ReaderKeys.readingLayout.set<int>(ReadingLayout.paged.index);
+      ReaderKeys.autoWebtoonMode.set<bool>(true);
+      await library.upsertFromSource(
+        sourceId: _sourceId,
+        url: _manga,
+        manga: MManga(
+          name: 'Example',
+          genre: ['Action', 'Seinen'],
+          chapters: [MChapter(url: '/c-1', name: 'Chapter 1')],
+        ),
+      );
+
+      final (c, _) = await open('/c-1');
+
+      expect(c.layout.value, ReadingLayout.paged);
+      expect(c.layoutIsAuto.value, isFalse);
+      c.onClose();
+    });
+
+    test('the switch turns it off', () async {
+      ReaderKeys.readingLayout.set<int>(ReadingLayout.paged.index);
+      ReaderKeys.autoWebtoonMode.set<bool>(false);
+      await library.upsertFromSource(
+        sourceId: _sourceId,
+        url: _manga,
+        manga: MManga(
+          name: 'Example',
+          genre: ['Webtoon'],
+          chapters: [MChapter(url: '/c-1', name: 'Chapter 1')],
+        ),
+      );
+
+      final (c, _) = await open('/c-1');
+
+      expect(c.layout.value, ReadingLayout.paged);
+      c.onClose();
+    });
+
+    test('a stored page width outside the slider range is clamped', () async {
+      // A value above 1 would push a strip page past a viewport the continuous
+      // body cannot pan; a 0 would erase the page outright.
+      ReaderKeys.imageWidth.set<double>(2.5);
+      await library.upsertFromSource(
+        sourceId: _sourceId,
+        url: _manga,
+        manga: MManga(
+          name: 'Example',
+          chapters: [MChapter(url: '/c-1', name: 'Chapter 1')],
+        ),
+      );
+
+      final (c, _) = await open('/c-1');
+
+      expect(c.pageLayout.value.widthFactor, 1.0);
+      c.onClose();
+    });
+  });
+
+  group('the screen settings a chapter holds', () {
+    // Every assertion here reads the **request** the reader made, not the key
+    // it stored. That is the whole reason `ReaderScreenControls` is a seam:
+    // `SystemChrome` is static, so a host-VM test can neither call it nor
+    // watch it, and the two Settings switches that shipped dead here both
+    // round-tripped their key perfectly the entire time.
+
+    test('applies the stored orientation on open', () async {
+      ReaderKeys.orientationLock.set<int>(ReaderOrientation.landscape.index);
+
+      final (c, _) = await open('/c-1');
+
+      expect(screen.orientations.first, ReaderOrientation.landscape);
+      expect(c.orientation.value, ReaderOrientation.landscape);
+      c.onClose();
+    });
+
+    test('an out-of-range stored orientation is clamped, not thrown', () async {
+      // The `int status = 5` row of the mistakes table: a build that removes a
+      // member must not brick the reader for anyone whose stored index named
+      // it. Clamped against `values.length`, never a literal.
+      ReaderKeys.orientationLock.set<int>(99);
+
+      final (c, _) = await open('/c-1');
+
+      expect(c.orientation.value, ReaderOrientation.values.last);
+      c.onClose();
+    });
+
+    test('releases orientation and immersive on close, whatever was set', () async {
+      final (c, _) = await open('/c-1');
+      screen.orientations.clear();
+      screen.immersive.clear();
+
+      c.onClose();
+      await Future<void>.delayed(Duration.zero);
+
+      // Unconditional on purpose. Keying the release on the setting strands
+      // the whole app sideways when the switch is turned off mid-chapter: the
+      // apply already happened and the restore would be skipped on the way out.
+      expect(screen.orientations, [ReaderOrientation.system]);
+      expect(screen.immersive, [false]);
+    });
+
+    test('the secure flag is not requested unless the setting is on', () async {
+      final (c, _) = await open('/c-1');
+
+      expect(screen.secure, isEmpty, reason: 'nothing asked for on open');
+      c.onClose();
+    });
+
+    test('a refused secure flag is reported, not swallowed', () async {
+      // The state that matters. A reader who turned this on and got a silent
+      // no believes screenshots are blocked when they are not, so "requested
+      // and refused" has to be distinguishable from "applied".
+      ReaderKeys.secureScreen.set<bool>(true);
+
+      final (c, _) = await open('/c-1', secureSucceeds: false);
+      for (var i = 0; i < 10 && !c.secureRefused.value; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      expect(screen.secure.first, isTrue, reason: 'it was asked for');
+      expect(c.secureApplied.value, isFalse);
+      expect(c.secureRefused.value, isTrue);
+      c.onClose();
+    });
+
+    test('a refusal is remembered for the Settings switch to read', () async {
+      // The reader is the only place the flag is ever requested, so without
+      // this the refusal is discoverable only by opening a chapter — and the
+      // switch a user actually toggles goes on implying screenshots are
+      // blocked. `codeant-ai` filed it against the switch; this is the half
+      // that lets the switch answer.
+      ReaderKeys.secureScreen.set<bool>(true);
+
+      final (c, _) = await open('/c-1', secureSucceeds: false);
+      for (var i = 0; i < 10 && !c.secureRefused.value; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      expect(General.secureScreenUnsupported.get<bool>(false), isTrue);
+      c.onClose();
+    });
+
+    test('a device that honours the flag leaves no note behind', () async {
+      // The answer belongs to a request. Carrying a stale refusal would make
+      // a device that started honouring the flag look permanently broken.
+      General.secureScreenUnsupported.set<bool>(true);
+      ReaderKeys.secureScreen.set<bool>(true);
+
+      final (c, _) = await open('/c-1');
+      for (var i = 0; i < 10 && !c.secureApplied.value; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      expect(General.secureScreenUnsupported.get<bool>(true), isFalse);
+      c.onClose();
+    });
+
+    test('a stale secure answer cannot overwrite a newer one', () async {
+      // Two toggles in flight: the older channel round trip must not land last
+      // and describe a request that has since been replaced. These are a
+      // privacy claim, so a wrong one tells the reader screenshots are blocked
+      // when they are not. Found by `codeant-ai`.
+      ReaderKeys.secureScreen.set<bool>(false);
+      final (c, _) = await open('/c-1');
+
+      // Turn on (which this fake refuses), then immediately off.
+      final first = c.setSecure(true);
+      final second = c.setSecure(false);
+      await Future.wait([first, second]);
+
+      expect(
+        c.secureRefused.value,
+        isFalse,
+        reason: 'the latest request was an off, which cannot be refused',
+      );
+      expect(c.secureApplied.value, isFalse);
+      c.onClose();
+    });
+
+    test('an applied secure flag reports applied and not refused', () async {
+      ReaderKeys.secureScreen.set<bool>(true);
+
+      final (c, _) = await open('/c-1');
+      for (var i = 0; i < 10 && !c.secureApplied.value; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      expect(c.secureApplied.value, isTrue);
+      expect(c.secureRefused.value, isFalse);
+      c.onClose();
+    });
+
+    test('the e-ink duration is read and clamped', () async {
+      ReaderKeys.displayRefreshEnabled.set<bool>(true);
+      ReaderKeys.displayRefreshDurationMs.set<int>(99999);
+
+      final (c, _) = await open('/c-1');
+
+      expect(c.einkFlash.value, isTrue);
+      expect(c.einkFlashMs.value, 2000);
+      c.onClose();
+    });
+  });
 
   test('loads pages and orders chapters ascending', () async {
     await seed();
@@ -341,6 +632,65 @@ void main() {
 
     expect(c.initialPage, 2);
     expect(c.page.value, 2);
+  });
+
+  test('the resume position is settled before the page list publishes', () async {
+    // The screen rebuilds its `PageController` and `ScrollController` from
+    // `ever(_c.pages)`, and GetX dispatches that worker **synchronously** out
+    // of the `pages.value =` assignment. So whatever `initialPage` and
+    // `initialOffset` hold at that instant is what the views are built from —
+    // and `load()` used to publish the list first and resolve the resume
+    // afterwards, handing both controllers the previous chapter's answer,
+    // which on a fresh open is zero.
+    //
+    // The three `initialPage` tests above passed throughout, because they read
+    // the value after the load had finished. The decision was right the whole
+    // time; the moment it became right was not. This asserts the moment.
+    await seed();
+    await library.updateChapterProgress(
+      sourceId: _sourceId,
+      url: _manga,
+      chapterUrl: '/c-2',
+      lastPageRead: 2,
+      totalPages: 4,
+      currentOffset: 640,
+      maxOffset: 1200,
+    );
+
+    // Built by hand rather than through `open`, which runs `onInit` for you —
+    // the worker has to be attached before the load starts, exactly as the
+    // screen attaches it before `ReaderController` is put.
+    final c = ReaderController(
+      sources: _Sources(
+        _Methods(_row())..pagesByChapter = {'/c-2': _pages(4)},
+        _row(),
+      ),
+      library: library,
+      anilistProgress: _SpyReporter(),
+      wakelock: _FakeWakelock(),
+      screen: FakeScreenControls(),
+      sourceId: _sourceId,
+      mangaUrl: _manga,
+      chapterUrl: '/c-2',
+    );
+
+    int? pageAtPublish;
+    double? offsetAtPublish;
+    final worker = ever<List<PageUrl>>(c.pages, (list) {
+      if (list.isEmpty) return;
+      pageAtPublish ??= c.initialPage;
+      offsetAtPublish ??= c.initialOffset;
+    });
+
+    c.onInit();
+    for (var i = 0; i < 200 && c.isLoading.value; i++) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    worker.dispose();
+
+    expect(pageAtPublish, 2, reason: 'the paged view is built from this');
+    expect(offsetAtPublish, 640, reason: 'the continuous one from this');
+    c.onClose();
   });
 
   test('a finished chapter restarts at the top, not on its last page', () async {
@@ -524,6 +874,7 @@ void main() {
       library: library,
       anilistProgress: _SpyReporter(),
       wakelock: _FakeWakelock(),
+      screen: FakeScreenControls(),
       sourceId: _sourceId,
       mangaUrl: _manga,
       chapterUrl: '/c-1',
