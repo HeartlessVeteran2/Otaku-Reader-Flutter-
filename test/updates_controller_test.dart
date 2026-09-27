@@ -330,6 +330,42 @@ void main() {
       c.onClose();
     });
 
+    test('two resumes at once crawl the library once', () async {
+      // CodeAnt filed this as a Major on #61: `refreshIfDue` awaits
+      // `isUnmetered()` between the due check and the `isRefreshing` guard, so
+      // two calls can both pass the due check before either starts -- read
+      // then act across a suspension point, which this project has shipped
+      // four times. Reproduced rather than argued, because a finding can be
+      // right about the shape and wrong about the facts.
+      UpdateKeys.updateInterval.set<int>(UpdateInterval.daily.index);
+      UpdateKeys.updateOnWifiOnly.set<bool>(true);
+      await seed([MChapter(url: '/c-1', name: 'Chapter 1')]);
+      final (c, methods) = await build(
+        MManga(
+          name: 'Example',
+          chapters: [MChapter(url: '/c-1')],
+        ),
+      );
+
+      // Fired together, not one after the other: the window is between the
+      // two, so awaiting the first would close it and the test would pass for
+      // the wrong reason.
+      final answers = await Future.wait([c.refreshIfDue(), c.refreshIfDue()]);
+
+      expect(
+        methods.detailCalls,
+        1,
+        reason: 'the library was crawled once, not twice',
+      );
+      expect(
+        answers.where((a) => a == UpdateDecision.run).length,
+        1,
+        reason: 'exactly one call reports that it ran',
+      );
+      expect(answers, contains(UpdateDecision.alreadyRunning));
+      c.onClose();
+    });
+
     test('mobile data holds off, and the source is never asked', () async {
       UpdateKeys.updateInterval.set<int>(UpdateInterval.daily.index);
       UpdateKeys.updateOnWifiOnly.set<bool>(true);
