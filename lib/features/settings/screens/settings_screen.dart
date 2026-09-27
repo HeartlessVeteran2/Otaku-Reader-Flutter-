@@ -73,6 +73,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// the reader reads them at open time, and there may be no reader alive.
   int _readerInt(ReaderKeys key, int fallback) => key.get<int>(fallback);
   bool _readerBool(ReaderKeys key, bool fallback) => key.get<bool>(fallback);
+  double _readerDouble(ReaderKeys key, double fallback) =>
+      key.get<double>(fallback);
 
   /// Clamped on the way *out* as well as in the downloader.
   ///
@@ -84,8 +86,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int get _concurrentDownloads => DownloadKeys.concurrentDownloads
       .get<int>(DownloadDefaults.concurrentDownloads)
       .clamp(1, DownloadDefaults.maxConcurrentDownloads);
-  double _readerDouble(ReaderKeys key, double fallback) =>
-      key.get<double>(fallback);
 
   void _setInt(ReaderKeys key, int value) {
     key.set<int>(value);
