@@ -77,10 +77,38 @@ class DownloadRepositoryImpl implements DownloadRepository {
   /// would guard it; a cached field removes the `await` entirely, which is the
   /// better answer when the `await` did not need to be there.
   ///
-  /// It starts `true` for the same reason `ConnectivityNetworkStatus` answers
-  /// `true` on failure: a queue that refuses to start because the platform has
-  /// not answered yet is a feature that silently never runs.
+  /// Its initial value decides nothing, because [_networkKnown] gates every
+  /// read of it — see there. It stays `true` only so that a reader of this
+  /// field alone cannot mistake "not asked yet" for "metered".
   var _unmetered = true;
+
+  /// Whether the platform has answered [NetworkStatus.isUnmetered] even once.
+  ///
+  /// **"Unknown" is not "unmetered", and for this gate that distinction is the
+  /// user's money.** `_unmetered` used to start `true` with the constructor's
+  /// read running asynchronously, so a chapter enqueued in the first moments
+  /// after launch started on whatever connection was there — and a running
+  /// download is deliberately never stopped, so the answer arriving later
+  /// could not undo it. Against an explicit "only on Wi-Fi" promise that is
+  /// data already spent. Found by `codeant-ai`.
+  ///
+  /// The tell was a comment here justifying the optimistic default with
+  /// `ConnectivityNetworkStatus`'s reasoning. That reasoning is sound for the
+  /// **library refresh** — a feature that silently never runs is worse than
+  /// one refresh the reader did not want — and it does not transfer, because
+  /// the two failures are not comparable:
+  ///
+  /// - holding while unknown fails **visibly**: the banner says what the queue
+  ///   is waiting for and the switch is one tap away;
+  /// - running while unknown fails **invisibly and unrecoverably**, breaking a
+  ///   promise the reader made a deliberate choice to turn on.
+  ///
+  /// So this one holds. Note it is consulted *inside* the gate rather than
+  /// in front of it: with the switch off there is nothing to wait for, and a
+  /// bare `!_networkKnown ||` — the shape the finding suggested — would make
+  /// every reader wait out a platform round trip at startup, including the
+  /// ones who never turned the gate on.
+  var _networkKnown = false;
 
   /// Counts network reads started, so a slower earlier one cannot land last.
   ///
@@ -96,7 +124,13 @@ class DownloadRepositoryImpl implements DownloadRepository {
     final generation = ++_networkGeneration;
     final answer = await _network.isUnmetered();
     if (generation != _networkGeneration) return;
-    if (answer == _unmetered) return;
+    // Recorded **before** the unchanged-value guard below. The first answer is
+    // very often `true`, which equals the starting value of `_unmetered` — so
+    // setting this after that early return would leave the connection
+    // permanently "unknown" in exactly the common case.
+    final wasKnown = _networkKnown;
+    _networkKnown = true;
+    if (answer == _unmetered && wasKnown) return;
     _unmetered = answer;
     // A change in either direction is worth publishing: one releases the
     // queue, and the other is what the held banner renders.
@@ -176,12 +210,17 @@ class DownloadRepositoryImpl implements DownloadRepository {
   }
 
   @override
-  bool get heldForWifi =>
-      _pending.isNotEmpty &&
-      !_unmetered &&
-      DownloadKeys.downloadOnWifiOnly.get<bool>(
-        DownloadDefaults.downloadOnWifiOnly,
-      );
+  bool get heldForWifi {
+    if (_pending.isEmpty) return false;
+    if (!DownloadKeys.downloadOnWifiOnly.get<bool>(
+      DownloadDefaults.downloadOnWifiOnly,
+    )) {
+      return false;
+    }
+    // Unknown counts as held. See [_networkKnown] for why this gate takes the
+    // opposite direction to the library refresh's.
+    return !_networkKnown || !_unmetered;
+  }
 
   @override
   Future<void> setWifiOnly(bool value) async {

@@ -1184,6 +1184,114 @@ void main() {
       expect(downloads.heldForWifi, isFalse);
     });
 
+    test('the gate holds until the first network answer arrives', () async {
+      // `codeant-ai`, and correct. `_unmetered` started `true` while the
+      // constructor's read is asynchronous, so a chapter enqueued before that
+      // answer landed started on whatever connection was there -- and by this
+      // queue's own deliberate design a running download is never stopped, so
+      // the later answer could not undo it. Against an explicit "only on
+      // Wi-Fi" promise that is the user's money, already spent.
+      //
+      // The tell was a comment I wrote myself: it justified the optimistic
+      // default with `ConnectivityNetworkStatus`'s reasoning, which is right
+      // for a library refresh -- a feature that silently never runs is worse
+      // than one extra refresh -- and wrong for a gate. Holding while the
+      // answer is unknown fails *visibly*, because the banner says what it is
+      // waiting for and the switch is one tap away.
+      DownloadKeys.downloadOnWifiOnly.set<bool>(true);
+      addTearDown(DownloadKeys.downloadOnWifiOnly.delete);
+      network.unmetered = false;
+      // The constructor's read is made slow, which is the whole state under
+      // test: on a real cold start it is a platform channel.
+      network.answerDelays.add(30);
+
+      final methods = await seed(['/c-1']);
+      methods.pages['/c-1'] = ['https://cdn.test/a.jpg'];
+      var fetched = 0;
+      final downloads = build(
+        methods,
+        fetch: (url, headers) async {
+          fetched++;
+          return [1, 2, 3];
+        },
+      );
+      addTearDown(downloads.dispose);
+
+      // Enqueued immediately, before the answer can have landed.
+      await downloads.enqueue(
+        sourceId: _sourceId,
+        mangaUrl: _url,
+        chapter: await chapterOf('/c-1'),
+        mangaTitle: 'Example',
+      );
+      expect(
+        fetched,
+        0,
+        reason: 'nothing left the device while the connection was unknown',
+      );
+      expect(downloads.heldForWifi, isTrue);
+
+      // And once the answer says metered it stays held, rather than the hold
+      // being an artefact of the answer not having arrived.
+      await spin();
+      expect(fetched, 0);
+      expect(downloads.tasks.single.state, DownloadState.queued);
+    });
+
+    test('the gate lets a Wi-Fi device straight through', () async {
+      // The case the other new tests do not reach, and it is what pins the
+      // ordering inside `_refreshNetwork`. The first answer on an unmetered
+      // device is `true`, which *equals* `_unmetered`'s starting value — so
+      // recording `_networkKnown` after the unchanged-value early return would
+      // leave the connection permanently unknown in the commonest case of all,
+      // and this gate would hold for ever on a device that is on Wi-Fi.
+      DownloadKeys.downloadOnWifiOnly.set<bool>(true);
+      addTearDown(DownloadKeys.downloadOnWifiOnly.delete);
+
+      final methods = await seed(['/c-1']);
+      methods.pages['/c-1'] = ['https://cdn.test/a.jpg'];
+      final downloads = build(methods);
+      addTearDown(downloads.dispose);
+
+      await downloads.enqueue(
+        sourceId: _sourceId,
+        mangaUrl: _url,
+        chapter: await chapterOf('/c-1'),
+        mangaTitle: 'Example',
+      );
+      await settle(downloads);
+
+      expect(downloads.tasks.single.state, DownloadState.done);
+      expect(downloads.heldForWifi, isFalse);
+    });
+
+    test('with the gate off, an unknown connection holds nothing', () async {
+      // The correction to the suggested remedy, and the reason it is a
+      // separate test. CodeAnt proposed `!_networkReady ||` *outside* the key
+      // check, which satisfies the disjunction on its own -- so every download
+      // would wait for a platform round trip at startup even for a reader who
+      // never turned the gate on. A finding can be right about the defect and
+      // wrong about the remedy; this is what tells the two apart.
+      network.unmetered = false;
+      network.answerDelays.add(30);
+
+      final methods = await seed(['/c-1']);
+      methods.pages['/c-1'] = ['https://cdn.test/a.jpg'];
+      final downloads = build(methods);
+      addTearDown(downloads.dispose);
+
+      await downloads.enqueue(
+        sourceId: _sourceId,
+        mangaUrl: _url,
+        chapter: await chapterOf('/c-1'),
+        mangaTitle: 'Example',
+      );
+      await settle(downloads);
+
+      expect(downloads.tasks.single.state, DownloadState.done);
+      expect(downloads.heldForWifi, isFalse);
+    });
+
     test('an empty queue is never reported as held', () async {
       // Otherwise the banner outlives the thing it explains: a screen opened
       // on mobile data with nothing queued would say chapters are waiting.
