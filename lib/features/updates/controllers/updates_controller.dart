@@ -181,13 +181,22 @@ class UpdatesController extends GetxController {
             .clamp(0, UpdateInterval.values.length - 1)];
     final wifiOnly = UpdateKeys.updateOnWifiOnly.get<bool>(true);
 
+    // **One clock reading for both decisions.** Read twice, the schedule is
+    // asked the same question at two different instants, and near an interval
+    // boundary the two can legitimately disagree — the first saying not-due
+    // and the second due, or the reverse. The window is microseconds wide and
+    // the fix is free, which is the whole argument for taking it: a value
+    // sampled twice will eventually disagree with itself and nothing here
+    // would notice. Raised by `codeant-ai`.
+    final at = now ?? DateTime.now();
+
     // The network is only asked about when the schedule has already said yes.
     // Querying a platform channel on every resume to answer a question that
     // usually ends in "not due" is work nobody asked for.
     final provisional = shouldRefreshLibrary(
       interval: interval,
       lastCheck: lastChecked.value,
-      now: now ?? DateTime.now(),
+      now: at,
       wifiOnly: false,
       onWifi: true,
     );
@@ -196,7 +205,7 @@ class UpdatesController extends GetxController {
     final decision = shouldRefreshLibrary(
       interval: interval,
       lastCheck: lastChecked.value,
-      now: now ?? DateTime.now(),
+      now: at,
       wifiOnly: wifiOnly,
       onWifi: wifiOnly ? await _network.isUnmetered() : true,
     );
@@ -205,6 +214,19 @@ class UpdatesController extends GetxController {
     // Reported rather than glossed. `refreshLibrary` drops a call while one is
     // already running, so answering `run` here would be a sentence about a
     // refresh that never started.
+    //
+    // **This is sufficient, and the reason is in `refreshLibrary`.** There is
+    // an `await` above — the connectivity query — so two resumes really can
+    // both reach this line, which is the read-then-act shape this project has
+    // shipped four times. What closes it is that `refreshLibrary` sets
+    // `isRefreshing` *synchronously, before its own first `await`*: calling an
+    // `async` function runs its body up to that point inside the caller's
+    // continuation, so the flag is already true when the second call resumes.
+    // That ordering is load-bearing rather than incidental — an `await` added
+    // above it in `refreshLibrary` reopens the race — so it is pinned by
+    // "two resumes at once crawl the library once" rather than left to be
+    // remembered. A second flag here would guard a race that does not occur,
+    // which is its own defect in this repo's history.
     if (isRefreshing.value) return UpdateDecision.alreadyRunning;
 
     await refreshLibrary();
@@ -227,6 +249,12 @@ class UpdatesController extends GetxController {
   }
 
   Future<void> refreshLibrary() async {
+    // **Nothing may `await` above the flag.** `refreshIfDue` relies on this
+    // assignment landing inside its own continuation to close the window its
+    // connectivity query opens; an `await` here instead lets two resumes both
+    // get past its guard and crawl every favourite twice. Pinned by "two
+    // resumes at once crawl the library once", which fails the moment one is
+    // inserted.
     if (isRefreshing.value) return;
     isRefreshing.value = true;
     errors.clear();
