@@ -9,6 +9,7 @@ import 'package:otaku_reader/core/theme/chrome_metrics.dart';
 import 'package:otaku_reader/core/theme/theme_controller.dart';
 import 'package:otaku_reader/core/widgets/chrome.dart';
 import 'package:otaku_reader/data/anilist/anilist_auth.dart';
+import 'package:otaku_reader/domain/repository/download_repository.dart';
 import 'package:otaku_reader/features/library/screens/categories_screen.dart';
 import 'package:otaku_reader/features/reader/screen_controls.dart';
 import 'package:otaku_reader/features/updates/scheduling/update_schedule.dart';
@@ -621,9 +622,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
               value: DownloadKeys.downloadOnWifiOnly.get<bool>(
                 DownloadDefaults.downloadOnWifiOnly,
               ),
-              onChanged: (v) {
-                DownloadKeys.downloadOnWifiOnly.set<bool>(v);
-                setState(() {});
+              // Through the queue, not straight at the key. Writing the key
+              // here works and still leaves the switch looking broken: the
+              // queue's *answer* changes immediately (`heldForWifi` reads the
+              // key live), but nothing pumps, so turning the gate **off**
+              // leaves already-held chapters held until the next connectivity
+              // event. `setWifiOnly` writes, publishes and pumps together.
+              // Both halves were filed by `codeant-ai`.
+              onChanged: (v) async {
+                await Get.find<DownloadRepository>().setWifiOnly(v);
+                if (mounted) setState(() {});
               },
             ),
           ],

@@ -236,7 +236,11 @@ void main() {
 
   /// Waits for the queue to go quiet.
   Future<void> settle(DownloadRepository downloads) async {
-    for (var i = 0; i < 200; i++) {
+    // 400, not 200: a page fetch here touches the filesystem, and the full
+    // suite runs several files at once, so the original bound was tight enough
+    // that a busy machine could trip it. It still fails loudly rather than
+    // returning early, which is the property that matters.
+    for (var i = 0; i < 400; i++) {
       await Future<void>.delayed(const Duration(milliseconds: 5));
       final busy = downloads.tasks.any(
         (t) =>
@@ -761,11 +765,33 @@ void main() {
       }
     }
 
-    /// Lets the queue start whatever it is going to start.
-    Future<void> spin() async {
-      for (var i = 0; i < 20; i++) {
-        await Future<void>.delayed(Duration.zero);
+    /// Waits until [want] page fetches are in flight at once.
+    ///
+    /// **Not a fixed number of turns.** The first version spun 20 microtasks
+    /// and passed on this machine every time it was run alone, then failed in
+    /// the full parallel suite: starting a task does real file I/O, so how many
+    /// turns it takes depends on how busy the machine is. That is this
+    /// project's own "wait on the condition, never on a turn count" rule, and
+    /// a flake that only appears under load is worse than one that always
+    /// fails.
+    Future<void> waitForPeak(int Function() peak, int want) async {
+      for (var i = 0; i < 600 && peak() < want; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
       }
+      expect(peak(), greaterThanOrEqualTo(want), reason: 'reached $want slots');
+    }
+
+    /// Waits past [want] to catch the queue running *more* than it should.
+    ///
+    /// Reaching a limit only proves it is not too low. The two halves are
+    /// separate because they fail for opposite reasons and a single assertion
+    /// cannot say which happened.
+    Future<void> expectPeakStaysAt(int Function() peak, int want) async {
+      await waitForPeak(peak, want);
+      for (var i = 0; i < 100; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+      }
+      expect(peak(), want, reason: 'and never went past $want');
     }
 
     /// Opens the gate repeatedly until the queue is empty.
@@ -776,9 +802,12 @@ void main() {
       void Function() release,
       DownloadRepository downloads,
     ) async {
-      for (var i = 0; i < 40; i++) {
+      for (var i = 0; i < 60; i++) {
         release();
-        await spin();
+        // A real millisecond rather than a microtask drain: a released batch
+        // has to get through its file writes before the next one can start,
+        // and that is wall-clock work.
+        await Future<void>.delayed(const Duration(milliseconds: 2));
         final busy = downloads.tasks.any(
           (t) =>
               t.state == DownloadState.queued ||
@@ -802,13 +831,9 @@ void main() {
       addTearDown(downloads.dispose);
 
       await enqueueAll(downloads, ['/c-1', '/c-2', '/c-3', '/c-4', '/c-5']);
-      await spin();
 
-      expect(
-        g.peak(),
-        4,
-        reason: 'four chapters in flight, and the fifth waiting for a slot',
-      );
+      // Four in flight, the fifth waiting for a slot.
+      await expectPeakStaysAt(g.peak, 4);
       await releaseAll(g.release, downloads);
     });
 
@@ -830,8 +855,7 @@ void main() {
       addTearDown(downloads.dispose);
 
       await enqueueAll(downloads, ['/c-1', '/c-2', '/c-3']);
-      await spin();
-      expect(g.peak(), 1, reason: 'one slot while the key says one');
+      await expectPeakStaysAt(g.peak, 1);
 
       // Raised while a download is in flight. The next free slot is where it
       // takes effect, so releasing the first is what proves it.
@@ -843,6 +867,9 @@ void main() {
         greaterThan(1),
         reason: 'the raise reached the queue without a restart',
       );
+      // Not asserted as an exact number: with three pending and a limit of
+      // three, how many share a slot depends on when each finishes, and the
+      // claim under test is only that the new limit was consulted at all.
     });
 
     test('a stored zero does not stop the queue for ever', () async {
@@ -882,18 +909,23 @@ void main() {
       addTearDown(downloads.dispose);
 
       await enqueueAll(downloads, chapters);
-      await spin();
 
-      expect(g.peak(), DownloadDefaults.maxConcurrentDownloads);
+      await expectPeakStaysAt(g.peak, DownloadDefaults.maxConcurrentDownloads);
       await releaseAll(g.release, downloads);
     });
   });
 
   group('only on Wi-Fi', () {
+    /// Real wall-clock time, not a microtask drain.
+    ///
+    /// These cases mostly assert that something did **not** happen, which is
+    /// the direction where waiting too little passes for free — a broken gate
+    /// and a queue that simply had not got going yet look identical. A real
+    /// delay makes the opportunity genuinely pass. (The mutation that removes
+    /// the gate does fail these, so they are not vacuous today; this is what
+    /// keeps that true on a slower machine.)
     Future<void> spin() async {
-      for (var i = 0; i < 20; i++) {
-        await Future<void>.delayed(Duration.zero);
-      }
+      await Future<void>.delayed(const Duration(milliseconds: 60));
     }
 
     test(
@@ -1025,6 +1057,132 @@ void main() {
         expect(downloads.heldForWifi, isFalse);
       },
     );
+
+    test('turning the gate off releases a queue already held', () async {
+      // `codeant-ai`, Major: writing the key alone changes `heldForWifi`'s
+      // answer immediately but pumps nothing, so chapters already held sit
+      // there until the next connectivity event or the next enqueue — which
+      // reads exactly like the switch not working. The fix is that Settings
+      // goes through `setWifiOnly`, so this asserts the *release*, not the
+      // stored value.
+      DownloadKeys.downloadOnWifiOnly.set<bool>(true);
+      addTearDown(DownloadKeys.downloadOnWifiOnly.delete);
+      network.unmetered = false;
+
+      final methods = await seed(['/c-1']);
+      methods.pages['/c-1'] = ['https://cdn.test/a.jpg'];
+      final downloads = build(methods);
+      addTearDown(downloads.dispose);
+
+      await downloads.enqueue(
+        sourceId: _sourceId,
+        mangaUrl: _url,
+        chapter: await chapterOf('/c-1'),
+        mangaTitle: 'Example',
+      );
+      await spin();
+      expect(downloads.tasks.single.state, DownloadState.queued);
+
+      // Still on mobile data. Only the setting changed.
+      await downloads.setWifiOnly(false);
+      await settle(downloads);
+
+      expect(downloads.tasks.single.state, DownloadState.done);
+      expect(downloads.heldForWifi, isFalse);
+    });
+
+    test(
+      'turning the gate off publishes, so a mounted screen re-reads',
+      () async {
+        // The other half of the same gap, and the half a state assertion cannot
+        // see: the Downloads controller mirrors `heldForWifi` on the `changes`
+        // stream, so a value that changes without publishing leaves the banner
+        // rendering the old answer.
+        DownloadKeys.downloadOnWifiOnly.set<bool>(true);
+        addTearDown(DownloadKeys.downloadOnWifiOnly.delete);
+        network.unmetered = false;
+
+        final methods = await seed(['/c-1']);
+        final downloads = build(methods);
+        addTearDown(downloads.dispose);
+
+        var published = 0;
+        final sub = downloads.changes.listen((_) => published++);
+        addTearDown(sub.cancel);
+
+        // Settled and the count taken **after**, because the constructor's own
+        // network read publishes too. Counting from zero passed with the
+        // publish in `setWifiOnly` deleted -- the right answer for the wrong
+        // reason, and the second time in this slice that an assertion made
+        // before an asynchronous constructor read had landed measured nothing.
+        await spin();
+        final before = published;
+
+        await downloads.setWifiOnly(true);
+        await spin();
+
+        expect(
+          published,
+          greaterThan(before),
+          reason: 'the setting change itself published',
+        );
+      },
+    );
+
+    test('an older connectivity answer cannot overwrite a newer one', () async {
+      // Two events in quick succession start two `isUnmetered()` calls and
+      // nothing orders their completions, so the older can land second and
+      // hold a queue that should run. Found by `codeant-ai`. The fake answers
+      // from a mutable field, so scripting the *second* event first and then
+      // letting both resolve is what puts them out of order.
+      DownloadKeys.downloadOnWifiOnly.set<bool>(true);
+      addTearDown(DownloadKeys.downloadOnWifiOnly.delete);
+      network.unmetered = false;
+
+      final methods = await seed(['/c-1', '/c-2']);
+      methods.pages['/c-1'] = ['https://cdn.test/a.jpg'];
+      methods.pages['/c-2'] = ['https://cdn.test/b.jpg'];
+      final downloads = build(methods);
+      addTearDown(downloads.dispose);
+
+      // Off, then straight back on — and the first read is made *slower* than
+      // the second, so the stale `false` lands last. That inversion is the
+      // whole state under test; without it the reads finish in the order they
+      // started and the guard cannot be falsified.
+      network.answerDelays.addAll([6, 0]);
+      network.change(unmetered: false);
+      // Pumped **between** the two events, and that is load-bearing. A
+      // broadcast stream delivers in a microtask, so firing both back to back
+      // sets the fake's field twice before either listener runs — and then both
+      // reads capture the same value and there is no stale answer to guard
+      // against. Measured: the guard was unfalsifiable until this line.
+      await Future<void>.delayed(Duration.zero);
+      network.change(unmetered: true);
+      for (var i = 0; i < 20; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      // Asserted on the **next** enqueue, deliberately. Anything queued before
+      // the events runs the moment the newer `true` lands, and the stale answer
+      // arrives too late to stop it — so a chapter enqueued earlier reaches
+      // `done` whether or not the guard exists. What the stale value actually
+      // costs is every decision *after* it: the device is on Wi-Fi and the
+      // queue thinks it is not.
+      await downloads.enqueue(
+        sourceId: _sourceId,
+        mangaUrl: _url,
+        chapter: await chapterOf('/c-2'),
+        mangaTitle: 'Example',
+      );
+      await settle(downloads);
+
+      expect(
+        downloads.tasks.single.state,
+        DownloadState.done,
+        reason: 'the newest answer decided, not whichever landed last',
+      );
+      expect(downloads.heldForWifi, isFalse);
+    });
 
     test('an empty queue is never reported as held', () async {
       // Otherwise the banner outlives the thing it explains: a screen opened

@@ -12,7 +12,10 @@ import 'package:otaku_reader/data/anilist/anilist_auth.dart';
 import 'package:otaku_reader/features/reader/controllers/reader_controller.dart';
 import 'package:otaku_reader/features/settings/screens/settings_screen.dart';
 
+import 'package:otaku_reader/domain/repository/download_repository.dart';
+
 import 'helpers/anilist_fakes.dart';
+import 'helpers/fake_download_repository.dart';
 import 'helpers/hidden_text.dart';
 import 'helpers/isar_test_env.dart';
 
@@ -38,6 +41,7 @@ void main() {
   tearDownAll(() async => env?.close());
 
   late NsfwPreference nsfw;
+  late FakeDownloads downloads;
 
   setUp(() async {
     env!.clear();
@@ -53,6 +57,11 @@ void main() {
     final auth = AniListAuth(storage: FakeVault(), clientId: '');
     await auth.restore();
     Get.put<AniListAuth>(auth);
+    // The Wi-Fi switch resolves this now. Registered here rather than tolerated
+    // as absent: a Settings screen with no download queue is a misconfigured
+    // app, not a state to render, so a harness that omits it is incomplete.
+    downloads = FakeDownloads();
+    Get.put<DownloadRepository>(downloads);
   });
 
   tearDown(Get.reset);
@@ -409,7 +418,15 @@ void main() {
       );
     });
 
-    testWidgets('the Wi-Fi switch writes what the queue reads', (tester) async {
+    testWidgets('the Wi-Fi switch goes through the queue, not the key', (
+      tester,
+    ) async {
+      // Asserted on the **call**, because the stored value is the part that
+      // already worked. `codeant-ai` filed two Majors that are one gap: the
+      // key alone changes `heldForWifi`'s answer but pumps nothing, so turning
+      // the gate off leaves held chapters held, and publishes nothing, so a
+      // mounted Downloads screen keeps its old banner. Writing the key here
+      // satisfies a value assertion and neither of those.
       await open(tester);
       await scrollTo(tester, 'Only download on Wi-Fi');
 
@@ -422,6 +439,7 @@ void main() {
       await tester.tap(find.text('Only download on Wi-Fi'));
       await tester.pumpAndSettle();
 
+      expect(downloads.wifiOnlyWrites, [true]);
       expect(DownloadKeys.downloadOnWifiOnly.get<bool>(false), isTrue);
     });
   });

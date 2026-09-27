@@ -82,8 +82,20 @@ class DownloadRepositoryImpl implements DownloadRepository {
   /// not answered yet is a feature that silently never runs.
   var _unmetered = true;
 
+  /// Counts network reads started, so a slower earlier one cannot land last.
+  ///
+  /// Two connectivity events in quick succession start two `isUnmetered()`
+  /// calls, and nothing orders their completions — so the older answer can
+  /// arrive second and overwrite the newer one, holding a queue that should
+  /// run or running one that should be held. Found by `codeant-ai`; the same
+  /// shape as `_secureGeneration` in the reader and `_scan` in the downloads
+  /// controller, and the same fix.
+  var _networkGeneration = 0;
+
   Future<void> _refreshNetwork() async {
+    final generation = ++_networkGeneration;
     final answer = await _network.isUnmetered();
+    if (generation != _networkGeneration) return;
     if (answer == _unmetered) return;
     _unmetered = answer;
     // A change in either direction is worth publishing: one releases the
@@ -170,6 +182,20 @@ class DownloadRepositoryImpl implements DownloadRepository {
       DownloadKeys.downloadOnWifiOnly.get<bool>(
         DownloadDefaults.downloadOnWifiOnly,
       );
+
+  @override
+  Future<void> setWifiOnly(bool value) async {
+    DownloadKeys.downloadOnWifiOnly.set<bool>(value);
+    // Published either way: turning it *on* is what the banner renders, and
+    // turning it off is what makes the banner go away.
+    if (!_changes.isClosed) _changes.add(null);
+    // Pumped unconditionally rather than only when switching off. `_pump`
+    // returns immediately while the gate holds, so the extra call costs
+    // nothing — and keying it on the new value would mean this method had to
+    // stay in step with `heldForWifi`'s own reading of the key, which is the
+    // kind of pair that drifts.
+    await _pump();
+  }
 
   @override
   void dispose() {

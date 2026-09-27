@@ -119,6 +119,26 @@ abstract interface class DownloadRepository {
   /// queue that merely sits still reads as broken.
   bool get heldForWifi;
 
+  /// Turns the Wi-Fi gate on or off.
+  ///
+  /// **The only path that writes `DownloadKeys.downloadOnWifiOnly`**, and that
+  /// is the point rather than tidiness. Writing the key from Settings works —
+  /// [heldForWifi] reads it live, so the queue's *answer* is immediately
+  /// right — and it still leaves two things wrong, because nothing tells the
+  /// queue that the answer changed:
+  ///
+  /// - turning the gate **off** does not release a queue already held. Nothing
+  ///   pumps, so held chapters sit there until the next connectivity event or
+  ///   the next `enqueue` — which reads exactly like the switch not working;
+  /// - nothing publishes on [changes], so a Downloads screen that is mounted
+  ///   when the value changes keeps rendering the old banner.
+  ///
+  /// Both were filed by `codeant-ai` as separate findings and they are one
+  /// gap: a setting with no notification path to the thing it configures. So
+  /// the write, the publish and the pump happen together here, and Settings
+  /// calls this instead of the key.
+  Future<void> setWifiOnly(bool value);
+
   /// Drops finished and failed entries from the queue. Files are kept.
   void clearFinished();
 

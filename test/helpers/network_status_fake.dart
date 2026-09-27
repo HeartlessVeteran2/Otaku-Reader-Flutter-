@@ -35,9 +35,28 @@ class FakeNetworkStatus implements NetworkStatus {
 
   void close() => _changes.close();
 
+  /// Event-loop turns each successive `isUnmetered()` waits before answering,
+  /// consumed one per call.
+  ///
+  /// Exists so a test can make two reads complete **out of order**, which is
+  /// the only state the generation guard is about. Without it the fake answers
+  /// in the same turn it was asked, so two overlapping reads always finish in
+  /// the order they started and the guard is unfalsifiable — measured: the
+  /// out-of-order test passed with the guard deleted until this was added.
+  final List<int> answerDelays = [];
+
   @override
   Future<bool> isUnmetered() async {
     asked++;
-    return unmetered;
+    // Captured **before** the delay, because the answer describes the moment
+    // the platform was asked. Reading the field afterwards would make every
+    // in-flight call report the newest value, which is precisely the staleness
+    // under test.
+    final answer = unmetered;
+    final turns = answerDelays.isEmpty ? 0 : answerDelays.removeAt(0);
+    for (var i = 0; i < turns; i++) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    return answer;
   }
 }

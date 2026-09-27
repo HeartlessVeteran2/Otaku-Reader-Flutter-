@@ -80,6 +80,7 @@ void main() {
 
   late Directory root;
   late LibraryRepositoryImpl library;
+  late FakeNetworkStatus network;
   late NsfwPreference nsfw;
 
   setUp(() async {
@@ -107,12 +108,18 @@ void main() {
     // `IndexedStack` reselection, which is the whole reason `changes` exists.
     library = LibraryRepositoryImpl();
 
+    // Held rather than built inline, so `tearDown` can close its broadcast
+    // controller. An unclosed one per test leaves the subscription the real
+    // queue opened on it alive for the rest of the run, and one test's
+    // connectivity event can then reach another test's repository. Raised as a
+    // nitpick by `codeant-ai`, and correct.
+    network = FakeNetworkStatus();
     Get.put<DownloadRepository>(
       DownloadRepositoryImpl(
         sources: const NoSources(),
         library: library,
         root: root,
-        network: FakeNetworkStatus(),
+        network: network,
       ),
     );
     // History builds its own controller from these; Library and Updates
@@ -168,6 +175,10 @@ void main() {
     // change debounce. Left running it outlives the widget tree and the test
     // fails with "a Timer is still pending" rather than on anything real.
     Get.reset();
+    // After `Get.reset`, so the repository's subscription is already gone --
+    // closing a stream someone is still listening to is the other order and
+    // the wrong one.
+    network.close();
     if (root.existsSync()) root.deleteSync(recursive: true);
   });
 
@@ -816,6 +827,9 @@ class _FixedQueue implements DownloadRepository {
 
   @override
   bool get heldForWifi => held;
+
+  @override
+  Future<void> setWifiOnly(bool value) async {}
 
   @override
   void dispose() {}
