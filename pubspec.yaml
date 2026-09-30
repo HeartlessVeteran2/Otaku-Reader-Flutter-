@@ -46,7 +46,7 @@ dependencies:
     http_interceptor: ^2.0.0
 
     # ── UI ──
-    dynamic_color: ^1.7.0
+    dynamic_color: ^2.1.0
     iconsax: ^0.0.8
     # Covers scroll past in their hundreds and are re-shown constantly, so they
     # want a disk cache, not just Flutter's in-memory ImageCache. Added in
